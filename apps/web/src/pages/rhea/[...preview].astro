@@ -1,0 +1,220 @@
+---
+import '../../styles/fonts.css';
+import '../../rhea/tokens.css';
+import '../../rhea/styles.css';
+import '../../rhea/autoral.css';
+
+export function getStaticPaths() {
+  return [{ params: { preview: undefined } }, { params: { preview: 'arquivos' } }];
+}
+const initialExplorer = Astro.params.preview === 'arquivos';
+Astro.csp?.insertDirective("media-src 'self' blob:");
+---
+<!doctype html>
+<html lang="pt-BR" data-mode="autoral" data-theme="dark" data-palette="noite" data-glass="off">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
+  <meta name="referrer" content="no-referrer">
+  <title>RHEA</title>
+  <script is:inline src="/rhea-ui/settings.js"></script>
+  <script>
+    import "../../rhea/rhea.mjs";
+  </script>
+</head>
+<body id="inicio">
+  <a class="skip" href="#conteudo">Pular para o conteúdo</a>
+  <div class="shell">
+    <aside class="sidebar prism-surface">
+      <a class="brand" href="/" aria-label="Voltar ao início da RHEA"><span class="seal" aria-hidden="true"><i></i></span><span><strong>RHEA</strong></span></a>
+      <nav class="side-nav" aria-label="Navegação da RHEA">
+        <a href="#enviar" aria-current="location">Enviar</a>
+        <a href="#explorador">Arquivos do Drive</a>
+        <a href="#armazenamento">Drive</a>
+        <a href="#assistente">Assistente</a>
+      </nav>
+      <div class="side-bottom">
+        <p class="overline">Aparência</p>
+        <div class="view-options"></div>
+      </div>
+    </aside>
+    <div class="workspace">
+      <header class="mobile-head prism-surface">
+        <div class="mobile-masthead">
+          <a class="brand" href="/" aria-label="Voltar ao início da RHEA"><span class="seal" aria-hidden="true"><i></i></span><span><strong>RHEA</strong></span></a>
+          <details class="mobile-nav">
+            <summary>Aparência</summary>
+            <div class="view-options prism-surface"></div>
+          </details>
+        </div>
+        <nav class="section-nav" aria-label="Navegação da RHEA">
+          <a href="#enviar" aria-current="location">Enviar</a>
+          <a href="#explorador">Arquivos</a>
+          <a href="#armazenamento">Drive</a>
+          <a href="#assistente">Assistente</a>
+        </nav>
+      </header>
+      <main id="conteudo" tabindex="-1">
+        <header class="intro">
+          <div class="intro-copy">
+            <h1 id="rhea-title">RHEA</h1>
+            <p>Organize arquivos do Drive e gerencie assistentes em um só lugar.</p>
+          </div>
+          <div class="trajectory" aria-hidden="true"></div>
+        </header>
+        <div id="armazenamento" class="drive-connection" aria-labelledby="h-drive">
+          <div class="drive-context">
+            <h2 id="h-drive">Google Drive</h2>
+            <p id="drive-status" role="status">Verificando a conexão.</p>
+          </div>
+          <div class="drive-actions rhea-controls">
+            <a class="editorial-action" id="drive-connect" href="/api/rhea/connect" hidden>Conectar ao Google Drive</a>
+            <details id="drive-options">
+              <summary class="editorial-action">Opções do Drive</summary>
+              <div class="rhea-controls">
+                <button class="editorial-action" id="drive-refresh" type="button">Atualizar conexão</button>
+                <button class="editorial-action" id="drive-check" type="button" hidden>Testar conexão</button>
+                <button class="editorial-action" id="drive-smoke-upload" type="button" hidden>Enviar TXT de teste</button>
+                <button class="editorial-action" id="drive-disconnect" type="button" hidden>Desconectar</button>
+              </div>
+            </details>
+          </div>
+          <p class="meta" id="drive-check-status" role="status" aria-live="polite"></p>
+        </div>
+        <section id="enviar" hidden={initialExplorer} data-rhea-view aria-labelledby="rhea-title">
+          <div class="drop prism-surface" id="drop">
+            <div>
+              <button class="editorial-action upload-action" type="button" id="pick" aria-describedby="pick-hint">
+                <span>Adicionar arquivos</span><span class="action-arrow" aria-hidden="true">→</span>
+              </button>
+              <input type="file" multiple id="file-input" hidden>
+              <p id="pick-hint" class="muted meta">Ao escolher ou soltar arquivos, você autoriza o envio automático para a conta Google conectada. Até 512 MiB por arquivo.</p>
+            </div>
+          </div>
+          <div id="upload-panel" hidden>
+            <h2>Fila de envio</h2>
+            <p id="upload-summary" class="meta" role="status"></p>
+            <div id="upload-batches"></div>
+          </div>
+        </section>
+        <section id="explorador" hidden={!initialExplorer} data-rhea-view aria-labelledby="explorer-title">
+          <div class="section-line">
+            <h2 id="explorer-title">Arquivos do Drive</h2>
+            <button class="editorial-action" id="explorer-refresh" type="button">Atualizar</button>
+          </div>
+          <nav id="explorer-breadcrumbs" class="rhea-controls" aria-label="Pasta atual"></nav>
+          <div class="rhea-controls">
+            <button class="editorial-action" id="explorer-upload" type="button" hidden>Adicionar nesta pasta</button>
+            <input id="explorer-pick" type="file" multiple hidden>
+            <a class="editorial-action" id="explorer-queue-link" href="#enviar">Ver fila</a>
+          </div>
+          <div id="explorer-tools" hidden>
+            <div class="rhea-controls explorer-filters">
+              <label>Nome <input type="search" id="explorer-search" maxlength="120" placeholder="Buscar nesta pasta"></label>
+              <label>Filtro <select id="explorer-filter"><option value="">Todos</option><option value="folder">Pastas</option><option value="file">Arquivos</option><option value="image">Imagens</option><option value="video">Vídeos</option></select></label>
+              <label>Ordenar <select id="explorer-order"><option value="modifiedTime:desc">Mais recentes</option><option value="modifiedTime:asc">Mais antigos</option><option value="name:asc">Nome A–Z</option><option value="name:desc">Nome Z–A</option><option value="size:desc">Tamanho na página</option><option value="mimeType:asc">Tipo na página</option></select></label>
+              <label>Exibição <select id="explorer-view"><option value="list">Lista</option><option value="grid">Grade</option></select></label>
+            </div>
+            <div class="rhea-controls">
+              <button class="editorial-action" id="explorer-create" type="button">Criar pasta</button>
+              <button class="editorial-action" id="explorer-select" type="button">Selecionar carregados</button>
+              <button class="editorial-action" id="explorer-clear" type="button">Limpar seleção</button>
+              <button class="editorial-action" id="explorer-move" type="button" disabled>Mover</button>
+              <button class="editorial-action" id="explorer-trash" type="button" disabled>Mover para a lixeira</button>
+              <span class="meta" id="explorer-selection" role="status">0 selecionado(s)</span>
+            </div>
+          </div>
+          <p class="meta" id="explorer-status" role="status"></p>
+          <ul id="explorer-files" class="file-list" aria-label="Itens na pasta"></ul>
+          <button class="editorial-action" id="explorer-more" type="button" hidden>Carregar mais</button>
+        </section>
+        <section id="assistente" hidden data-rhea-view aria-labelledby="h-assistant">
+          <h2 id="h-assistant">Assistentes conectados</h2>
+          <div id="mcp-review" hidden>
+            <div class="section-line">
+              <h3>Conexões MCP</h3>
+              <button type="button" id="mcp-refresh" class="editorial-action">Atualizar conexões</button>
+            </div>
+            <p class="meta" id="mcp-notice" role="status"></p>
+            <div id="mcp-approval" hidden>
+              <p id="mcp-consent-text"></p>
+              <div class="rhea-controls">
+                <button class="editorial-action" id="mcp-approve" type="button">Autorizar leitura</button>
+                <button class="editorial-action rhea-primary" id="mcp-allow-organize" type="button" hidden>Permitir leitura e organização</button>
+                <button class="editorial-action" id="mcp-deny" type="button">Recusar</button>
+              </div>
+            </div>
+            <ul id="mcp-grants" class="file-list" aria-label="Conexões autorizadas"></ul>
+          </div>
+          <div id="mcp-proposals" hidden>
+            <div class="section-line"><h3>Propostas de alteração</h3>
+              <button type="button" id="mcp-proposal-refresh" class="editorial-action">Atualizar propostas</button>
+            </div>
+            <p class="meta" id="mcp-proposal-status" role="status"></p>
+            <ul id="mcp-proposal-list" class="file-list" aria-label="Propostas dos assistentes"></ul>
+          </div>
+          <label for="assistant-provider">Assistente</label>
+          <select id="assistant-provider">
+            <option value="gpt">ChatGPT</option><option value="claude">Claude</option><option value="gemini">Gemini</option>
+          </select>
+          <div class="assistant-modes">
+            <div class="assistant-onboarding">
+              <p id="assistant-mcp-state" class="meta" role="status">Consultando as autorizações MCP.</p>
+              <label for="mcp-endpoint">URL do MCP</label>
+              <div class="mcp-address">
+                <input id="mcp-endpoint" type="url" placeholder="Gateway ainda indisponível" readonly spellcheck="false">
+              </div>
+              <ol id="mcp-steps" class="mcp-steps"></ol>
+              <div class="rhea-controls">
+                <a class="editorial-action" id="assistant-external" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Abrir ChatGPT ↗</a>
+                <button class="editorial-action rhea-primary" id="mcp-copy-prompt" type="button">Copiar mensagem para o chat</button>
+              </div>
+              <details id="mcp-message">
+                <summary>Ver mensagem pronta</summary>
+                <textarea id="mcp-message-text" rows="5" readonly aria-label="Mensagem pronta para o assistente"></textarea>
+              </details>
+              <details id="mcp-cli" hidden>
+                <summary>Configuração do Gemini CLI</summary>
+                <textarea id="mcp-cli-json" rows="7" readonly aria-label="Configuração do Gemini CLI"></textarea>
+              </details>
+              <p class="meta" id="mcp-copy-status" role="status"></p>
+            </div>
+          </div>
+        </section>
+      </main>
+      <footer><a href="/">Voltar ao início da RHEA</a><a href="#inicio">Voltar ao início ↑</a></footer>
+    </div>
+  </div>
+  <p class="announcement" id="announcement" role="status" aria-live="polite"></p>
+  <dialog class="prism-surface prism-blur" id="file-dialog" aria-labelledby="file-dialog-title">
+    <div class="dialog-top"><h2 id="file-dialog-title"></h2><form method="dialog"><button class="editorial-action" type="submit" aria-label="Fechar detalhes">×</button></form></div>
+    <p id="file-dialog-description" class="muted"></p>
+    <div id="dialog-actions"></div>
+  </dialog>
+  <dialog class="prism-surface prism-blur" id="explorer-action" aria-labelledby="explorer-action-title">
+    <form id="explorer-form">
+      <h2 id="explorer-action-title"></h2>
+      <p id="explorer-action-note" class="meta" role="status"></p>
+      <label id="explorer-action-name" hidden>Nome <input type="text" maxlength="200"></label>
+      <div id="explorer-destination" class="rhea-controls" hidden></div>
+      <div class="rhea-controls">
+        <button type="button" id="explorer-close" class="editorial-action">Cancelar</button>
+        <button type="submit" id="explorer-apply" class="editorial-action">Confirmar</button>
+      </div>
+    </form>
+  </dialog>
+  <template id="view-template">
+    <div class="appearance" role="group" aria-label="Aparência">
+      <div class="palette" role="group" aria-label="Paleta escura">
+        <button type="button" data-select-palette="noite" aria-label="Paleta Noite" title="Noite"><span></span></button>
+        <button type="button" data-select-palette="ametista" aria-label="Paleta Ametista" title="Ametista"><span></span></button>
+        <button type="button" data-select-palette="esmeralda" aria-label="Paleta Esmeralda" title="Esmeralda"><span></span></button>
+      </div>
+      <button class="editorial-action" type="button" data-toggle-theme>◐ Tema claro</button>
+      <button class="editorial-action" type="button" data-toggle-mode>Modo sério</button>
+      <button class="editorial-action" type="button" data-toggle-glass aria-pressed="false">Vidro prismático</button>
+    </div>
+  </template>
+</body>
+</html>

@@ -1,0 +1,51 @@
+name: RHEA web and MCP
+
+on:
+  pull_request:
+    paths:
+      - 'apps/mcp/**'
+      - 'apps/web/**'
+      - '.gemini/**'
+      - 'GEMINI.md'
+      - 'docs/**'
+      - 'README.md'
+      - '.github/workflows/gemini-mcp.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Verify the local Gemini CLI MCP
+        run: node --test apps/mcp/tests/rhea-mcp.test.mjs
+      - name: Test the web app and gateway
+        working-directory: apps/web
+        run: npm test
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci --no-audit --no-fund
+      - name: Build the web application
+        working-directory: apps/web
+        env:
+          ASTRO_TELEMETRY_DISABLED: '1'
+        run: npm run build
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Chromium browser test dependencies
+        run: |
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium
+      - name: Exercise the mobile explorer and upload queue
+        working-directory: apps/web
+        run: python tests/rhea-mobile-smoke.py

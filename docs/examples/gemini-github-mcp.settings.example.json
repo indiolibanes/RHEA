@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "rheaContext": {
+      "command": "node",
+      "args": [
+        "apps/mcp/rhea-mcp.mjs"
+      ],
+      "timeout": 10000
+    },
+    "github": {
+      "httpUrl": "https://api.githubcopilot.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer $GITHUB_MCP_PAT"
+      },
+      "timeout": 30000
+    }
+  }
+}

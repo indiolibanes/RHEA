@@ -1,0 +1,11 @@
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  X-Robots-Tag: noindex, nofollow, noarchive
+  Referrer-Policy: no-referrer
+  Content-Security-Policy: frame-ancestors 'none'
+
+/rhea
+  Cache-Control: no-store
+/rhea/
+  Cache-Control: no-store

@@ -1,0 +1,19 @@
+name = "rhea-mcp"
+main = "../src/rhea/mcp/rhea-mcp.mjs"
+compatibility_date = "2026-11-20"
+workers_dev = false
+preview_urls = false
+
+[triggers]
+crons = ["17 * * * *"]
+
+[vars]
+RHEA_MCP_ORIGIN = "https://mcp.example.com"
+RHEA_MCP_APPROVAL_ORIGIN = "https://workspace.example.com"
+# Supply RHEA_MCP_KEY and RHEA_MCP_CLIENTS as Worker secrets. Bind the same D1 database
+# and supply matching configuration in the Access-protected Pages environment.
+
+[[d1_databases]]
+binding = "RHEA_MCP_DB"
+database_name = "rhea-gateway"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"

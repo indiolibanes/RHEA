@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "rheaDrive": {
+      "httpUrl": "https://mcp.example.com/mcp",
+      "oauth": {
+        "enabled": true,
+        "clientId": "rhea-gemini-cli",
+        "scopes": ["rhea:read"]
+      }
+    }
+  }
+}

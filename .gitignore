@@ -1,0 +1,14 @@
+node_modules/
+.astro/
+dist/
+.gradle/
+.kotlin/
+build/
+local.properties
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+*.jks
+*.keystore
+*.apk

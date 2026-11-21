@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "rheaContext": {
+      "command": "node",
+      "args": [
+        "apps/mcp/rhea-mcp.mjs"
+      ],
+      "timeout": 10000
+    }
+  }
+}
