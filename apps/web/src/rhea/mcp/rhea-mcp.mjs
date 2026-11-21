@@ -162,6 +162,9 @@ async function mcp(request, cfg, db, fetcher) {
   } catch (error) {
     const status = error?.status;
     const publicError = status === 401 ? 'Check the Google Drive connection in RHEA and reauthorize if requested.' :
+      error?.code === 'drive_refresh_client' ? 'Google rejected the server OAuth client configuration. The administrator must check the Google client ID and secret on the gateway.' :
+      error?.code === 'drive_refresh_request' ? 'Google rejected the Drive renewal request. The administrator must check the OAuth configuration.' :
+      error?.code === 'drive_refresh_transport' ? 'The gateway could not reach Google to renew Drive access. Retry this request shortly.' :
       error?.code === 'drive_refresh_pending' || error?.code === 'drive_refresh_unavailable' ?
         'Google Drive renewal is temporarily unavailable. Retry this request shortly.' :
       status === 403 || status === 404 ? 'The resource is unavailable in the authorized Drive root.' :
