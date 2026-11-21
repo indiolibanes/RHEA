@@ -121,6 +121,7 @@ with sync_playwright() as playwright:
 
     page.locator('.section-nav a[href="#assistente"]').click()
     expect(page.locator('#mcp-endpoint')).to_have_value('')
+    expect(page.locator('#mcp-copy-prompt')).to_be_disabled()
     expect(page.locator('#assistant-mcp-state')).to_contain_text('indisponível')
     page.locator('#assistant-provider').select_option('gemini')
     expect(page.locator('#mcp-cli')).to_be_hidden()
@@ -128,6 +129,7 @@ with sync_playwright() as playwright:
     mcp_available = True
     page.get_by_role('button', name='Atualizar conexões').click()
     expect(page.locator('#mcp-endpoint')).to_have_value('https://mcp.example.test/mcp')
+    expect(page.locator('#mcp-copy-prompt')).to_be_enabled()
     expect(page.locator('#assistant-mcp-state')).to_contain_text('somente leitura')
     page.reload()
     expect(page.get_by_role('button', name='Revogar ChatGPT')).to_be_visible()
