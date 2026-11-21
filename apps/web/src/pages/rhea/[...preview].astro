@@ -2,7 +2,10 @@
 import '../../styles/fonts.css';
 import '../../rhea/tokens.css';
 import '../../rhea/styles.css';
+import '../../rhea/tones.css';
 import '../../rhea/autoral.css';
+import '../../rhea/face.css';
+import RheaFace from '../../rhea/RheaFace.astro';
 
 export function getStaticPaths() {
   return [{ params: { preview: undefined } }, { params: { preview: 'arquivos' } }];
@@ -11,7 +14,7 @@ const initialExplorer = Astro.params.preview === 'arquivos';
 Astro.csp?.insertDirective("media-src 'self' blob:");
 ---
 <!doctype html>
-<html lang="pt-BR" data-mode="autoral" data-theme="dark" data-palette="noite" data-glass="off">
+<html lang="pt-BR" data-mode="autoral" data-tone="floresta" data-theme="dark" data-glass="off">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -21,13 +24,30 @@ Astro.csp?.insertDirective("media-src 'self' blob:");
   <script is:inline src="/rhea-ui/settings.js"></script>
   <script>
     import "../../rhea/rhea.mjs";
+    import { initRheaFaces } from "../../rhea/face.mjs";
+
+    initRheaFaces();
+    // Rhea answers when poked, with the promises the workspace keeps.
+    const lines = [
+      'Só a pasta da Rhea. Nada além dela no seu Drive.',
+      'Eu proponho; você decide.',
+      'Pode revogar meu acesso quando quiser.',
+      'Olá, eu sou a Rhea.',
+    ];
+    const greeting = document.getElementById('rhea-greeting');
+    const poke = document.getElementById('rhea-poke');
+    let line = 0;
+    poke?.addEventListener('click', (event) => {
+      if (event.detail === 0) poke.querySelector('[data-rhea-face]')?.dispatchEvent(new PointerEvent('pointerdown'));
+      if (greeting) greeting.textContent = lines[line++ % lines.length];
+    });
   </script>
 </head>
 <body id="inicio">
   <a class="skip" href="#conteudo">Pular para o conteúdo</a>
   <div class="shell">
     <aside class="sidebar prism-surface">
-      <a class="brand" href="/" aria-label="Voltar ao início da RHEA"><span class="seal" aria-hidden="true"><i></i></span><span><strong>RHEA</strong></span></a>
+      <a class="brand" href="/" aria-label="Voltar ao início da RHEA"><RheaFace size={44} /><span><strong>RHEA</strong></span></a>
       <nav class="side-nav" aria-label="Navegação da RHEA">
         <a href="#enviar" aria-current="location">Enviar</a>
         <a href="#explorador">Arquivos do Drive</a>
@@ -42,7 +62,7 @@ Astro.csp?.insertDirective("media-src 'self' blob:");
     <div class="workspace">
       <header class="mobile-head prism-surface">
         <div class="mobile-masthead">
-          <a class="brand" href="/" aria-label="Voltar ao início da RHEA"><span class="seal" aria-hidden="true"><i></i></span><span><strong>RHEA</strong></span></a>
+          <a class="brand" href="/" aria-label="Voltar ao início da RHEA"><RheaFace size={44} /><span><strong>RHEA</strong></span></a>
           <details class="mobile-nav">
             <summary>Aparência</summary>
             <div class="view-options prism-surface"></div>
@@ -61,7 +81,12 @@ Astro.csp?.insertDirective("media-src 'self' blob:");
             <h1 id="rhea-title">RHEA</h1>
             <p>Organize arquivos do Drive e gerencie assistentes em um só lugar.</p>
           </div>
-          <div class="trajectory" aria-hidden="true"></div>
+          <div class="intro-greeting">
+            <button type="button" id="rhea-poke" aria-describedby="rhea-greeting">
+              <RheaFace size={132} label="Rhea" />
+            </button>
+            <p id="rhea-greeting" aria-live="polite">Olá, eu sou a Rhea.</p>
+          </div>
         </header>
         <div id="armazenamento" class="drive-connection" aria-labelledby="h-drive">
           <div class="drive-context">
@@ -206,12 +231,11 @@ Astro.csp?.insertDirective("media-src 'self' blob:");
   </dialog>
   <template id="view-template">
     <div class="appearance" role="group" aria-label="Aparência">
-      <div class="palette" role="group" aria-label="Paleta escura">
-        <button type="button" data-select-palette="noite" aria-label="Paleta Noite" title="Noite"><span></span></button>
-        <button type="button" data-select-palette="ametista" aria-label="Paleta Ametista" title="Ametista"><span></span></button>
-        <button type="button" data-select-palette="esmeralda" aria-label="Paleta Esmeralda" title="Esmeralda"><span></span></button>
+      <div class="tones" role="group" aria-label="Tom">
+        <button type="button" data-select-tone="floresta" aria-label="Tom Floresta" title="Floresta"><span></span></button>
+        <button type="button" data-select-tone="terra" aria-label="Tom Terra" title="Terra"><span></span></button>
+        <button type="button" data-select-tone="marfim" aria-label="Tom Marfim" title="Marfim"><span></span></button>
       </div>
-      <button class="editorial-action" type="button" data-toggle-theme>◐ Tema claro</button>
       <button class="editorial-action" type="button" data-toggle-mode>Modo sério</button>
       <button class="editorial-action" type="button" data-toggle-glass aria-pressed="false">Vidro prismático</button>
     </div>

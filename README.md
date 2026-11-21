@@ -72,14 +72,18 @@ Use JDK 21 and Android SDK 35. From `apps/android`, run `./gradlew :app:testDebu
 
 ## Brand
 
-The mark is a gated ring around a gold diamond: one dedicated folder, one way in, and an authorized assistant waiting at the gate. Assets live in [docs/brand](docs/brand).
+Rhea is the face of the project: a friendly round face with brown hair, a gold gem and a small antenna, inside a gold ring with one opening at the top. The ring is the dedicated folder and its single way in; the antenna is how authorized assistants reach her. In the web workspace she blinks, follows the pointer, glances around on touch screens and winks when tapped. Reduced motion keeps her still.
+
+Assets live in [docs/brand](docs/brand). The animated files blink in any browser that renders SVG.
 
 | File | Use |
 | --- | --- |
-| [rhea-icon.svg](docs/brand/rhea-icon.svg) | App icon and favicon, on its own deep green tile. |
-| [rhea-mark.svg](docs/brand/rhea-mark.svg) | Mark without a background, for dark green surfaces. |
-| [rhea-wordmark.svg](docs/brand/rhea-wordmark.svg) | Mark and name, in ivory, for dark green surfaces. |
+| [rhea-icon.svg](docs/brand/rhea-icon.svg) | App icon and favicon, on its own deep green tile. [Animated](docs/brand/rhea-icon-animated.svg). |
+| [rhea-mark.svg](docs/brand/rhea-mark.svg) | Face without a background. [Animated](docs/brand/rhea-mark-animated.svg). |
+| [rhea-wordmark.svg](docs/brand/rhea-wordmark.svg) | Face and name, in ivory, for dark surfaces. |
 | [rhea-banner.svg](docs/brand/rhea-banner.svg) | Repository and social banner. |
+
+The web workspace offers three tones: **Floresta** (deep green, the default), **Terra** (earth brown) and **Marfim** (ivory, the light tone). Gold and yellow are the accents in all three.
 
 | Color | Hex |
 | --- | --- |
