@@ -72,14 +72,14 @@ Use JDK 21 and Android SDK 35. From `apps/android`, run `./gradlew :app:testDebu
 
 ## Brand
 
-Rhea is the face of the project: a friendly round face with brown hair, a gold gem and a small antenna, inside a gold ring with one opening at the top. The ring is the dedicated folder and its single way in; the antenna is how authorized assistants reach her. In the web workspace she blinks, follows the pointer, glances around on touch screens and winks when tapped. Reduced motion keeps her still.
+Rhea is the face of the project, and she is not drawn: she is lit. A disc of small lamps sits inside a gold ring with one opening at the top; the lamps that brighten suggest two eyes and a smile, and three more lamps above the opening are her antenna. The ring is the dedicated folder and its single way in. In the web workspace the lamps blink, look toward the pointer, glance around on touch screens, widen the smile on hover and send a ripple of light when tapped. Reduced motion and the serious mode keep them still.
 
-Assets live in [docs/brand](docs/brand). The animated files blink in any browser that renders SVG.
+Assets live in [docs/brand](docs/brand). The animated files glow softly in any browser that renders SVG.
 
 | File | Use |
 | --- | --- |
 | [rhea-icon.svg](docs/brand/rhea-icon.svg) | App icon and favicon, on its own deep green tile. [Animated](docs/brand/rhea-icon-animated.svg). |
-| [rhea-mark.svg](docs/brand/rhea-mark.svg) | Face without a background. [Animated](docs/brand/rhea-mark-animated.svg). |
+| [rhea-mark.svg](docs/brand/rhea-mark.svg) | Lamp face without a background. [Animated](docs/brand/rhea-mark-animated.svg). |
 | [rhea-wordmark.svg](docs/brand/rhea-wordmark.svg) | Face and name, in ivory, for dark surfaces. |
 | [rhea-banner.svg](docs/brand/rhea-banner.svg) | Repository and social banner. |
 

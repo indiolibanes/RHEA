@@ -4,7 +4,7 @@ import '../../rhea/tokens.css';
 import '../../rhea/styles.css';
 import '../../rhea/tones.css';
 import '../../rhea/autoral.css';
-import '../../rhea/face.css';
+import '../../rhea/lamps.css';
 import RheaFace from '../../rhea/RheaFace.astro';
 
 export function getStaticPaths() {
@@ -24,9 +24,9 @@ Astro.csp?.insertDirective("media-src 'self' blob:");
   <script is:inline src="/rhea-ui/settings.js"></script>
   <script>
     import "../../rhea/rhea.mjs";
-    import { initRheaFaces } from "../../rhea/face.mjs";
+    import { initRheaLamps } from "../../rhea/lamps.mjs";
 
-    initRheaFaces();
+    initRheaLamps();
     // Rhea answers when poked, with the promises the workspace keeps.
     const lines = [
       'Só a pasta da Rhea. Nada além dela no seu Drive.',
@@ -38,7 +38,7 @@ Astro.csp?.insertDirective("media-src 'self' blob:");
     const poke = document.getElementById('rhea-poke');
     let line = 0;
     poke?.addEventListener('click', (event) => {
-      if (event.detail === 0) poke.querySelector('[data-rhea-face]')?.dispatchEvent(new PointerEvent('pointerdown'));
+      if (event.detail === 0) poke.querySelector('[data-rhea-lamps]')?.dispatchEvent(new CustomEvent('rhea:poke'));
       if (greeting) greeting.textContent = lines[line++ % lines.length];
     });
   </script>
@@ -47,7 +47,7 @@ Astro.csp?.insertDirective("media-src 'self' blob:");
   <a class="skip" href="#conteudo">Pular para o conteúdo</a>
   <div class="shell">
     <aside class="sidebar prism-surface">
-      <a class="brand" href="/" aria-label="Voltar ao início da RHEA"><RheaFace size={44} /><span><strong>RHEA</strong></span></a>
+      <a class="brand" href="/" aria-label="Voltar ao início da RHEA"><RheaFace rows={7} /><span><strong>RHEA</strong></span></a>
       <nav class="side-nav" aria-label="Navegação da RHEA">
         <a href="#enviar" aria-current="location">Enviar</a>
         <a href="#explorador">Arquivos do Drive</a>
@@ -62,7 +62,7 @@ Astro.csp?.insertDirective("media-src 'self' blob:");
     <div class="workspace">
       <header class="mobile-head prism-surface">
         <div class="mobile-masthead">
-          <a class="brand" href="/" aria-label="Voltar ao início da RHEA"><RheaFace size={44} /><span><strong>RHEA</strong></span></a>
+          <a class="brand" href="/" aria-label="Voltar ao início da RHEA"><RheaFace rows={7} /><span><strong>RHEA</strong></span></a>
           <details class="mobile-nav">
             <summary>Aparência</summary>
             <div class="view-options prism-surface"></div>
@@ -83,7 +83,7 @@ Astro.csp?.insertDirective("media-src 'self' blob:");
           </div>
           <div class="intro-greeting">
             <button type="button" id="rhea-poke" aria-describedby="rhea-greeting">
-              <RheaFace size={132} label="Rhea" />
+              <RheaFace label="Rhea" />
             </button>
             <p id="rhea-greeting" aria-live="polite">Olá, eu sou a Rhea.</p>
           </div>

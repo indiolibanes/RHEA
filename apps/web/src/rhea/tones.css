@@ -1,6 +1,6 @@
 /*
  * RHEA identity for the workspace: three tones (Floresta, Terra, Marfim),
- * EB Garamond headings and Rhea's face. Tones set the same semantic tokens
+ * EB Garamond headings and Rhea's lamps. Tones set the same semantic tokens
  * as tokens.css, so every component follows them in both modes.
  * Floresta is the default; Marfim is the light tone (data-theme="light").
  */
@@ -68,6 +68,8 @@ html[data-tone='marfim'] {
   --rhea-band: #6a4329;
   --rhea-glow: rgba(233, 199, 91, 0.35);
 }
+html[data-tone='terra'] .rhea-lamps { --rhea-lamp-disc: #1f130b; --rhea-lamp-off: #6a4329; --rhea-lamp-on: #ffc46b; }
+html[data-tone='marfim'] .rhea-lamps { --rhea-lamp-disc: #12302a; }
 
 :root {
   --font-heading: 'EB Garamond', Georgia, serif;
@@ -79,9 +81,9 @@ h1, h2, h3,
 .upload-action { font-weight: 400; font-size: 1.35rem; }
 .brand strong { font: 400 1.3rem/1 var(--font-heading); letter-spacing: 0.1em; }
 
-/* Brand: Rhea's face replaces the seal. */
-.brand .rhea-face { inline-size: 44px; block-size: 44px; flex: 0 0 44px; }
-.mobile-masthead .brand .rhea-face { inline-size: 38px; block-size: 38px; flex-basis: 38px; }
+/* Brand: Rhea's lamps replace the seal. */
+.brand .rhea-lamps { inline-size: 44px; flex: 0 0 44px; }
+.mobile-masthead .brand .rhea-lamps { inline-size: 38px; flex-basis: 38px; }
 
 /* Intro: Rhea greets the reader beside the title. */
 .intro { grid-template-columns: minmax(0, 1fr) auto; border-bottom: 6px solid var(--rhea-band); overflow: hidden; }
@@ -103,7 +105,7 @@ h1, h2, h3,
   cursor: pointer;
   touch-action: manipulation;
 }
-.intro-greeting .rhea-face { inline-size: clamp(76px, 12vw, 132px); block-size: auto; }
+.intro-greeting .rhea-lamps { inline-size: clamp(84px, 13vw, 140px); }
 .intro-greeting p {
   max-inline-size: 18ch;
   min-block-size: 3em;
@@ -145,5 +147,3 @@ h1, h2, h3,
   .tones button span { forced-color-adjust: none; }
 }
 
-/* Serious mode keeps the face but not its idle motion. */
-html[data-mode='serio'] .rhea-face :is(.rhea-head, .rhea-eye, .rhea-knot) { animation: none; }
