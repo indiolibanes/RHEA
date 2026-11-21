@@ -95,7 +95,7 @@ The web workspace offers three tones: **Floresta** (deep green, the default), **
 | Gold | `#C9A13E` |
 | Yellow | `#E9C75B` |
 
-Tones, type scale, the lamp face and the motion vocabulary (letters that flip, run, melt, swap fonts, bond like atoms or ignite like neon) are documented in [docs/brand/IDENTITY.md](docs/brand/IDENTITY.md).
+Tones, type scale, the lamp face and the motion vocabulary (letters that flip, run, melt, swap fonts, bond like atoms or ignite like neon) are documented in [docs/brand/IDENTITY.md](docs/brand/IDENTITY.md), including the project page's English and Brazilian Portuguese switch (a double tap turns the letters clockwise into Portuguese and back again counter-clockwise).
 
 Text in the SVG files is converted to outlines from Source Serif 4, EB Garamond and IBM Plex Mono, which are licensed under the SIL Open Font License.
 

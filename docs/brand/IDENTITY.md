@@ -65,10 +65,17 @@ Letters (`data-kx`):
 | `atoms` | Scatters, drifts into word-sized clusters, bonds with a short gold bar, settles |
 | `neon` | An unlit tube catches, flickers and steadies with a faint glow |
 | `auto` | Picks one at random on every play |
+| `turn` | Language switch: half a turn clockwise (to Portuguese) or counter-clockwise (to English), text swaps upside down, then the other half |
 
 Titles also dissolve and re-form on their own every 5 to 9 seconds (one at a time, only when fully visible,
 never while hovered, focused or selected). Blocks (`data-kx-reveal`) appear with a random rise, slide, zoom
 or tilt and disappear again when they leave the screen.
+
+Language: the project page is written in English and carries a Brazilian Portuguese twin for every string
+(`data-pt`, `data-pt-aria-label`). A double tap or double click on empty page turns every letter clockwise into
+Portuguese; the next one turns them back counter-clockwise (the `turn` effect: half a turn, swap while upside
+down, the other half). Links, buttons and code are ignored, a visible PT/EN button does the same, and the
+choice is remembered (`rhea.lang`). `lang.mjs` implements it; English stays in the HTML.
 
 Other pieces: a flowchart whose nodes take the colour of a travelling signal, a rim of light that circles
 the primary button, a soft neon edge on secondary buttons, buttons that lean toward a mouse, a pulsing gold
