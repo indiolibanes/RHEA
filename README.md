@@ -18,6 +18,8 @@ RHEA connects your Google Drive to MCP-compatible assistants. Connect your Googl
 
 You operate your own instance, including its website, hosting, Google OAuth application, and MCP endpoint. The repository provides the workspace and gateway source code. The deployment guides use Cloudflare Pages, Access, Workers, and D1 as the supported setup.
 
+The [project page](https://indiolibanes.dev/rhea/) presents RHEA and its visual identity. In your instance, use the **URL do MCP** displayed in the authenticated workspace when configuring an assistant. This HTTPS endpoint serves OAuth discovery and tools for that installation.
+
 | Component | What it does |
 | --- | --- |
 | [Web workspace](apps/web) | Browse, preview, download and organize files in the workspace's Drive folder. |
@@ -55,6 +57,7 @@ node --test apps/mcp/tests/rhea-mcp.test.mjs
 - **One folder.** RHEA uses Google's `drive.file` scope and verifies each file's ancestry under the app-created **RHEA** folder.
 - **Separate permissions.** Read access, proposals, and organization use separate permissions. Each one is approved explicitly for each assistant.
 - **Reviewed changes.** An assistant can propose creating a folder, renaming, moving, a reversible trash or an upload destination. The change runs only after you confirm it in the workspace.
+- **Direct organization.** A separate organization grant permits folder creation and file movement within the authorized tree.
 - **Revocable grants.** Each assistant has its own OAuth grant, which you can revoke from the workspace. Google tokens and workspace cookies are never delivered to an MCP client.
 
 The web workspace is served at `/rhea`, its API at `/api/rhea/*`, and MCP tool names start with `rhea_`.

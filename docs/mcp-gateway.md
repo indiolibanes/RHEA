@@ -31,4 +31,8 @@ The client allowlist maps a client ID to an object with `label` and `redirects`.
 
 Keep the Worker without an anonymous file route, run hourly retention, and assign the public HTTPS gateway hostname only after reviewing Access coverage. Set the approval origin to the exact HTTPS origin of the Access-protected workspace. Rotate the dedicated encryption secret by revoking grants and clearing the gateway's expired or revoked entries. Keep the workspace's Google cookie key independent. Store Worker secrets in Wrangler secret storage or Dashboard. Use synthetic files for the first live approval, discovery, list, outside-root refusal and revocation tests.
 
+## Stable connection URLs
+
+The public project page, Access-protected workspace and HTTPS Worker can use separate domains. The Worker hostname determines its OAuth issuer and its `/mcp` resource. Keep both values stable during branding changes and publish workspace and gateway fixes to their respective services. Check the metadata live after a Worker deployment. A new issuer or resource needs a controlled migration and fresh client consent. Old client configurations should keep using their original endpoint throughout that transition.
+
 References: [MCP authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization), [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports), [Drive scope guidance](https://developers.google.com/workspace/drive/api/guides/api-specific-auth).

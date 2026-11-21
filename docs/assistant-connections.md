@@ -4,17 +4,28 @@
 
 Register clients with separate IDs and exact callback URLs. Set each allowlist entry's `provider` to `gpt`, `claude` or `gemini` so the workspace interface can show its authorization status. The `rhea:read` scope is the default. Set `propose: true` only for clients the user can explicitly authorize with both `rhea:read rhea:propose`. Confirm connector contracts with synthetic data before approving a real collection.
 
+Copy **URL do MCP** from your authenticated workspace. Keep the existing URL and client registration when changing branding, the public project page, or the display name of an existing connector. The public project page is a product overview.
+
 | Client | Browser setup and qualification |
 | --- | --- |
 | ChatGPT | On an eligible ChatGPT web workspace, enable Developer mode in Settings → Apps, then create a custom app using the RHEA MCP URL. Register the exact CIMD ID and redirect URI displayed or documented by ChatGPT. The published stable pair is `https://chatgpt.com/oauth/client.json` and `https://chatgpt.com/connector_platform_oauth_redirect` when the issuer requirements are met. Callback-specific registrations may apply. Full MCP is documented for Business and Enterprise/Edu, and Pro can test read/fetch. Do not assume Plus or the Android ChatGPT app can install the custom app. |
 | Claude | In Claude web, open Customize → Connectors → Add custom connector, enter the RHEA MCP URL, then select manual OAuth credentials or allowlist Claude's published identity with its exact redirect. Anthropic documents `https://claude.ai/api/mcp/auth_callback` for a manually registered OAuth client. Open the RHEA consent screen and authorize only the intended account. Claude mobile can use an existing eligible connector. |
 | Gemini | Google documents custom web Connected Apps for adults in the US with a personal Google account, History enabled and an English interface. Do not assume eligibility in Brazil. Gemini Apps Developer Mode is for supported accounts and deployment tests. Gemini CLI can use an approved remote Streamable HTTP endpoint with OAuth, and the standalone repository retains the local stdio documentation server. |
 
-On Gemini CLI, add a separate `mcpServers.rheaDrive` entry with `httpUrl` set to the deployed `/mcp` URL and `oauth` holding `enabled: true`, the registered `clientId`, and `scopes: ["rhea:read"]`. For a loopback public client, register `http://localhost/oauth/callback` with `loopbackPort: true`, or register the exact configured `redirectUri`. From a desktop environment with a browser, use `/mcp auth rheaDrive`. Use `/mcp` to list both the local documentation server and the remote Drive server. Keep GitHub's official MCP separate and minimally scoped. The RHEA gateway serves Google Drive tools.
+On Gemini CLI, add a separate `mcpServers.rheaDrive` entry with `httpUrl` set to the deployed `/mcp` URL and `oauth` holding `enabled: true`, the registered `clientId`, and `scopes: ["rhea:read"]`. For a loopback public client, register `http://localhost/oauth/callback` with `loopbackPort: true`, or register the exact configured `redirectUri`. Start with `/mcp` to see the remote connection. In a desktop environment with a browser, use `/mcp auth rheaDrive` on first setup or when the saved authorization is unavailable. Keep the same local server key when updating an existing configuration.
 
 ## Publish and refresh connector tools
 
 Set the connector display name to **RHEA**. Use your deployment's MCP URL and registered OAuth identity. Use **Assistentes conectados → Atualizar conexões** to inspect the workspace grant. After changing a client's grant, refresh its tool discovery in the client and check whether `rhea_create_folder`, `rhea_move_file` and `rhea_organize_files` actually appear. A successful status result with organization permission does not establish that a client has refreshed or approved its tool catalog.
+
+## Identify repeated prompts
+
+| Prompt | Check |
+| --- | --- |
+| Cloudflare Access sign-in | Sign in to the protected workspace. A valid Drive link can restore under the same Access identity. |
+| Google Drive consent | Check whether RHEA shows a persistent connection. If it reconnects repeatedly, verify offline consent and Google OAuth publishing status. |
+| Assistant OAuth authorization | Check the grant, exact gateway URL, registered client and deployed Worker version. Test a second read after the five-minute MCP access token has expired before removing the app. |
+| Approval for a particular tool or action | Check the assistant's own action controls and workspace policy. Server-side OAuth renewal is independent of these prompts. |
 
 ## Reviewed changes
 

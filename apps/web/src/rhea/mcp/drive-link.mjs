@@ -70,11 +70,17 @@ export function driveLinks(cfg, fetcher = fetch) {
       const response = await fetcher(refreshEndpoint, { method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(12_000),
         body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: credential.refresh,
           client_id: cfg.google.clientId, client_secret: cfg.google.clientSecret }) })
-        .catch(() => { throw new DriveError(503, 'O Google não renovou a sessão agora.', 'drive_refresh_unavailable'); });
+        .catch(() => { throw new DriveError(503, 'A renovação não conseguiu alcançar o Google.', 'drive_refresh_transport'); });
       if (response.status >= 300 && response.status < 400) throw new DriveError(502, 'O Google redirecionou a renovação da sessão.');
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         if (payload?.error === 'invalid_grant') { await expire(row, lock); return null; }
+        if (['invalid_client', 'unauthorized_client'].includes(payload?.error)) {
+          throw new DriveError(503, 'O Google recusou a configuração OAuth do servidor.', 'drive_refresh_client');
+        }
+        if (['invalid_request', 'invalid_scope', 'unsupported_grant_type'].includes(payload?.error)) {
+          throw new DriveError(502, 'O Google recusou os parâmetros de renovação.', 'drive_refresh_request');
+        }
         throw new DriveError(response.status === 429 ? 429 : 503, 'O Google não renovou a sessão agora.', 'drive_refresh_unavailable');
       }
       if (typeof payload?.access_token !== 'string' || !payload.access_token || payload.access_token.length > 4096 ||

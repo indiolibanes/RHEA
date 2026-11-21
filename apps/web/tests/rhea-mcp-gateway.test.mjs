@@ -335,6 +335,24 @@ test('one explicit organizational grant moves four files, refuses an outside ID 
   assert.equal((await fetchGateway(rpc('tools/list', {}, reduced.access_token), env)).status, 401);
 });
 
+test('Google client rejection reports a safe operator error and preserves the assistant grant', async t => {
+  const env = envFor(t, true);
+  const cfg = configuration(env);
+  const links = driveLinks(cfg);
+  await links.connect('private-user', googleSession, 'mock-offline-token');
+  const session = (await links.session('private-user')).session;
+  const grant = await consentWithLink(env, session, true);
+  await cfg.db.prepare('UPDATE rhea_drive_links SET access_expires=? WHERE actor=?')
+    .bind(timestamp() - 1, 'private-user').run();
+  const denied = await fetchGateway(rpc('tools/call', { name: 'rhea_connection_status', arguments: {} }, grant.access_token),
+    env, async () => Response.json({ error: 'invalid_client', error_description: 'private-fixture-detail' }, { status: 401 }));
+  const { result } = await denied.json();
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /rejected the server OAuth client configuration/i);
+  assert.equal(JSON.stringify(result).includes('private-fixture-detail'), false);
+  assert.equal((await fetchGateway(rpc('tools/list', {}, grant.access_token), env)).status, 200);
+});
+
 test('an expired Google access token renews in the background without replacing the provider grant', async t => {
   const env = envFor(t, true);
   const cfg = configuration(env);
