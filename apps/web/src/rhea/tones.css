@@ -1,0 +1,149 @@
+/*
+ * RHEA identity for the workspace: three tones (Floresta, Terra, Marfim),
+ * EB Garamond headings and Rhea's lamps. Tones set the same semantic tokens
+ * as tokens.css, so every component follows them in both modes.
+ * Floresta is the default; Marfim is the light tone (data-theme="light").
+ */
+
+:root,
+html[data-tone='floresta'] {
+  color-scheme: dark;
+  --color-bg: #0e2a21;
+  --color-surface: #133528;
+  --color-surface-container: #18402f;
+  --color-surface-container-high: #1f4a3a;
+  --color-surface-container-highest: #285744;
+  --color-text-primary: #f1e8d2;
+  --color-text-heading: #faf7f0;
+  --color-text-muted: #c9c3ae;
+  --color-accent: #e9c75b;
+  --color-accent-hover: #f4da86;
+  --color-on-accent: #0e2a21;
+  --color-outline: #6f8a76;
+  --color-outline-variant: #2f5745;
+  --color-accent-container: #4f4413;
+  --color-on-accent-container: #ffe9a3;
+  --rhea-band: #6a4329;
+  --rhea-glow: rgba(46, 104, 80, 0.7);
+}
+
+html[data-tone='terra'] {
+  color-scheme: dark;
+  --color-bg: #2a1b11;
+  --color-surface: #342215;
+  --color-surface-container: #3d281a;
+  --color-surface-container-high: #4a3120;
+  --color-surface-container-highest: #583b27;
+  --color-text-primary: #f1e8d2;
+  --color-text-heading: #faf7f0;
+  --color-text-muted: #cdbfa8;
+  --color-accent: #e9c75b;
+  --color-accent-hover: #f4da86;
+  --color-on-accent: #2a1b11;
+  --color-outline: #8c7258;
+  --color-outline-variant: #5a4130;
+  --color-accent-container: #57461a;
+  --color-on-accent-container: #ffe9a3;
+  --rhea-band: #1f4a3a;
+  --rhea-glow: rgba(140, 90, 52, 0.55);
+}
+
+html[data-tone='marfim'] {
+  color-scheme: light;
+  --color-bg: #f1e8d2;
+  --color-surface: #faf7f0;
+  --color-surface-container: #ece2c8;
+  --color-surface-container-high: #e4d7b8;
+  --color-surface-container-highest: #d9c9a4;
+  --color-text-primary: #1c2a24;
+  --color-text-heading: #0e2a21;
+  --color-text-muted: #4c5a52;
+  --color-accent: #7a5b12;
+  --color-accent-hover: #5e4509;
+  --color-on-accent: #faf7f0;
+  --color-outline: #8f7f62;
+  --color-outline-variant: #cdbd9b;
+  --color-accent-container: #f3df91;
+  --color-on-accent-container: #3d3000;
+  --rhea-band: #6a4329;
+  --rhea-glow: rgba(233, 199, 91, 0.35);
+}
+html[data-tone='terra'] .rhea-lamps { --rhea-lamp-disc: #1f130b; --rhea-lamp-off: #6a4329; --rhea-lamp-on: #ffc46b; }
+html[data-tone='marfim'] .rhea-lamps { --rhea-lamp-disc: #12302a; }
+
+:root {
+  --font-heading: 'EB Garamond', Georgia, serif;
+}
+
+/* EB Garamond ships one weight here: no synthetic bold in headings. */
+h1, h2, h3,
+.brand strong { font-weight: 400; letter-spacing: -0.01em; }
+.upload-action { font-weight: 400; font-size: 1.35rem; }
+.brand strong { font: 400 1.3rem/1 var(--font-heading); letter-spacing: 0.1em; }
+
+/* Brand: Rhea's lamps replace the seal. */
+.brand .rhea-lamps { inline-size: 44px; flex: 0 0 44px; }
+.mobile-masthead .brand .rhea-lamps { inline-size: 38px; flex-basis: 38px; }
+
+/* Intro: Rhea greets the reader beside the title. */
+.intro { grid-template-columns: minmax(0, 1fr) auto; border-bottom: 6px solid var(--rhea-band); overflow: hidden; }
+.intro-copy { max-inline-size: 100%; }
+.intro-greeting {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+  padding: clamp(0.9rem, 2.4vw, 1.6rem);
+}
+.intro-greeting button {
+  display: block;
+  padding: 0.25rem;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.intro-greeting .rhea-lamps { inline-size: clamp(84px, 13vw, 140px); }
+.intro-greeting p {
+  max-inline-size: 18ch;
+  min-block-size: 3em;
+  margin: 0;
+  color: var(--color-accent);
+  font: 0.8125rem/1.5 var(--font-technical);
+  text-align: center;
+}
+
+@media (max-width: 30rem) {
+  .intro-greeting { padding-inline-start: 0; }
+  .intro-greeting p { max-inline-size: 12ch; font-size: 0.75rem; }
+}
+
+/* Tone swatches, in place of the old palette dots. */
+.tones { display: flex; gap: 0.2rem; }
+.tones button {
+  display: grid;
+  place-items: center;
+  inline-size: var(--control-min);
+  min-block-size: var(--control-min);
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.tones button span {
+  inline-size: 24px;
+  block-size: 24px;
+  border: 1px solid var(--color-outline);
+  border-radius: 50%;
+}
+.tones [data-select-tone='floresta'] span { background: linear-gradient(135deg, #1f4a3a 50%, #0e2a21 50%); }
+.tones [data-select-tone='terra'] span { background: linear-gradient(135deg, #6a4329 50%, #2a1b11 50%); }
+.tones [data-select-tone='marfim'] span { background: linear-gradient(135deg, #faf7f0 50%, #e6d9ba 50%); }
+.tones [aria-pressed='true'] span { box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-accent); }
+
+@media (forced-colors: active) {
+  .tones button span { forced-color-adjust: none; }
+}
+

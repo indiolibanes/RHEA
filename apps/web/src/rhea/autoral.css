@@ -4,46 +4,24 @@ html[data-mode='autoral'] .intro h1 {
   font-weight: 500;
   letter-spacing: -.04em;
 }
-html[data-mode='autoral'] .trajectory {
-  display: block;
-  position: absolute;
-  inset: 0 0 0 auto;
-  inline-size: min(63%, 24rem);
-  pointer-events: none;
-  overflow: hidden;
-  background: radial-gradient(ellipse at 73% 58%, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent 59%);
-}
-html[data-mode='autoral'] .trajectory::before {
+/* Rhea's intro: a slow glow behind the face (Autoral only, paused for reduced motion). */
+html[data-mode='autoral'] .intro::before {
   content: '';
   position: absolute;
-  inset: 29% 8% 20% 36%;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 38%, transparent);
-  border-radius: 50%;
-  transform: rotate(-23deg);
-}
-html[data-mode='autoral'] .trajectory::after {
-  content: '';
-  position: absolute;
-  inset: 40% 14% auto auto;
-  inline-size: .42rem;
+  inset-block: -40%;
+  inset-inline-end: -10%;
+  inline-size: min(70%, 34rem);
   aspect-ratio: 1;
   border-radius: 50%;
-  background: var(--color-accent);
-  box-shadow: 0 0 .85rem color-mix(in srgb, var(--color-accent) 56%, transparent);
+  background: radial-gradient(circle, var(--rhea-glow), transparent 68%);
+  pointer-events: none;
+  animation: rhea-intro-glow 24s ease-in-out infinite alternate;
 }
-html[data-mode='serio'] .intro-copy { max-inline-size: 100%; }
-html[data-theme='light'][data-mode='autoral'] .trajectory { opacity: .78; }
-@media (max-width: 580px) {
-  html[data-mode='autoral'] .trajectory { inline-size: 49%; }
+@keyframes rhea-intro-glow { to { transform: translate(-12%, 8%) scale(1.1); } }
+@media (prefers-reduced-motion: reduce), (prefers-contrast: more), (forced-colors: active) {
+  html[data-mode='autoral'] .intro::before { animation: none; }
 }
-@media (max-width: 22rem) {
-  .intro-copy { max-inline-size: 100%; }
-  html[data-mode='autoral'] .trajectory { display: none; }
-}
-@media (prefers-contrast: more), (forced-colors: active) {
-  html[data-mode='autoral'] .trajectory { display: none; }
-  .intro-copy { max-inline-size: 100%; }
-}
+
 html[data-mode='autoral'] .file-row {
   transition: background-color var(--motion-time), box-shadow var(--motion-time);
 }
