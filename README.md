@@ -1,4 +1,18 @@
+<p align="center">
+  <img src="docs/brand/rhea-banner.svg" alt="RHEA: your Drive, within reach of your assistants, and no further." width="100%">
+</p>
+
+<p align="center">
+  <a href="https://indiolibanes.dev/rhea/">Project page</a> ·
+  <a href="docs/google-drive-oauth.md">Setup</a> ·
+  <a href="docs/mcp-gateway.md">MCP gateway</a> ·
+  <a href="docs/assistant-connections.md">Assistants</a> ·
+  <a href="LICENSE">MIT License</a>
+</p>
+
 # RHEA
+
+> **Status:** in development. Interfaces, setup steps and permissions may still change between commits.
 
 RHEA connects your Google Drive to MCP-compatible assistants. Connect your Google account, then authorize each assistant to read or organize files inside a dedicated RHEA folder in My Drive.
 
@@ -36,7 +50,14 @@ node --test apps/mcp/tests/rhea-mcp.test.mjs
 2. [Deploy the MCP gateway](docs/mcp-gateway.md) to your own HTTPS Worker. Bind the same D1 database to the Worker and Pages, and apply the SQL migrations in order.
 3. Connect your Google account in the workspace. [Register and authorize each assistant](docs/assistant-connections.md) using the deployed `/mcp` endpoint. Each assistant uses a revocable OAuth grant. The MCP connection uses credentials issued by the gateway.
 
-RHEA uses Google's `drive.file` scope and verifies each file's ancestry under the app-created **RHEA** folder. Read access, proposals, and organization use separate permissions. The web workspace is served at `/rhea`, its API at `/api/rhea/*`, and MCP tool names start with `rhea_`.
+## How access is bounded
+
+- **One folder.** RHEA uses Google's `drive.file` scope and verifies each file's ancestry under the app-created **RHEA** folder.
+- **Separate permissions.** Read access, proposals, and organization use separate permissions. Each one is approved explicitly for each assistant.
+- **Reviewed changes.** An assistant can propose creating a folder, renaming, moving, a reversible trash or an upload destination. The change runs only after you confirm it in the workspace.
+- **Revocable grants.** Each assistant has its own OAuth grant, which you can revoke from the workspace. Google tokens and workspace cookies are never delivered to an MCP client.
+
+The web workspace is served at `/rhea`, its API at `/api/rhea/*`, and MCP tool names start with `rhea_`.
 
 ## Android prototype
 
@@ -48,6 +69,29 @@ Use JDK 21 and Android SDK 35. From `apps/android`, run `./gradlew :app:testDebu
 - [Remote MCP gateway](docs/mcp-gateway.md) and [assistant onboarding](docs/assistant-connections.md)
 - [Drive explorer](docs/drive-explorer.md), [upload queue](docs/upload-queue.md) and [persistent connections](docs/persistent-connections.md)
 - [Gemini CLI and MCP setup](docs/gemini-mcp-integration.md)
+
+## Brand
+
+The mark is a gated ring around a gold diamond: one dedicated folder, one way in, and an authorized assistant waiting at the gate. Assets live in [docs/brand](docs/brand).
+
+| File | Use |
+| --- | --- |
+| [rhea-icon.svg](docs/brand/rhea-icon.svg) | App icon and favicon, on its own deep green tile. |
+| [rhea-mark.svg](docs/brand/rhea-mark.svg) | Mark without a background, for dark green surfaces. |
+| [rhea-wordmark.svg](docs/brand/rhea-wordmark.svg) | Mark and name, in ivory, for dark green surfaces. |
+| [rhea-banner.svg](docs/brand/rhea-banner.svg) | Repository and social banner. |
+
+| Color | Hex |
+| --- | --- |
+| Deep green | `#0E2A21` |
+| Moss green | `#1F4A3A` |
+| Earth brown | `#6A4329` |
+| Ivory | `#F1E8D2` |
+| Soft white | `#FAF7F0` |
+| Gold | `#C9A13E` |
+| Yellow | `#E9C75B` |
+
+Text in the SVG files is converted to outlines from Source Serif 4, EB Garamond and IBM Plex Mono, which are licensed under the SIL Open Font License.
 
 ## License
 
