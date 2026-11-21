@@ -95,6 +95,8 @@ The web workspace offers three tones: **Floresta** (deep green, the default), **
 | Gold | `#C9A13E` |
 | Yellow | `#E9C75B` |
 
+Tones, type scale, the lamp face and the motion vocabulary (letters that flip, run, melt, swap fonts, bond like atoms or ignite like neon) are documented in [docs/brand/IDENTITY.md](docs/brand/IDENTITY.md).
+
 Text in the SVG files is converted to outlines from Source Serif 4, EB Garamond and IBM Plex Mono, which are licensed under the SIL Open Font License.
 
 ## License
