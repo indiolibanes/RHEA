@@ -188,7 +188,7 @@ with sync_playwright() as playwright:
     expect(page.locator('#plan-estimates')).to_contain_text('355 mensagens para copiar')
     page.get_by_role('button', name='K', exact=True).click()
     expect(page.locator('#catalog-result')).to_have_text('3 séries exibidas')
-    page.get_by_text('Kiro Lantern', exact=True).click()
+    page.locator('#catalog-items summary').filter(has_text='Kiro Lantern').click()
     expect(page.get_by_text('Temporada 1', exact=True)).to_be_visible()
     page.get_by_role('button', name='S', exact=True).click()
     expect(page.locator('#catalog-result')).to_have_text('3 séries exibidas')
