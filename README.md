@@ -72,6 +72,7 @@ Use JDK 21 and Android SDK 35. From `apps/android`, run `./gradlew :app:testDebu
 - [Remote MCP gateway](docs/mcp-gateway.md) and [assistant onboarding](docs/assistant-connections.md)
 - [Drive explorer](docs/drive-explorer.md), [upload queue](docs/upload-queue.md) and [persistent connections](docs/persistent-connections.md)
 - [Gemini CLI and MCP setup](docs/gemini-mcp-integration.md)
+- [Telegram Library architecture](docs/library/02-architecture.md) and [mobile review guide](docs/library/05-mobile-and-handoff.md)
 
 ## Brand
 
