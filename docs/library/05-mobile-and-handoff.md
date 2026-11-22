@@ -6,6 +6,8 @@ Open the supplied synthetic preview in a phone browser. Select **K** or **S**, e
 
 ## Prepare a disposable live test from a phone
 
+See the [sandbox connection runbook](06-telegram-sandbox.md) for the first verification in the Telegram tab.
+
 1. In Telegram make two new **private channels**, for example **RHEA Test Source** and **RHEA Test Destination**. Keep the destination empty and exclude the real library from the test.
 2. Post small media you own in the source. Use labels such as `Kiro.S01E10.txt` and `Kiro.S01E02.txt` as captions or filenames and post them out of order. Add a duplicate, an episode with a missing number, an album of two original photos and several K and S titles. Date a disposable post early enough to cover the over-48-hour boundary when deletion trials are separately authorized.
 3. When the test adapter is available, use BotFather to create a dedicated test bot. Store the token only in the isolated service secret settings. Give the bot source access and the destination posting rights required for the trial. Leave deletion rights off for the first trial. Verify both the numeric Telegram owner and the signed-in RHEA account in the protected workspace.
@@ -25,7 +27,7 @@ Open the supplied synthetic preview in a phone browser. Select **K** or **S**, e
 
 ## Deployment requirements and handoff
 
-- **This draft.** Use Node.js 24. Run the existing web/MCP tests, the Astro build, and the Chromium smoke script. The preview has no live Telegram capability.
+- **This draft.** Use Node.js 24. Run the existing web/MCP tests, the Astro build, and the Chromium smoke script. The sample catalog uses synthetic data. The optional sandbox connection check verifies only bot, channel and owner metadata.
 - **Protected sandbox.** Configure a separate Access policy, test hostname and D1 database. Apply 0001–0003 in order, then `apps/web/mcp-gateway/0004_library.sql`. Use an isolated adapter identity, encrypted storage, test secrets and allowed egress. Keep production credentials and inventories separate.
 - **Staging-only trial.** Wire the isolated reader and publisher after qualification. Keep cleanup disabled. Require short-lived plan evidence, exact source/destination leases, independent readback and durable receipts.
 - **Same-channel consideration.** Review in a separate change after live synthetic evidence. Require an independent verified media backup and two separate approvals. Confirm privileges, irreversible metadata loss and the exact source suffix immediately before any cleanup.

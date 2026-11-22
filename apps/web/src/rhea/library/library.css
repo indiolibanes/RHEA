@@ -4,6 +4,8 @@
 .library-hero { padding-block: clamp(1.5rem, 5vw, 4rem) 1.2rem; }
 .library-hero > p { margin-block: .65rem; }
 .library-inventory { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 2rem; justify-content: space-between; padding: 1.2rem; border: 1px solid var(--color-outline-variant); border-radius: .75rem; }
+.library-demo { margin-top: .75rem; }
+.library-hero { scroll-margin-top: 6rem; }
 .library-inventory h2, .library-inventory p { margin: 0; }
 .library-inventory dl, .library-run-status { display: flex; flex-wrap: wrap; gap: .75rem 2rem; margin-block: 0; }
 .library dt { font-size: .875rem; color: var(--color-text-muted); }

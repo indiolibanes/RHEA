@@ -32,7 +32,10 @@ def mock(route):
     requests.append(action)
     response = {}
     status = 200
-    if action == 'status':
+    if action == 'telegram':
+        assert request.method in ('GET', 'POST') and request.post_data is None
+        response = {'state': 'ready' if request.method == 'GET' else 'verified'}
+    elif action == 'status':
         if status_pending:
             status_pending = False
             route.fulfill(status=503, json={'code': 'drive_refresh_pending'})
@@ -183,7 +186,13 @@ with sync_playwright() as playwright:
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
     drive_requests_before_library = requests.copy()
     page.locator('.section-nav a[href="/rhea/library"]').click()
-    expect(page).to_have_title('Biblioteca · RHEA')
+    expect(page).to_have_title('Telegram · RHEA')
+    expect(page.locator('#telegram-status')).to_contain_text('Ambiente de teste configurado')
+    assert requests == drive_requests_before_library + ['telegram']
+    page.get_by_role('button', name='Verificar conexão').click()
+    expect(page.locator('#telegram-status')).to_contain_text('Bot e permissões verificados')
+    expect(page.get_by_role('heading', name='Canal de demonstração')).to_be_visible()
+    expect(page.get_by_role('link', name='Drive', exact=True)).to_have_attribute('href', '/rhea/arquivos')
     expect(page.locator('#message-count')).to_have_text('355')
     expect(page.locator('#plan-estimates')).to_contain_text('355 mensagens para copiar')
     page.get_by_role('button', name='K', exact=True).click()
@@ -215,7 +224,7 @@ with sync_playwright() as playwright:
     page.get_by_role('button', name='Redefinir').click()
     expect(page.locator('#correction-feedback')).to_contain_text('Correção removida')
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
-    assert requests == drive_requests_before_library
+    assert requests == drive_requests_before_library + ['telegram', 'telegram']
     assert not errors, errors
     print(json.dumps({'viewport': '390x844 Chromium touch mobile', 'selected': 10, 'uploaded': 9,
                       'isolatedFailures': 1, 'indexedDBReload': 'passed', 'createFolder': 'passed',
