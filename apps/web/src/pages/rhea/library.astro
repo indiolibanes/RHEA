@@ -8,7 +8,7 @@ import '../../rhea/lamps.css';
 import '../../rhea/library/library.css';
 import RheaFace from '../../rhea/RheaFace.astro';
 
-const links = [['#catalogo', 'Catálogo'], ['#duplicatas', 'Duplicatas'], ['#correcoes', 'Correções'], ['#reflow', 'Reordenação']];
+const links = [['/rhea/arquivos', 'Drive'], ['#telegram', 'Telegram'], ['#catalogo', 'Catálogo'], ['#reflow', 'Reordenação']];
 const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
 ---
 <!doctype html>
@@ -18,10 +18,11 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
   <meta name="referrer" content="no-referrer">
-  <title>Biblioteca · RHEA</title>
+  <title>Telegram · RHEA</title>
   <script is:inline src="/rhea-ui/settings.js"></script>
   <script>
     import '../../rhea/library/preview.mjs';
+    import '../../rhea/library/telegram-panel.mjs';
   </script>
 </head>
 <body class="library">
@@ -29,25 +30,32 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
   <div class="shell">
     <aside class="sidebar prism-surface">
       <a class="brand" href="/rhea" aria-label="Voltar à RHEA"><RheaFace rows={7} /><span><strong>RHEA</strong></span></a>
-      <nav class="side-nav" aria-label="Biblioteca">
-        {links.map(([href, label]) => <a href={href}>{label}</a>)}
+      <nav class="side-nav" aria-label="Navegação da RHEA">
+        {links.map(([href, label]) => <a href={href} aria-current={href === "#telegram" ? "page" : undefined}>{label}</a>)}
       </nav>
     </aside>
     <div class="workspace">
       <header class="mobile-head prism-surface">
         <div class="mobile-masthead"><a class="brand" href="/rhea" aria-label="Voltar à RHEA"><RheaFace rows={7} /><span><strong>RHEA</strong></span></a></div>
-        <nav class="section-nav" aria-label="Biblioteca">{links.map(([href, label]) => <a href={href}>{label}</a>)}</nav>
+        <nav class="section-nav" aria-label="Navegação da RHEA">{links.map(([href, label]) => <a href={href} aria-current={href === "#telegram" ? "page" : undefined}>{label}</a>)}</nav>
       </header>
       <main id="conteudo" class="library-main" tabindex="-1">
-        <header class="library-hero">
+        <header class="library-hero" id="telegram">
           <p class="overline">Canal privado</p>
-          <h1>Biblioteca</h1>
+          <h1>Telegram</h1>
           <p>Encontre uma série e confira em que ordem os episódios ficariam no canal.</p>
         </header>
         <section class="library-inventory prism-surface" aria-labelledby="connection-title">
           <div>
-            <h2 id="connection-title">Canal de demonstração</h2>
-            <p>Telegram desconectado · dados sintéticos</p>
+            <h2 id="connection-title">Conexão de teste</h2>
+            <p id="telegram-status" role="status">Verificando se o ambiente de teste está configurado.</p>
+          </div>
+          <button class="editorial-action" type="button" id="telegram-check" hidden>Verificar conexão</button>
+        </section>
+        <section class="library-inventory library-demo prism-surface" aria-labelledby="demo-title">
+          <div>
+            <h2 id="demo-title">Canal de demonstração</h2>
+            <p>Dados fictícios para testar o catálogo e a reordenação.</p>
           </div>
           <dl>
             <div><dt>Séries</dt><dd id="series-count">—</dd></div>
