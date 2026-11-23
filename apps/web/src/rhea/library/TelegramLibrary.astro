@@ -4,12 +4,13 @@ import './library.css';
 interface Props {
   endpoint?: '/api/rhea/telegram-mtproto' | '/api/relay/telegram-mtproto';
   autoLoad?: boolean;
+  animeMetadataEndpoint?: string;
 }
 
-const { endpoint = '/api/rhea/telegram-mtproto', autoLoad = true } = Astro.props;
+const { endpoint = '/api/rhea/telegram-mtproto', autoLoad = true, animeMetadataEndpoint = '/api/rhea/anime-metadata' } = Astro.props;
 const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
 ---
-<div class="library" data-rhea-telegram-library data-telegram-endpoint={endpoint} data-telegram-autoload={String(autoLoad)}>
+<div class="library" data-rhea-telegram-library data-telegram-endpoint={endpoint} data-telegram-autoload={String(autoLoad)} data-anime-metadata-endpoint={animeMetadataEndpoint}>
   <section class="library-inventory library-demo prism-surface" aria-labelledby="mtproto-title">
     <div>
       <h2 id="mtproto-title">Histórico do Telegram</h2>
@@ -55,11 +56,50 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
       <label>Lista de nomes no Markdown<input id="forum-reference" type="file" accept=".md,.markdown,text/plain,text/markdown"></label>
     </div>
     <p id="forum-reference-status" role="status"></p>
+    <p id="forum-size-total" hidden></p>
+    <details id="forum-size-by-season" hidden>
+      <summary>Tamanho por obra e seção</summary>
+      <p>Inclui arquivos carregados com nome correspondente no Markdown.</p>
+      <ul id="forum-size-list"></ul>
+    </details>
     <div id="forum-items" class="library-catalog"></div>
     <div class="library-actions">
       <button class="editorial-action" id="forum-more-results" type="button" hidden>Exibir mais itens carregados</button>
       <button class="editorial-action" id="forum-more-posts" type="button" hidden>Ler página anterior do tópico</button>
     </div>
+  </details>
+  <details class="library-section" id="mirror-panel">
+    <summary><strong>Espelhamento por tópico</strong></summary>
+    <p>Piloto entre supergrupos privados descartáveis. Revise a origem e o destino antes de aprovar a cópia.</p>
+    <p id="mirror-status" role="status"></p>
+    <div class="library-actions">
+      <button class="editorial-action" id="mirror-check" type="button">Consultar progresso</button>
+      <button class="editorial-action" id="mirror-preview" type="button">Preparar prévia</button>
+      <button class="editorial-action rhea-primary" id="mirror-continue" type="button" hidden>Continuar cópia</button>
+      <button class="editorial-action" id="mirror-pause" type="button" hidden>Pausar após o lote atual</button>
+    </div>
+    <details id="mirror-receipts" hidden><summary>IDs conferidos</summary><ol id="mirror-mapping"></ol></details>
+  </details>
+  <dialog id="mirror-dialog" aria-labelledby="mirror-title">
+    <h2 id="mirror-title">Aprovar cópia do tópico de teste</h2>
+    <p>Origem · <strong id="mirror-source"></strong></p>
+    <p>Destino · <strong id="mirror-destination"></strong></p>
+    <ol id="mirror-posts" class="library-order"></ol>
+    <p>A aprovação vale por cinco minutos. Os posts no destino terão novos IDs e links.</p>
+    <div class="library-actions">
+      <form method="dialog"><button class="editorial-action" autofocus>Voltar</button></form>
+      <button class="editorial-action rhea-primary" id="mirror-approve" type="button">Aprovar cópia</button>
+    </div>
+  </dialog>
+  <details class="library-section" id="anime-metadata">
+    <summary><strong>Consultar dados de anime</strong></summary>
+    <p>Digite o título da obra ou temporada. A consulta envia ao AniList apenas o título digitado.</p>
+    <form class="library-form" id="anime-lookup-form" method="post">
+      <label>Título <input id="anime-title" type="search" minlength="2" maxlength="120" required></label>
+      <div class="library-actions"><button class="editorial-action rhea-primary" type="submit">Buscar no AniList</button></div>
+    </form>
+    <p id="anime-lookup-status" role="status"></p>
+    <div id="anime-lookup-results" class="library-catalog"></div>
   </details>
   <section class="library-inventory library-demo prism-surface" aria-labelledby="demo-title">
     <div>
@@ -157,4 +197,6 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
   import './preview.mjs';
   import './mtproto-panel.mjs';
   import './forum-panel.mjs';
+  import './mirror-panel.mjs';
+  import './anime-metadata-panel.mjs';
 </script>

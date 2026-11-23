@@ -41,6 +41,8 @@ RHEA is software you deploy in your own infrastructure—not a hosted service th
 
 For Telegram, **virtual organization** (catalog and proposed order) and **physical publication** (new posts and message IDs) are deliberately separate operations.
 
+The opt-in [forum mirror pilot](docs/library/13-topic-mirror-pilot.md) adds a protected copy-and-verify flow for one disposable topic in two private supergroups, plus a public AniList title lookup in the Library. A live disposable-forum acceptance test is required before any larger rollout.
+
 ## Architecture
 
 | Component | Purpose |

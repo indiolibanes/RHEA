@@ -20,11 +20,12 @@ export function filenameReference(markdown) {
     const entry = { name, series, section };
     count++;
     const key = keyFor(name);
+    const identity = JSON.stringify([name, series, section]);
     if (!byName.has(key)) byName.set(key, new Map());
-    byName.get(key).set(name, entry);
+    byName.get(key).set(identity, entry);
     for (const tag of tags(name)) {
       if (!byTag.has(tag)) byTag.set(tag, new Map());
-      byTag.get(tag).set(name, entry);
+      byTag.get(tag).set(identity, entry);
     }
   }
   return {
@@ -41,4 +42,25 @@ export function filenameReference(markdown) {
       return { reason: candidates?.size ? 'ambiguous' : 'unmatched' };
     },
   };
+}
+
+export function forumDocumentTotals(posts) {
+  const total = { count: 0, sized: 0, bytes: 0n };
+  const groups = new Map();
+  const add = (bucket, size) => {
+    bucket.count++;
+    if (!Number.isSafeInteger(size) || size < 0) return;
+    bucket.sized++;
+    bucket.bytes += BigInt(size);
+  };
+  for (const { post, referenceMatch } of posts) {
+    if (post.kind !== 'document') continue;
+    add(total, post.sizeBytes);
+    if (referenceMatch?.reason !== 'exact' || !referenceMatch.series) continue;
+    const { series, section } = referenceMatch;
+    const key = JSON.stringify([series, section]);
+    if (!groups.has(key)) groups.set(key, { series, section, count: 0, sized: 0, bytes: 0n });
+    add(groups.get(key), post.sizeBytes);
+  }
+  return { ...total, groups: [...groups.values()] };
 }

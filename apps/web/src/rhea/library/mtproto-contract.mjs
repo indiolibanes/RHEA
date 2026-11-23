@@ -1,10 +1,12 @@
 import { forumInput, forumResponse, isForumOperation } from './forum-contract.mjs';
+import { isMirrorOperation, mirrorInput, mirrorResponse } from './mirror-contract.mjs';
 
 export const overviewLimit = 2 * 1024 * 1024;
 export const inventoryLimit = 500;
 const routes = { status: 'GET', start: 'POST', code: 'POST', password: 'POST', cancel: 'POST',
   inventory: 'POST', disconnect: 'POST', stagepreview: 'POST', stagecopy: 'POST',
-  forumtopics: 'POST', forumpage: 'POST' };
+  forumtopics: 'POST', forumpage: 'POST',
+  mirrorstatus: 'POST', mirrorpreview: 'POST', mirrorapprove: 'POST', mirrornext: 'POST' };
 const statusCodes = {
   unconfigured: 200, disconnected: 200, code: 200, password: 200, connected: 200, inventory: 200,
   access_required: 401, not_allowed: 403, invalid_request: 400, invalid_code: 409, invalid_password: 409,
@@ -13,6 +15,8 @@ const statusCodes = {
   stage_preview: 200, stage_done: 200, stage_disabled: 409, stage_ineligible: 409, stage_changed: 409, stage_recovery: 409,
   forum_topics: 200, forum_page: 200, forum_disabled: 409, forum_unavailable: 409,
   forum_changed: 409, forum_cursor_invalid: 400, forum_general: 409,
+  mirror_disabled: 409, mirror_ineligible: 409, mirror_changed: 409, mirror_recovery: 409,
+  mirror_idle: 200, mirror_preview: 200, mirror_progress: 200, mirror_done: 200,
 };
 
 export function operationAllowed(operation, method) {
@@ -20,13 +24,14 @@ export function operationAllowed(operation, method) {
 }
 
 export function acceptsInput(operation) {
-  return isForumOperation(operation) || ['code', 'password', 'stagecopy'].includes(operation);
+  return isForumOperation(operation) || ['code', 'password', 'stagecopy', 'mirrorapprove'].includes(operation);
 }
 
 const approvalToken = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
 
 export function inputFor(operation, value) {
   if (isForumOperation(operation)) return forumInput(operation, value);
+  if (isMirrorOperation(operation)) return mirrorInput(operation, value);
   if (operation === 'stagecopy') {
     if (!value || Object.keys(value).length !== 2 || value.confirm !== true || !approvalToken(value.approval)) return null;
     return { approval: value.approval, confirm: true };
@@ -86,6 +91,11 @@ export function mtprotoResult(state, extra = {}) {
   if (state === 'forum_topics' || state === 'forum_page') {
     body.forum = forumResponse(state, extra.forum);
     if (!body.forum) return mtprotoResult('unavailable');
+  }
+  if (['mirror_preview', 'mirror_progress', 'mirror_done'].includes(state) ||
+      (state === 'mirror_recovery' && extra.mirror)) {
+    body.mirror = mirrorResponse(state, extra.mirror);
+    if (!body.mirror) return mtprotoResult('unavailable');
   }
   if (state === 'stage_preview') {
     body.stage = stagingPreview(extra.stage);

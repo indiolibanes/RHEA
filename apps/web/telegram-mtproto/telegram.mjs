@@ -4,6 +4,7 @@ import { computeCheck } from 'teleproto/Password';
 import { StringSession } from 'teleproto/sessions';
 import { readInventory } from './inventory.mjs';
 import { forumReader } from './forum.mjs';
+import { openMirror } from './mirror-messages.mjs';
 
 function stagePost(post) {
   const document = post.media?.document;
@@ -103,6 +104,10 @@ export function telegramClient(config, makeClient = (session, options) =>
               })),
             });
             return read(operation, input);
+          },
+          async mirror() {
+            if (!config.mirror || !await isOwner()) return null;
+            return openMirror(config.mirror, privateChat, peerFor, invoke, (media, options) => client.iterDownload(media, options));
           },
           async staging() {
             if (!config.staging || !await isOwner()) return null;

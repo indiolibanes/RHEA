@@ -3,6 +3,8 @@ import { boundedTelegramJson } from '../src/rhea/library/telegram-contract.mjs';
 import { acceptsInput, inputFor, mtprotoResult, operationAllowed } from '../src/rhea/library/mtproto-contract.mjs';
 import { stagingControl } from './staging.mjs';
 import { isForumOperation } from '../src/rhea/library/forum-contract.mjs';
+import { isMirrorOperation } from '../src/rhea/library/mirror-contract.mjs';
+import { mirrorControl } from './mirror.mjs';
 
 const enrollmentTtl = 5 * 60_000;
 const startCooldown = 60_000;
@@ -17,6 +19,7 @@ function matchesSecret(header, key) {
 
 export function mtprotoControl(config, store, withClient, now = Date.now) {
   const staging = stagingControl(config, now);
+  const mirror = mirrorControl(config, now);
   let pending;
   let busy = false;
   let throttledUntil = 0;
@@ -95,11 +98,13 @@ export function mtprotoControl(config, store, withClient, now = Date.now) {
     if (operation === 'cancel') {
       clearEnrollment();
       staging.reset();
+      mirror.reset();
       return { state: saved ? 'connected' : 'disconnected' };
     }
     if (operation === 'disconnect') {
       clearEnrollment();
       staging.reset();
+      mirror.reset();
       await store.clear();
       if (saved) {
         try {
@@ -119,6 +124,11 @@ export function mtprotoControl(config, store, withClient, now = Date.now) {
       if (!saved) return { state: 'disconnected' };
       if (!config.forum) return { state: 'forum_disabled' };
       return withClient(saved, client => client.forumInventory(operation, input));
+    }
+    if (isMirrorOperation(operation)) {
+      if (!saved) return { state: 'disconnected' };
+      if (!config.mirror || operation === 'mirrorstatus') return mirror.handle(operation, input);
+      return withClient(saved, client => mirror.handle(operation, input, client));
     }
     if (operation === 'stagepreview' || operation === 'stagecopy') {
       if (!saved) return { state: 'disconnected' };
