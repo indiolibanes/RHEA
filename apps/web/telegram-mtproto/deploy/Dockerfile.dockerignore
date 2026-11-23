@@ -1,0 +1,14 @@
+**
+!telegram-mtproto/
+!telegram-mtproto/package.json
+!telegram-mtproto/package-lock.json
+!telegram-mtproto/control.mjs
+!telegram-mtproto/inventory.mjs
+!telegram-mtproto/server.mjs
+!telegram-mtproto/session-store.mjs
+!telegram-mtproto/telegram.mjs
+!src/
+!src/rhea/
+!src/rhea/library/
+!src/rhea/library/mtproto-contract.mjs
+!src/rhea/library/telegram-contract.mjs
