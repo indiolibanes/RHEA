@@ -35,6 +35,6 @@ The live check does not fetch history, publish, edit or delete Telegram messages
 
 ## After the connection check
 
-1. Qualify a separate read-only MTProto reader with a dedicated test participant to load historical posts from the disposable channel.
+1. Follow the [MTProto sandbox runbook](07-mtproto-sandbox.md) to enroll a test participant and qualify historical reads from the disposable channel.
 2. Connect verified snapshots to the Catalog tab and compare orders K and S against the planner.
 3. Validate a copy to a fresh private destination with explicit owner approval after synthetic evidence passes. Keep the source intact and compare every affected post, including albums and file accessibility.

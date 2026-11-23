@@ -20,6 +20,7 @@ status_pending = False
 mcp_available = False
 mcp_granted = True
 requests = []
+mtproto_calls = []
 reservations = {}
 files = []
 seen = set()
@@ -29,6 +30,24 @@ def mock(route):
     global files, status_pending, mcp_granted
     request = route.request
     action = request.url.split('/api/rhea/', 1)[1].split('?', 1)[0]
+    if action == 'telegram-mtproto':
+        operation = request.url.split('?op=', 1)[1]
+        mtproto_calls.append(operation)
+        states = {'status': 'disconnected', 'start': 'code', 'code': 'password', 'password': 'connected',
+                  'inventory': 'inventory', 'disconnect': 'disconnected'}
+        if operation == 'code':
+            assert request.post_data_json == {'code': '12345'}
+        elif operation == 'password':
+            assert request.post_data_json == {'password': 'synthetic 2fa'}
+        payload = {'state': states[operation]}
+        if operation == 'inventory':
+            payload['inventory'] = {'channelId': '9876543210', 'revision': 'a' * 64, 'complete': True, 'messages': [
+                {'id': 21, 'caption': 'Series: Solar Talon | S01E01'},
+                {'id': 22, 'caption': 'Series: Kestrel Flight | S01E02'},
+                {'id': 23, 'caption': 'Series: Kestrel Flight | S01E01'},
+            ]}
+        route.fulfill(status=200, json=payload)
+        return
     requests.append(action)
     response = {}
     status = 200
@@ -224,10 +243,31 @@ with sync_playwright() as playwright:
     page.get_by_role('button', name='Redefinir').click()
     expect(page.locator('#correction-feedback')).to_contain_text('Correção removida')
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+    page.get_by_role('button', name='Enviar código').click()
+    page.locator('#mtproto-code-input').fill('12345')
+    page.get_by_role('button', name='Confirmar código').click()
+    page.locator('#mtproto-password-input').fill('synthetic 2fa')
+    page.get_by_role('button', name='Confirmar senha').click()
+    page.get_by_role('button', name='Ler histórico').click()
+    expect(page.get_by_role('heading', name='Canal de teste autorizado')).to_be_visible()
+    expect(page.locator('#message-count')).to_have_text('3')
+    page.locator('#library-query').fill('')
+    page.get_by_role('button', name='K', exact=True).click()
+    card = page.locator('#catalog-items summary').filter(has_text='Kestrel Flight')
+    card.click()
+    expect(page.get_by_role('link', name='Abrir no Telegram').first).to_have_attribute('href', 'https://t.me/c/9876543210/23')
+    page.locator('#plan-letter').select_option('K')
+    expect(page.locator('#target-order > li')).to_have_count(2)
+    expect(page.locator('#target-order > li').first).to_contain_text('#23')
+    expect(page.locator('#plan-blockers')).to_contain_text('A permissão de cópia precisa ser verificada')
+    page.get_by_role('button', name='Desconectar Telegram').click()
+    expect(page.get_by_role('heading', name='Canal de demonstração')).to_be_visible()
+    assert mtproto_calls == ['status', 'start', 'code', 'password', 'inventory', 'disconnect']
+    assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
     assert requests == drive_requests_before_library + ['telegram', 'telegram']
     assert not errors, errors
     print(json.dumps({'viewport': '390x844 Chromium touch mobile', 'selected': 10, 'uploaded': 9,
                       'isolatedFailures': 1, 'indexedDBReload': 'passed', 'createFolder': 'passed',
                       'grid': 'passed', 'mcpCopyActions': 'passed', 'drive404Session': 'passed',
                       'persistentReload': 'passed', 'assistantRestorationAndRevocation': 'passed',
-                      'rheaBranding': 'passed', 'telegramLibraryPreview': 'passed', 'horizontalOverflow': False, 'jsErrors': errors}))
+                      'rheaBranding': 'passed', 'telegramLibraryPreview': 'passed', 'telegramMtprotoEnrollment': 'passed', 'horizontalOverflow': False, 'jsErrors': errors}))

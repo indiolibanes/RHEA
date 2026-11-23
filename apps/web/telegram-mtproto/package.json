@@ -1,0 +1,11 @@
+{
+  "name": "rhea-telegram-mtproto",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test adapter.test.mjs"
+  },
+  "dependencies": { "teleproto": "1.234.0" }
+}
