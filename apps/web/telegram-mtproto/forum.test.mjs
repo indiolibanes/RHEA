@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Api } from 'teleproto';
-import { filenameReference } from '../src/rhea/library/forum-names.mjs';
+import { filenameReference, forumDocumentTotals } from '../src/rhea/library/forum-names.mjs';
 import { inputFor, mtprotoResult } from '../src/rhea/library/mtproto-contract.mjs';
 import { forumReader } from './forum.mjs';
 import { telegramClient } from './telegram.mjs';
@@ -114,4 +114,22 @@ test('uses read RPCs only on the configured private forum', async () => {
   calls.length = 0;
   assert.equal((await read(channel)).state, 'forum_page');
   assert.deepEqual(calls, ['users.GetUsers', 'messages.CheckChatInvite', 'messages.GetForumTopicsByID', 'messages.GetReplies']);
+});
+
+test('totals document bytes by exact, unambiguous Markdown section without guessing missing matches', () => {
+  const reference = filenameReference([
+    '### Aurora', '#### Part 1', '- `Aurora 01 [12345678].mkv`', '- `Duplicated title.mkv`',
+    '#### Part 2', '- `Duplicated title.mkv`', '- `Aurora 03.mkv`',
+  ].join('\n'));
+  const make = (filename, size) => ({ post: { kind: 'document', filename, sizeBytes: size },
+    referenceMatch: reference.match(filename) });
+  assert.equal(reference.match('Duplicated title.mkv').reason, 'ambiguous');
+  const result = forumDocumentTotals([
+    make('Aurora 01 [12345678].mkv', 100), make('Aurora 03.mkv'), make('Duplicated title.mkv', 200),
+    make('Altered [12345678].mkv', 300), { post: { kind: 'cover', sizeBytes: 400 } },
+  ]);
+  assert.deepEqual(result, { count: 4, sized: 3, bytes: 600n, groups: [
+    { series: 'Aurora', section: 'Part 1', count: 1, sized: 1, bytes: 100n },
+    { series: 'Aurora', section: 'Part 2', count: 1, sized: 0, bytes: 0n },
+  ] });
 });

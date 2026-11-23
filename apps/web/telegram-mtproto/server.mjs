@@ -4,6 +4,7 @@ import { Readable } from 'node:stream';
 import { mtprotoControl } from './control.mjs';
 import { sessionStore } from './session-store.mjs';
 import { telegramClient } from './telegram.mjs';
+import { forumId as isTopicId } from '../src/rhea/library/forum-contract.mjs';
 
 export function configuration(env) {
   const id = value => /^[1-9][0-9]{1,18}$/.test(value ?? '');
@@ -35,11 +36,30 @@ export function configuration(env) {
       [env.RHEA_TELEGRAM_CHANNEL_ID, stagingId].includes(forumId))) {
     throw new Error('Invalid MTProto forum configuration.');
   }
+  const mirrorScope = side => {
+    const prefix = 'RHEA_TELEGRAM_MIRROR_' + side + '_';
+    const channelId = env[prefix + 'ID'];
+    const hash = invite(env[prefix + 'INVITE']);
+    const rawTopic = env[prefix + 'TOPIC_ID'];
+    const topicId = Number(rawTopic);
+    return id(channelId) && hash && /^[1-9][0-9]{0,9}$/.test(rawTopic ?? '') &&
+      isTopicId(topicId) && topicId !== 1 ? { channelId, inviteHash: hash, topicId } : null;
+  };
+  let mirror;
+  if (Object.keys(env).some(name => name.startsWith('RHEA_TELEGRAM_MIRROR_') && env[name])) {
+    const source = mirrorScope('SOURCE');
+    const destination = mirrorScope('DESTINATION');
+    if (env.RHEA_TELEGRAM_MIRROR_MODE !== 'synthetic' || !source || !destination ||
+        source.channelId === destination.channelId || source.inviteHash === destination.inviteHash ||
+        [source.channelId, destination.channelId].some(value => [env.RHEA_TELEGRAM_CHANNEL_ID, stagingId].includes(value)) ||
+        destination.channelId === forumId) throw new Error('Invalid MTProto mirror test configuration.');
+    mirror = { source, destination };
+  }
   return {
     apiId, apiHash: env.RHEA_TELEGRAM_API_HASH, channelId: env.RHEA_TELEGRAM_CHANNEL_ID,
     ownerId: env.RHEA_TELEGRAM_OWNER_ID, phone: env.RHEA_TELEGRAM_PHONE, inviteHash, actor: env.RHEA_TELEGRAM_ACCESS_SUB,
     key: env.RHEA_TELEGRAM_MTPROTO_KEY, encryptionKey: Buffer.from(env.RHEA_TELEGRAM_SESSION_KEY, 'base64url'),
-    file: env.RHEA_TELEGRAM_SESSION_FILE, port, bindHost,
+    file: env.RHEA_TELEGRAM_SESSION_FILE, port, bindHost, mirror,
     staging: stagingId ? { channelId: stagingId, inviteHash: invite(stagingInvite) } : undefined,
     forum: forumId ? { channelId: forumId, inviteHash: invite(forumInvite) } : undefined,
   };

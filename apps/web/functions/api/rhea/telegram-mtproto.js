@@ -1,4 +1,5 @@
 import { isForumOperation } from '../../../src/rhea/library/forum-contract.mjs';
+import { isMirrorOperation } from '../../../src/rhea/library/mirror-contract.mjs';
 import { boundedTelegramJson } from '../../../src/rhea/library/telegram-contract.mjs';
 import { acceptsInput, inputFor, mtprotoResult, operationAllowed, overviewLimit } from '../../../src/rhea/library/mtproto-contract.mjs';
 
@@ -24,12 +25,13 @@ export async function mtprotoPage({ request, data, env }, fetcher = fetch) {
   if (keys.length !== 1 || !operationAllowed(operation, request.method)) return mtprotoResult('invalid_request');
   const staging = operation === 'stagepreview' || operation === 'stagecopy';
   const forum = isForumOperation(operation);
-  if (staging || forum) {
+  const mirror = isMirrorOperation(operation);
+  if (staging || forum || mirror) {
     const origin = request.headers.get('Origin');
     const sameOrigin = origin === url.origin ||
       ((!origin || origin === 'null') && request.headers.get('Sec-Fetch-Site') === 'same-origin');
     if (!sameOrigin) return mtprotoResult('not_allowed');
-    if ((operation === 'stagecopy' || forum) && !/^application\/json(?:[; ]|$)/i.test(request.headers.get('Content-Type') ?? '')) {
+    if ((operation === 'stagecopy' || forum || operation === 'mirrorapprove') && !/^application\/json(?:[; ]|$)/i.test(request.headers.get('Content-Type') ?? '')) {
       return mtprotoResult('invalid_request');
     }
   }
@@ -72,6 +74,8 @@ export async function mtprotoPage({ request, data, env }, fetcher = fetch) {
         (payload?.state === 'forum_page' && (operation !== 'forumpage' || payload.forum?.topicId !== input.topicId))) {
       return mtprotoResult('unavailable');
     }
+    if ((typeof payload?.state === 'string' && payload.state.startsWith('mirror_') && !mirror) ||
+        (payload?.state === 'mirror_preview' && operation !== 'mirrorpreview')) return mtprotoResult('unavailable');
     if (payload?.state === 'inventory' && operation !== 'inventory') return mtprotoResult('unavailable');
     const safe = mtprotoResult(payload?.state, payload ?? {});
     return safe.status === result.status ? safe : mtprotoResult('unavailable');

@@ -1,4 +1,4 @@
-import { filenameReference } from './forum-names.mjs';
+import { filenameReference, forumDocumentTotals } from './forum-names.mjs';
 
 const root = document.querySelector('[data-rhea-telegram-library]');
 const get = id => root.querySelector('#forum-' + id);
@@ -149,11 +149,26 @@ function postLine(post, referenceMatch, topicId) {
 
 function render() {
   const selected = current();
-  if (!selected) { get('items').replaceChildren(); get('more-results').hidden = true; return; }
+  const total = get('size-total');
+  const bySeason = get('size-by-season');
+  total.hidden = !selected;
+  bySeason.hidden = true;
+  get('size-list').replaceChildren();
+  if (!selected) { total.textContent = ''; get('items').replaceChildren(); get('more-results').hidden = true; return; }
   const term = get('query').value.trim().toLocaleLowerCase('pt-BR');
   const posts = [...selected.posts.values()].map(post => ({
     post, referenceMatch: post.filename ? reference?.match(post.filename) : undefined,
   }));
+  const volumes = forumDocumentTotals(posts);
+  const format = bucket => new Intl.NumberFormat('pt-BR').format(bucket.bytes) + ' bytes em ' +
+    bucket.sized + ' de ' + bucket.count + ' arquivos.';
+  total.textContent = (selected.next ? 'Páginas carregadas' : 'Tópico completo') + ' · ' + format(volumes);
+  if (volumes.groups.length) {
+    bySeason.hidden = false;
+    const rows = volumes.groups.sort((a, b) => collator.compare(a.series, b.series) || collator.compare(a.section, b.section));
+    get('size-list').replaceChildren(...rows.map(group =>
+      element('li', [group.series, group.section, format(group)].filter(Boolean).join(' · '))));
+  }
   const filtered = posts.filter(({ post, referenceMatch }) =>
     [post.filename, post.heading, post.caption, referenceMatch?.name].some(value => value?.toLocaleLowerCase('pt-BR').includes(term)) || !term);
   const groups = new Map();

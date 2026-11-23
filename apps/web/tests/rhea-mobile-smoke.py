@@ -21,18 +21,36 @@ mcp_available = False
 mcp_granted = True
 requests = []
 mtproto_calls = []
+mirror_steps = 0
 reservations = {}
 files = []
 seen = set()
 root = {'id': 'rhea-root', 'name': 'RHEA', 'mimeType': 'application/vnd.google-apps.folder', 'size': None}
 
 def mock(route):
-    global files, status_pending, mcp_granted
+    global files, status_pending, mcp_granted, mirror_steps
     request = route.request
     action = request.url.split('/api/rhea/', 1)[1].split('?', 1)[0]
     if action == 'telegram-mtproto':
         operation = request.url.split('?op=', 1)[1]
         mtproto_calls.append(operation)
+        if operation.startswith('mirror'):
+            if operation == 'mirrorpreview':
+                route.fulfill(json={'state': 'mirror_preview', 'mirror': {
+                    'total': 1, 'approval': 'a' * 43, 'expiresAt': 253402300799,
+                    'source': 'Fixture origin / RHEA Mirror Test', 'destination': 'Fixture backup / RHEA Mirror Test',
+                    'posts': [{'id': 11, 'kind': 'document', 'label': 'Synthetic clip.mkv'}],
+                }})
+            elif operation == 'mirrorapprove':
+                assert request.post_data_json == {'confirm': True, 'approval': 'a' * 43}
+                route.fulfill(json={'state': 'mirror_progress', 'mirror': {'total': 1, 'copies': []}})
+            else:
+                assert operation == 'mirrornext' and request.post_data is None
+                mirror_steps += 1
+                route.fulfill(json={'state': 'mirror_done', 'mirror': {'total': 1, 'copies': [
+                    {'sourceId': 11, 'destinationId': 31},
+                ]}})
+            return
         states = {'status': 'disconnected', 'start': 'code', 'code': 'password', 'password': 'connected',
                   'inventory': 'inventory', 'disconnect': 'disconnected'}
         if operation == 'code':
@@ -57,6 +75,12 @@ def mock(route):
     if action == 'telegram':
         assert request.method in ('GET', 'POST') and request.post_data is None
         response = {'state': 'ready' if request.method == 'GET' else 'verified'}
+    elif action == 'anime-metadata':
+        assert request.post_data_json == {'title': 'Synthetic title'}
+        response = {'state': 'candidates', 'candidates': [{
+            'titles': ['Synthetic title', 'Test alternate'], 'url': 'https://anilist.co/anime/27',
+            'format': 'OVA', 'year': 2003, 'episodes': 2, 'genres': ['Drama'], 'studios': ['Test Studio'],
+        }]}
     elif action == 'status':
         if status_pending:
             status_pending = False
@@ -288,6 +312,24 @@ with sync_playwright() as playwright:
     page.get_by_role('button', name='Desconectar Telegram').click()
     expect(page.get_by_role('button', name='Enviar código')).to_be_visible()
     assert mtproto_calls == ['status', 'start', 'code', 'password', 'inventory', 'status', 'disconnect']
+    page.locator('#anime-metadata summary').click()
+    page.locator('#anime-title').fill('Synthetic title')
+    page.get_by_role('button', name='Buscar no AniList').click()
+    expect(page.locator('#anime-lookup-results')).to_contain_text('Test Studio')
+    page.locator('#mirror-panel summary').click()
+    page.locator('#mirror-preview').click()
+    expect(page.locator('#mirror-dialog')).to_be_visible()
+    expect(page.locator('#mirror-dialog')).to_contain_text('Synthetic clip.mkv')
+    assert mirror_steps == 0
+    page.locator('#mirror-approve').click()
+    expect(page.locator('#mirror-continue')).to_be_visible()
+    assert mirror_steps == 0
+    page.locator('#mirror-continue').click()
+    expect(page.locator('#mirror-status')).to_contain_text('Cópia de teste concluída')
+    assert mirror_steps == 1
+    page.locator('#mirror-receipts summary').click()
+    expect(page.locator('#mirror-mapping')).to_contain_text('#11 → #31')
+    assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
     assert requests == drive_requests_before_library + ['telegram', 'telegram']
     assert not errors, errors
