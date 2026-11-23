@@ -6,7 +6,9 @@ const get = id => root.querySelector('#mtproto-' + id);
 const endpoint = root.dataset.telegramEndpoint;
 const supportedEndpoint = ['/api/rhea/telegram-mtproto', '/api/relay/telegram-mtproto'].includes(endpoint);
 const status = get('status');
-const actions = ['start', 'code', 'password', 'cancel', 'inventory', 'disconnect'];
+const stageDialog = get('stage-dialog');
+let stageApproval;
+const actions = ['start', 'code', 'password', 'cancel', 'inventory', 'disconnect', 'stagepreview'];
 const notification = {
   unconfigured: 'Leitor do Telegram ainda não configurado no ambiente de teste.',
   disconnected: 'Conecte a conta de teste para ler o histórico do canal autorizado.',
@@ -27,6 +29,12 @@ const notification = {
   rate_limited: 'Aguarde o intervalo solicitado antes de tentar novamente.',
   busy: 'Uma verificação já está em andamento.',
   unavailable: 'O leitor de teste está indisponível.',
+  stage_disabled: 'Configure um segundo canal privado e descartável para liberar a cópia de teste.',
+  stage_ineligible: 'A cópia exige três posts recentes separados, com série e episódio nas legendas, e um destino privado vazio com permissão de publicar.',
+  stage_changed: 'O plano mudou, expirou ou já foi usado. Prepare uma nova prévia.',
+  stage_recovery: 'A cópia pode estar incompleta. Confira os posts no destino antes de prosseguir.',
+  stage_preview: 'Confira os três posts e o canal de destino.',
+  stage_done: 'Os três posts foram copiados em ordem e verificados no destino.',
 };
 
 let step = 'unconfigured';
@@ -49,10 +57,24 @@ function display(result, operation) {
   }
 
   status.textContent = Object.hasOwn(notification, state) ? notification[state] : notification.unavailable;
+  if (state === 'stage_preview') {
+    stageApproval = result.stage.approval;
+    get('stage-channels').textContent = result.stage.source + ' → ' + result.stage.destination;
+    get('stage-posts').replaceChildren(...result.stage.posts.map(post => {
+      const line = document.createElement('li');
+      line.textContent = '#' + post.id + ' · ' + post.caption;
+      return line;
+    }));
+    if (!stageDialog.open) stageDialog.showModal();
+  } else if (state === 'stage_done') {
+    status.textContent += ' ' + result.copies.map(copy => '#' + copy.sourceId + ' → #' + copy.destinationId).join(' · ');
+  } else if (operation === 'stagecopy' && state === 'unavailable') {
+    status.textContent = notification.stage_recovery;
+  }
   clearTimeout(pause);
   for (const action of actions) {
     const visible = (step === 'disconnected' && action === 'start') ||
-      (step === 'connected' && ['inventory', 'disconnect'].includes(action)) ||
+      (step === 'connected' && ['inventory', 'disconnect', 'stagepreview'].includes(action)) ||
       (['code', 'password'].includes(step) && [step, 'cancel'].includes(action));
     get(action).hidden = !visible;
   }
@@ -100,7 +122,20 @@ async function run(operation, input) {
   }
 }
 
-for (const action of ['start', 'cancel', 'inventory', 'disconnect']) {
+get('stage-confirm').addEventListener('click', () => {
+  if (!stageApproval || activeRequest) return;
+  const approval = stageApproval;
+  stageApproval = undefined;
+  stageDialog.close();
+  void run('stagecopy', { approval, confirm: true });
+});
+stageDialog.addEventListener('close', () => {
+  stageApproval = undefined;
+  get('stage-channels').textContent = '';
+  get('stage-posts').replaceChildren();
+});
+
+for (const action of ['start', 'cancel', 'inventory', 'disconnect', 'stagepreview']) {
   get(action).addEventListener('click', () => run(action));
 }
 for (const action of ['code', 'password']) {
@@ -114,6 +149,8 @@ for (const action of ['code', 'password']) {
 }
 let shown = root.dataset.telegramAutoload === 'true';
 function clearView() {
+  stageApproval = undefined;
+  if (stageDialog.open) stageDialog.close();
   activeRequest?.abort();
   activeRequest = undefined;
   for (const name of ['code', 'password']) get(name + '-input').value = '';

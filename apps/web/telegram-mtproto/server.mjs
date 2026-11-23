@@ -11,7 +11,10 @@ export function configuration(env) {
   const apiId = Number(env.RHEA_TELEGRAM_API_ID);
   const port = Number(env.PORT ?? 8789);
   const bindHost = env.RHEA_TELEGRAM_BIND_HOST ?? '127.0.0.1';
-  const inviteHash = /^https:\/\/t\.me\/\+([A-Za-z0-9_-]{12,128})$/.exec(env.RHEA_TELEGRAM_CHANNEL_INVITE ?? '')?.[1];
+  const invite = value => /^https:\/\/t\.me\/\+([A-Za-z0-9_-]{12,128})$/.exec(value ?? '')?.[1];
+  const inviteHash = invite(env.RHEA_TELEGRAM_CHANNEL_INVITE);
+  const stagingId = env.RHEA_TELEGRAM_STAGING_CHANNEL_ID;
+  const stagingInvite = env.RHEA_TELEGRAM_STAGING_CHANNEL_INVITE;
   if (env.RHEA_TELEGRAM_MTPROTO_MODE !== 'sandbox' ||
     !/^[1-9][0-9]{0,9}$/.test(env.RHEA_TELEGRAM_API_ID ?? '') || apiId > 0x7fffffff ||
     !/^[a-fA-F0-9]{32}$/.test(env.RHEA_TELEGRAM_API_HASH ?? '') || !id(env.RHEA_TELEGRAM_CHANNEL_ID) ||
@@ -22,11 +25,16 @@ export function configuration(env) {
     !['127.0.0.1', '0.0.0.0'].includes(bindHost)) {
     throw new Error('Invalid MTProto sandbox configuration.');
   }
+  if ((stagingId || stagingInvite) && (!id(stagingId) || !invite(stagingInvite) ||
+      stagingId === env.RHEA_TELEGRAM_CHANNEL_ID || invite(stagingInvite) === inviteHash)) {
+    throw new Error('Invalid MTProto staging configuration.');
+  }
   return {
     apiId, apiHash: env.RHEA_TELEGRAM_API_HASH, channelId: env.RHEA_TELEGRAM_CHANNEL_ID,
     ownerId: env.RHEA_TELEGRAM_OWNER_ID, phone: env.RHEA_TELEGRAM_PHONE, inviteHash, actor: env.RHEA_TELEGRAM_ACCESS_SUB,
     key: env.RHEA_TELEGRAM_MTPROTO_KEY, encryptionKey: Buffer.from(env.RHEA_TELEGRAM_SESSION_KEY, 'base64url'),
     file: env.RHEA_TELEGRAM_SESSION_FILE, port, bindHost,
+    staging: stagingId ? { channelId: stagingId, inviteHash: invite(stagingInvite) } : undefined,
   };
 }
 

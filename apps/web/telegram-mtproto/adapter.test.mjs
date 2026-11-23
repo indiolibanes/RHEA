@@ -118,7 +118,7 @@ test('Pages uses only verified identity, a fixed service origin, redacted state,
     assert.equal(url, env.RHEA_TELEGRAM_MTPROTO_ORIGIN + '/v1/code');
     assert.equal(options.headers['X-Rhea-Access-Subject'], testConfig.actor);
     assert.equal(options.headers.Authorization, 'Bearer ' + testConfig.key);
-    assert.equal(options.redirect, 'error');
+    assert.equal(options.redirect, 'manual');
     assert.deepEqual(JSON.parse(options.body), { code: '12345' });
     return Response.json({ state: 'connected', password: 'never forward', session: 'private' });
   };
@@ -202,6 +202,60 @@ test('inventory rejects inconsistent pagination and exposes capped coverage with
   assert.equal(stale.state, 'stale_inventory');
 });
 
+test('teleproto staging validates the destination and uses one pinned forwarding RPC', async () => {
+  const config = { ...testConfig, staging: { channelId: '9876543211', inviteHash: 'fixture-staging' } };
+  const source = { className: 'Channel', title: 'Disposable source', id: BigInt(config.channelId),
+    broadcast: true, accessHash: 555n };
+  const destination = { ...source, title: 'Disposable destination', id: BigInt(config.staging.channelId),
+    creator: true, accessHash: 556n };
+  const sent = [];
+  let filesRead = 0;
+  const post = { className: 'Message', id: 9, message: 'Series: K | S01E01',
+    media: { document: { className: 'Document', id: 21n, size: 1024n, mimeType: 'video/mp4' } } };
+  const factory = (target, origin = source) => () => ({
+    connect: async () => {},
+    updateManager: { stop() {} },
+    destroy: async () => {},
+    async *iterDownload(media, options) {
+      assert.equal(media, post.media);
+      assert.deepEqual(options, { limit: 1, requestSize: 4096 });
+      filesRead++;
+      yield Buffer.from([1]);
+    },
+    async invoke(request, _dc, options) {
+      const rpc = request.query;
+      if (rpc instanceof Api.users.GetUsers) return [{ id: BigInt(config.ownerId) }];
+      if (rpc instanceof Api.messages.CheckChatInvite) {
+        return { className: 'ChatInviteAlready', chat: rpc.hash === config.inviteHash ? origin : target };
+      }
+      if (rpc instanceof Api.channels.GetMessages) {
+        assert.equal(rpc.channel.channelId.toString(), config.staging.channelId);
+        return { messages: [post] };
+      }
+      assert.ok(rpc instanceof Api.messages.ForwardMessages);
+      assert.equal(rpc.fromPeer.channelId.toString(), config.channelId);
+      assert.equal(rpc.toPeer.channelId.toString(), config.staging.channelId);
+      assert.equal(rpc.dropAuthor, true);
+      assert.notEqual(rpc.dropMediaCaptions, true);
+      assert.ok(rpc.getBytes().length > 0);
+      assert.equal(options.maxRetryCount, 1);
+      sent.push(rpc);
+      return { updates: [{ className: 'UpdateMessageID', id: 9, randomId: rpc.randomId[0] }] };
+    },
+  });
+  const provider = (target, origin) => telegramClient(config, factory(target, origin));
+  assert.equal(await provider({ ...destination, creator: false })(null, client => client.staging()), null);
+  assert.equal(await provider(destination, { ...source, noforwards: true })(null, client => client.staging()), null);
+  await provider(destination)(null, async client => {
+    const transport = await client.staging();
+    assert.equal(transport.destinationTitle, destination.title);
+    assert.equal(await transport.copy(1, 42n), 9);
+    assert.equal(await transport.verifyMedia(9), true);
+  });
+  assert.equal(sent.length, 1);
+  assert.equal(filesRead, 1);
+});
+
 test('Node runtime refuses missing or reused secrets and accepts isolated configuration', () => {
   const env = { RHEA_TELEGRAM_MTPROTO_MODE: 'sandbox', RHEA_TELEGRAM_API_ID: String(testConfig.apiId),
     RHEA_TELEGRAM_API_HASH: testConfig.apiHash, RHEA_TELEGRAM_CHANNEL_ID: testConfig.channelId,
@@ -214,4 +268,10 @@ test('Node runtime refuses missing or reused secrets and accepts isolated config
   assert.throws(() => configuration({ ...env, RHEA_TELEGRAM_BIND_HOST: '1.2.3.4' }), /Invalid/);
   assert.throws(() => configuration({ ...env, RHEA_TELEGRAM_API_HASH: '' }), /Invalid/);
   assert.throws(() => configuration({ ...env, RHEA_TELEGRAM_SESSION_KEY: testConfig.key }), /Invalid/);
+  const staged = { ...env, RHEA_TELEGRAM_STAGING_CHANNEL_ID: '9876543211',
+    RHEA_TELEGRAM_STAGING_CHANNEL_INVITE: 'https://t.me/+fixture-destination' };
+  assert.equal(configuration(env).staging, undefined);
+  assert.equal(configuration(staged).staging.channelId, staged.RHEA_TELEGRAM_STAGING_CHANNEL_ID);
+  assert.throws(() => configuration({ ...staged, RHEA_TELEGRAM_STAGING_CHANNEL_ID: env.RHEA_TELEGRAM_CHANNEL_ID }), /Invalid/);
+  assert.throws(() => configuration({ ...staged, RHEA_TELEGRAM_STAGING_CHANNEL_INVITE: '' }), /Invalid/);
 });

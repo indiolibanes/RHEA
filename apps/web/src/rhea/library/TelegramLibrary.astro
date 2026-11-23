@@ -27,9 +27,20 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
       </form>
       <button class="editorial-action" type="button" id="mtproto-cancel" hidden>Cancelar conexão</button>
       <button class="editorial-action" type="button" id="mtproto-inventory" hidden>Ler histórico</button>
+      <button class="editorial-action" type="button" id="mtproto-stagepreview" hidden>Preparar cópia de teste</button>
       <button class="editorial-action" type="button" id="mtproto-disconnect" hidden>Desconectar Telegram</button>
     </div>
   </section>
+  <dialog id="mtproto-stage-dialog" aria-labelledby="mtproto-stage-title">
+    <h2 id="mtproto-stage-title">Aprovar cópia para o canal de teste</h2>
+    <p id="mtproto-stage-channels"></p>
+    <ol id="mtproto-stage-posts"></ol>
+    <p>A cópia usa esta ordem. Os posts do canal de origem permanecem como estão. A aprovação vale por cinco minutos.</p>
+    <div class="library-actions">
+      <form method="dialog"><button class="editorial-action" autofocus>Voltar</button></form>
+      <button class="editorial-action relay-primary" type="button" id="mtproto-stage-confirm">Aprovar e copiar os três posts</button>
+    </div>
+  </dialog>
   <section class="library-inventory library-demo prism-surface" aria-labelledby="demo-title">
     <div>
       <h2 id="demo-title">Canal de demonstração</h2>
