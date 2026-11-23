@@ -316,7 +316,7 @@ with sync_playwright() as playwright:
     page.locator('#anime-title').fill('Synthetic title')
     page.get_by_role('button', name='Buscar no AniList').click()
     expect(page.locator('#anime-lookup-results')).to_contain_text('Test Studio')
-    page.locator('#mirror-panel summary').click()
+    page.locator('#mirror-panel > summary').click()
     page.locator('#mirror-preview').click()
     expect(page.locator('#mirror-dialog')).to_be_visible()
     expect(page.locator('#mirror-dialog')).to_contain_text('Synthetic clip.mkv')
@@ -331,7 +331,7 @@ with sync_playwright() as playwright:
     expect(page.locator('#mirror-mapping')).to_contain_text('#11 → #31')
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
-    assert requests == drive_requests_before_library + ['telegram', 'telegram']
+    assert requests == drive_requests_before_library + ['telegram', 'telegram', 'anime-metadata']
     assert not errors, errors
     print(json.dumps({'viewport': '390x844 Chromium touch mobile', 'selected': 10, 'uploaded': 9,
                       'isolatedFailures': 1, 'indexedDBReload': 'passed', 'createFolder': 'passed',
