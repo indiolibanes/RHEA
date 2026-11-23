@@ -1,0 +1,23 @@
+FROM node:24-bookworm-slim
+
+# Railway mounts volumes as root. Drop privileges before starting the Telegram client.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/rhea
+COPY telegram-mtproto/package.json telegram-mtproto/package-lock.json ./telegram-mtproto/
+RUN cd telegram-mtproto && npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
+    && install -d -o node -g node -m 0700 /var/lib/rhea
+COPY telegram-mtproto/*.mjs ./telegram-mtproto/
+COPY src/rhea/library/mtproto-contract.mjs src/rhea/library/telegram-contract.mjs ./src/rhea/library/
+
+ENV PORT=8789 \
+    RHEA_TELEGRAM_MTPROTO_MODE=sandbox \
+    RHEA_TELEGRAM_BIND_HOST=0.0.0.0 \
+    RHEA_TELEGRAM_SESSION_FILE=/var/lib/rhea/session.enc
+
+# Only the session directory is made writable for the unprivileged client.
+# No public Railway domain or TCP proxy should be configured on this service.
+USER root
+CMD ["sh", "-ec", "chown node:node /var/lib/rhea && chmod 0700 /var/lib/rhea && exec gosu node node telegram-mtproto/server.mjs"]

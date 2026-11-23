@@ -209,6 +209,9 @@ test('Node runtime refuses missing or reused secrets and accepts isolated config
     RHEA_TELEGRAM_ACCESS_SUB: testConfig.actor, RHEA_TELEGRAM_PHONE: testConfig.phone, RHEA_TELEGRAM_MTPROTO_KEY: testConfig.key,
     RHEA_TELEGRAM_SESSION_FILE: '/isolated/telegram/session', RHEA_TELEGRAM_SESSION_KEY: randomBytes(32).toString('base64url') };
   assert.equal(configuration(env).encryptionKey.length, 32);
+  assert.equal(configuration(env).bindHost, '127.0.0.1');
+  assert.equal(configuration({ ...env, RHEA_TELEGRAM_BIND_HOST: '0.0.0.0' }).bindHost, '0.0.0.0');
+  assert.throws(() => configuration({ ...env, RHEA_TELEGRAM_BIND_HOST: '1.2.3.4' }), /Invalid/);
   assert.throws(() => configuration({ ...env, RHEA_TELEGRAM_API_HASH: '' }), /Invalid/);
   assert.throws(() => configuration({ ...env, RHEA_TELEGRAM_SESSION_KEY: testConfig.key }), /Invalid/);
 });
