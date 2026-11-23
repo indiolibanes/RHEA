@@ -23,6 +23,7 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
   <script>
     import '../../rhea/library/preview.mjs';
     import '../../rhea/library/telegram-panel.mjs';
+    import '../../rhea/library/mtproto-panel.mjs';
   </script>
 </head>
 <body class="library">
@@ -52,10 +53,30 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
           </div>
           <button class="editorial-action" type="button" id="telegram-check" hidden>Verificar conexão</button>
         </section>
+        <section class="library-inventory library-demo prism-surface" aria-labelledby="mtproto-title">
+          <div>
+            <h2 id="mtproto-title">Histórico do Telegram</h2>
+            <p id="mtproto-status" role="status">Verificando se o leitor está disponível.</p>
+          </div>
+          <div id="mtproto-controls" class="library-actions">
+            <button class="editorial-action" type="button" id="mtproto-start" hidden>Enviar código</button>
+            <form id="mtproto-code" class="library-form" method="post" hidden>
+              <label>Código do Telegram <input id="mtproto-code-input" type="password" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{4,8}" maxlength="8" required></label>
+              <button class="editorial-action" type="submit">Confirmar código</button>
+            </form>
+            <form id="mtproto-password" class="library-form" method="post" hidden>
+              <label>Senha em duas etapas <input id="mtproto-password-input" type="password" autocomplete="off" maxlength="256" required></label>
+              <button class="editorial-action" type="submit">Confirmar senha</button>
+            </form>
+            <button class="editorial-action" type="button" id="mtproto-cancel" hidden>Cancelar conexão</button>
+            <button class="editorial-action" type="button" id="mtproto-inventory" hidden>Ler histórico</button>
+            <button class="editorial-action" type="button" id="mtproto-disconnect" hidden>Desconectar Telegram</button>
+          </div>
+        </section>
         <section class="library-inventory library-demo prism-surface" aria-labelledby="demo-title">
           <div>
             <h2 id="demo-title">Canal de demonstração</h2>
-            <p>Dados fictícios para testar o catálogo e a reordenação.</p>
+            <p id="inventory-source">Dados fictícios para testar o catálogo e a reordenação.</p>
           </div>
           <dl>
             <div><dt>Séries</dt><dd id="series-count">—</dd></div>
@@ -87,7 +108,7 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
 
         <section class="library-section" id="correcoes" aria-labelledby="correction-title">
           <h2 id="correction-title">Corrigir metadados</h2>
-          <p>Experimente editar o catálogo desta sessão. Os campos originais da mensagem ficam visíveis no catálogo.</p>
+          <p>As correções valem para esta prévia. Os campos originais ficam visíveis no catálogo.</p>
           <form id="correction-form" class="library-form">
             <label>Post<select id="correction-id" required></select></label>
             <label>Série<select id="correction-series" required></select></label>
@@ -114,6 +135,7 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
               </select>
             </label>
             <label>Tamanho do lote<input id="plan-batch" type="number" min="1" max="100" value="10" required></label>
+            <label>Mostrar ordem por inicial<select id="plan-letter"><option value="">Todas</option><option value="K">K</option><option value="S">S</option></select></label>
           </div>
           <p id="plan-description"></p>
           <p id="plan-estimates" role="status"></p>
