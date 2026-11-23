@@ -66,8 +66,10 @@ test('staging refuses an expired approval, changed source, or a nonempty destina
   let now = 1;
   const run = stagingControl(f.config, () => now).handle;
   const first = await run('stagepreview', {}, f.client);
-  now = first.stage.expiresAt;
   assert.equal((await run('stagecopy', { approval: first.stage.approval }, f.client)).state, 'stage_changed');
+  assert.deepEqual(f.issued, []);
+  now = first.stage.expiresAt;
+  assert.equal((await run('stagecopy', { approval: first.stage.approval, confirm: true }, f.client)).state, 'stage_changed');
   const second = await f.preview();
   f.source.pts++;
   assert.equal((await f.execute(second.stage.approval)).state, 'stage_changed');

@@ -111,7 +111,9 @@ export function stagingControl(config, now = Date.now) {
     }
 
     const approval = pending;
-    if (!approval || approval.approval !== input.approval || approval.expiresAt <= now()) return { state: 'stage_changed' };
+    if (!approval || input.confirm !== true || approval.approval !== input.approval || approval.expiresAt <= now()) {
+      return { state: 'stage_changed' };
+    }
     pending = undefined;
     const transport = await client.staging();
     const plan = transport && await inspect(transport);
