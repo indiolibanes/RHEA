@@ -5,7 +5,7 @@
   "engines": { "node": ">=24" },
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test adapter.test.mjs staging.test.mjs"
+    "test": "node --test adapter.test.mjs staging.test.mjs forum.test.mjs"
   },
   "dependencies": { "teleproto": "1.234.0" }
 }

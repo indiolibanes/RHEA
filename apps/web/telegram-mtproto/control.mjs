@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { boundedTelegramJson } from '../src/rhea/library/telegram-contract.mjs';
 import { acceptsInput, inputFor, mtprotoResult, operationAllowed } from '../src/rhea/library/mtproto-contract.mjs';
 import { stagingControl } from './staging.mjs';
+import { isForumOperation } from '../src/rhea/library/forum-contract.mjs';
 
 const enrollmentTtl = 5 * 60_000;
 const startCooldown = 60_000;
@@ -113,6 +114,11 @@ export function mtprotoControl(config, store, withClient, now = Date.now) {
     if (operation === 'inventory') {
       if (!saved) return { state: 'disconnected' };
       return withClient(saved, client => client.inventory());
+    }
+    if (isForumOperation(operation)) {
+      if (!saved) return { state: 'disconnected' };
+      if (!config.forum) return { state: 'forum_disabled' };
+      return withClient(saved, client => client.forumInventory(operation, input));
     }
     if (operation === 'stagepreview' || operation === 'stagecopy') {
       if (!saved) return { state: 'disconnected' };

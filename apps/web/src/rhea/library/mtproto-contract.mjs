@@ -1,13 +1,18 @@
+import { forumInput, forumResponse, isForumOperation } from './forum-contract.mjs';
+
 export const overviewLimit = 2 * 1024 * 1024;
 export const inventoryLimit = 500;
 const routes = { status: 'GET', start: 'POST', code: 'POST', password: 'POST', cancel: 'POST',
-  inventory: 'POST', disconnect: 'POST', stagepreview: 'POST', stagecopy: 'POST' };
+  inventory: 'POST', disconnect: 'POST', stagepreview: 'POST', stagecopy: 'POST',
+  forumtopics: 'POST', forumpage: 'POST' };
 const statusCodes = {
   unconfigured: 200, disconnected: 200, code: 200, password: 200, connected: 200, inventory: 200,
   access_required: 401, not_allowed: 403, invalid_request: 400, invalid_code: 409, invalid_password: 409,
   expired: 409, channel_unavailable: 409, account_mismatch: 409, unsupported_delivery: 409,
   revoke_in_telegram: 409, stale_inventory: 409, busy: 409, rate_limited: 429, unavailable: 503,
   stage_preview: 200, stage_done: 200, stage_disabled: 409, stage_ineligible: 409, stage_changed: 409, stage_recovery: 409,
+  forum_topics: 200, forum_page: 200, forum_disabled: 409, forum_unavailable: 409,
+  forum_changed: 409, forum_cursor_invalid: 400, forum_general: 409,
 };
 
 export function operationAllowed(operation, method) {
@@ -15,12 +20,13 @@ export function operationAllowed(operation, method) {
 }
 
 export function acceptsInput(operation) {
-  return ['code', 'password', 'stagecopy'].includes(operation);
+  return isForumOperation(operation) || ['code', 'password', 'stagecopy'].includes(operation);
 }
 
 const approvalToken = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
 
 export function inputFor(operation, value) {
+  if (isForumOperation(operation)) return forumInput(operation, value);
   if (operation === 'stagecopy') {
     if (!value || Object.keys(value).length !== 2 || value.confirm !== true || !approvalToken(value.approval)) return null;
     return { approval: value.approval, confirm: true };
@@ -76,6 +82,10 @@ export function mtprotoResult(state, extra = {}) {
     const safe = overview(extra.inventory);
     if (!safe) return mtprotoResult('unavailable');
     body.inventory = safe;
+  }
+  if (state === 'forum_topics' || state === 'forum_page') {
+    body.forum = forumResponse(state, extra.forum);
+    if (!body.forum) return mtprotoResult('unavailable');
   }
   if (state === 'stage_preview') {
     body.stage = stagingPreview(extra.stage);
