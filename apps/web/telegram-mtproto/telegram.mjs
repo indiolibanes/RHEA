@@ -3,6 +3,7 @@ import { Logger, LogLevel } from 'teleproto/extensions/Logger';
 import { computeCheck } from 'teleproto/Password';
 import { StringSession } from 'teleproto/sessions';
 import { readInventory } from './inventory.mjs';
+import { forumReader } from './forum.mjs';
 
 function stagePost(post) {
   const document = post.media?.document;
@@ -45,13 +46,17 @@ export function telegramClient(config, makeClient = (session, options) =>
           const [me] = await invoke(new Api.users.GetUsers({ id: [new Api.InputUserSelf()] }));
           return me && !me.bot && me.id?.toString() === config.ownerId;
         };
-        const privateChannel = async ({ inviteHash, channelId }) => {
+        const privateChat = async ({ inviteHash, channelId }) => {
           const invite = await invoke(new Api.messages.CheckChatInvite({ hash: inviteHash }));
           const channel = invite.chat;
           if (invite.className !== 'ChatInviteAlready' || channel?.className !== 'Channel' ||
-              channel.id?.toString() !== channelId || channel.broadcast !== true || channel.megagroup || channel.left ||
+              channel.id?.toString() !== channelId || channel.left ||
               channel.username || channel.usernames?.some(item => item.active) || !channel.accessHash) return null;
           return channel;
+        };
+        const privateChannel = async scope => {
+          const channel = await privateChat(scope);
+          return channel?.broadcast === true && !channel.megagroup ? channel : null;
         };
         const peerFor = channel => new Api.InputPeerChannel({ channelId: channel.id, accessHash: channel.accessHash });
         const historyFor = peer => (offsetId, limit) => invoke(new Api.messages.GetHistory({
@@ -78,6 +83,26 @@ export function telegramClient(config, makeClient = (session, options) =>
               channelId: config.channelId, protectedChannel: channel.noforwards,
               page: historyFor(peerFor(channel)),
             });
+          },
+          async forumInventory(operation, input) {
+            if (!config.forum || !await isOwner()) return { state: 'forum_unavailable' };
+            const channel = await privateChat(config.forum);
+            if (!channel?.megagroup || !channel.forum || channel.broadcast) return { state: 'forum_unavailable' };
+            const peer = peerFor(channel);
+            const read = forumReader(config, {
+              protected: channel.noforwards,
+              topics: (offset, limit) => invoke(new Api.messages.GetForumTopics({
+                peer, offsetDate: offset.date, offsetId: offset.id, offsetTopic: offset.topic, limit,
+              })),
+              async hasTopic(topicId) {
+                const result = await invoke(new Api.messages.GetForumTopicsByID({ peer, topics: [topicId] }));
+                return result.topics?.some(topic => topic.className === 'ForumTopic' && topic.id === topicId);
+              },
+              posts: (msgId, offsetId, limit) => invoke(new Api.messages.GetReplies({
+                peer, msgId, offsetId, limit, offsetDate: 0, addOffset: 0, maxId: 0, minId: 0, hash: 0,
+              })),
+            });
+            return read(operation, input);
           },
           async staging() {
             if (!config.staging || !await isOwner()) return null;

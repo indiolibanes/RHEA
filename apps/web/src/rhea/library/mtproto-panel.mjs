@@ -43,6 +43,9 @@ let pause = 0;
 
 function display(result, operation) {
   const state = result.state;
+  if (['disconnected', 'revoke_in_telegram', 'expired', 'account_mismatch'].includes(state)) {
+    root.dispatchEvent(new Event('rhea:forum-clear'));
+  }
   if (state === 'inventory') {
     setCatalogSnapshot(catalogSnapshot(result.inventory));
     step = 'connected';

@@ -16,3 +16,5 @@
 !src/rhea/library/mtproto-contract.mjs
 !src/rhea/library/planner.mjs
 !src/rhea/library/telegram-contract.mjs
+!telegram-mtproto/forum.mjs
+!src/rhea/library/forum-contract.mjs

@@ -41,6 +41,26 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
       <button class="editorial-action relay-primary" type="button" id="mtproto-stage-confirm">Aprovar e copiar os três posts</button>
     </div>
   </dialog>
+  <details class="library-section" id="forum-inventory">
+    <summary><strong>Inventário do supergrupo por tópico</strong></summary>
+    <p>Consulte capas, legendas e lotes de arquivos. Você pode comparar os nomes com seu Markdown.</p>
+    <div class="library-actions">
+      <button class="editorial-action" id="forum-load" type="button">Ler tópicos</button>
+      <button class="editorial-action" id="forum-more-topics" type="button" hidden>Carregar mais tópicos</button>
+    </div>
+    <p id="forum-status" role="status">Escolha o tópico para ler os metadados.</p>
+    <div class="library-form">
+      <label><span id="forum-topic-label">Tópico</span><select id="forum-topic" aria-labelledby="forum-topic-label" disabled><option value="">Escolha um tópico</option></select></label>
+      <label>Buscar nos posts carregados<input id="forum-query" type="search" maxlength="120"></label>
+      <label>Lista de nomes no Markdown<input id="forum-reference" type="file" accept=".md,.markdown,text/plain,text/markdown"></label>
+    </div>
+    <p id="forum-reference-status" role="status"></p>
+    <div id="forum-items" class="library-catalog"></div>
+    <div class="library-actions">
+      <button class="editorial-action" id="forum-more-results" type="button" hidden>Exibir mais itens carregados</button>
+      <button class="editorial-action" id="forum-more-posts" type="button" hidden>Ler página anterior do tópico</button>
+    </div>
+  </details>
   <section class="library-inventory library-demo prism-surface" aria-labelledby="demo-title">
     <div>
       <h2 id="demo-title">Canal de demonstração</h2>
@@ -136,4 +156,5 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
 <script>
   import './preview.mjs';
   import './mtproto-panel.mjs';
+  import './forum-panel.mjs';
 </script>
