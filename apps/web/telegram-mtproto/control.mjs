@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { boundedTelegramJson } from '../src/rhea/library/telegram-contract.mjs';
-import { inputFor, mtprotoResult, operationAllowed } from '../src/rhea/library/mtproto-contract.mjs';
+import { acceptsInput, inputFor, mtprotoResult, operationAllowed } from '../src/rhea/library/mtproto-contract.mjs';
+import { stagingControl } from './staging.mjs';
 
 const enrollmentTtl = 5 * 60_000;
 const startCooldown = 60_000;
@@ -14,6 +15,7 @@ function matchesSecret(header, key) {
 }
 
 export function mtprotoControl(config, store, withClient, now = Date.now) {
+  const staging = stagingControl(config, now);
   let pending;
   let busy = false;
   let throttledUntil = 0;
@@ -91,10 +93,12 @@ export function mtprotoControl(config, store, withClient, now = Date.now) {
     if (operation === 'status') return { state: saved ? 'connected' : pending?.step ?? 'disconnected' };
     if (operation === 'cancel') {
       clearEnrollment();
+      staging.reset();
       return { state: saved ? 'connected' : 'disconnected' };
     }
     if (operation === 'disconnect') {
       clearEnrollment();
+      staging.reset();
       await store.clear();
       if (saved) {
         try {
@@ -109,6 +113,11 @@ export function mtprotoControl(config, store, withClient, now = Date.now) {
     if (operation === 'inventory') {
       if (!saved) return { state: 'disconnected' };
       return withClient(saved, client => client.inventory());
+    }
+    if (operation === 'stagepreview' || operation === 'stagecopy') {
+      if (!saved) return { state: 'disconnected' };
+      if (!config.staging) return { state: 'stage_disabled' };
+      return withClient(saved, client => staging.handle(operation, input, client));
     }
     if (saved) return { state: 'connected' };
     if (operation === 'start') {
@@ -159,7 +168,7 @@ export function mtprotoControl(config, store, withClient, now = Date.now) {
       request.headers.get('X-Rhea-Access-Subject') !== config.actor) return mtprotoResult('not_allowed');
     const operation = /^\/v1\/([a-z]+)$/.exec(url.pathname)?.[1];
     if (url.search || !operationAllowed(operation, request.method)) return mtprotoResult('invalid_request');
-    const acceptsBody = operation === 'code' || operation === 'password';
+    const acceptsBody = acceptsInput(operation);
     if (acceptsBody && !request.body) return mtprotoResult('invalid_request');
     if (busy) return mtprotoResult('busy');
     busy = true;
