@@ -1,0 +1,48 @@
+name: rhea-telegram-sandbox
+
+services:
+  reader:
+    build:
+      context: ../..
+      dockerfile: telegram-mtproto/deploy/Dockerfile
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    secrets:
+      - source: reader_env
+        target: reader.env
+    volumes:
+      - session:/var/lib/rhea
+    healthcheck:
+      test: ["CMD", "node", "-e", "const socket = require('node:net').connect(8789, '127.0.0.1'); socket.on('connect', () => socket.end()); socket.on('error', () => process.exit(1));"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  tunnel:
+    image: cloudflare/cloudflared:2026.11.0
+    profiles: [tunnel]
+    user: "65532:65532"
+    command: ["tunnel", "--no-autoupdate", "run", "--token-file", "/run/secrets/tunnel-token"]
+    network_mode: "service:reader"
+    depends_on:
+      reader:
+        condition: service_healthy
+        restart: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    secrets:
+      - source: tunnel_token
+        target: tunnel-token
+
+volumes:
+  session:
+
+secrets:
+  reader_env:
+    file: ./secrets/reader.env
+  tunnel_token:
+    file: ./secrets/tunnel-token

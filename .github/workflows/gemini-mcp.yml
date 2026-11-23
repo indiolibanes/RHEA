@@ -36,6 +36,8 @@ jobs:
         run: |
           npm ci --no-audit --no-fund --ignore-scripts
           npm test
+      - name: Verify the sandbox Node image and loopback access
+        run: bash apps/web/telegram-mtproto/deploy/test-compose.sh
       - name: Install web dependencies
         working-directory: apps/web
         run: npm ci --no-audit --no-fund

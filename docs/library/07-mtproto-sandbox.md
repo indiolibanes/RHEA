@@ -4,6 +4,8 @@ The panel at `/rhea/library` enrolls a test Telegram user inside the existing Cl
 
 ## Exact deployment settings
 
+Use the [sandbox host package](09-mtproto-host-setup.md) to run the Node adapter and Tunnel connector together on a Linux host with Docker Compose.
+
 Use a separate Access-protected sandbox Pages site. Its existing `RHEA_PUBLIC_ORIGIN`, `RHEA_PRODUCTION_BRANCH`, runtime branch if required, `ACCESS_TEAM_DOMAIN` and `RHEA_ACCESS_AUD` target that site and the Access application protecting `/api/rhea/*`. Existing Drive settings are unrelated.
 
 | Sandbox Pages setting | Type | Value |
