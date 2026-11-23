@@ -39,7 +39,10 @@ def mock(route):
             assert request.post_data_json == {'code': '12345'}
         elif operation == 'password':
             assert request.post_data_json == {'password': 'synthetic 2fa'}
-        payload = {'state': states[operation]}
+        config_state = states[operation]
+        if operation == 'status' and 'password' in mtproto_calls and 'disconnect' not in mtproto_calls:
+            config_state = 'connected'
+        payload = {'state': config_state}
         if operation == 'inventory':
             payload['inventory'] = {'channelId': '9876543210', 'revision': 'a' * 64, 'complete': True, 'messages': [
                 {'id': 21, 'caption': 'Series: Solar Talon | S01E01'},
@@ -260,9 +263,31 @@ with sync_playwright() as playwright:
     expect(page.locator('#target-order > li')).to_have_count(2)
     expect(page.locator('#target-order > li').first).to_contain_text('#23')
     expect(page.locator('#plan-blockers')).to_contain_text('A permissão de cópia precisa ser verificada')
-    page.get_by_role('button', name='Desconectar Telegram').click()
+    page.evaluate("""() => {
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = (url, options) => {
+        if (typeof url !== 'string' || !url.endsWith('op=inventory')) return nativeFetch(url, options);
+        return new Promise(resolve => {
+          window.releaseTelegramFixture = () => resolve(new Response(JSON.stringify({
+            state: 'inventory', inventory: { channelId: '9876543210', revision: 'a'.repeat(64), complete: true,
+              messages: [{ id: 33, caption: 'Series: Stale result | S01E01' }] }
+          }), { headers: { 'Content-Type': 'application/json' } }));
+        });
+      };
+    }""")
+    page.get_by_role('button', name='Ler histórico').click()
+    widget = page.locator('[data-rhea-telegram-library]')
+    widget.dispatch_event('rhea:telegram-hide')
     expect(page.get_by_role('heading', name='Canal de demonstração')).to_be_visible()
-    assert mtproto_calls == ['status', 'start', 'code', 'password', 'inventory', 'disconnect']
+    expect(page.get_by_role('button', name='Ler histórico')).to_be_hidden()
+    page.evaluate('window.releaseTelegramFixture()')
+    widget.dispatch_event('rhea:telegram-show')
+    expect(page.get_by_role('button', name='Ler histórico')).to_be_visible()
+    expect(page.get_by_role('heading', name='Canal de demonstração')).to_be_visible()
+    expect(page.locator('#message-count')).to_have_text('355')
+    page.get_by_role('button', name='Desconectar Telegram').click()
+    expect(page.get_by_role('button', name='Enviar código')).to_be_visible()
+    assert mtproto_calls == ['status', 'start', 'code', 'password', 'inventory', 'status', 'disconnect']
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
     assert requests == drive_requests_before_library + ['telegram', 'telegram']
     assert not errors, errors

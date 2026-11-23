@@ -1,7 +1,10 @@
 import { catalogSnapshot } from './live-catalog.mjs';
 import { setCatalogSnapshot } from './preview.mjs';
 
-const get = id => document.getElementById('mtproto-' + id);
+const root = document.querySelector('[data-rhea-telegram-library]');
+const get = id => root.querySelector('#mtproto-' + id);
+const endpoint = root.dataset.telegramEndpoint;
+const supportedEndpoint = ['/api/rhea/telegram-mtproto', '/api/relay/telegram-mtproto'].includes(endpoint);
 const status = get('status');
 const actions = ['start', 'code', 'password', 'cancel', 'inventory', 'disconnect'];
 const notification = {
@@ -27,7 +30,7 @@ const notification = {
 };
 
 let step = 'unconfigured';
-let active = false;
+let activeRequest;
 let pause = 0;
 
 function display(result, operation) {
@@ -67,15 +70,16 @@ function toggleButtons(disabled) {
 }
 
 async function run(operation, input) {
-  if (active) return;
-  active = true;
+  if (activeRequest || !supportedEndpoint) return;
+  const request = new AbortController();
+  activeRequest = request;
   toggleButtons(true);
   status.textContent = 'Consultando o leitor de teste.';
   let result;
   try {
-    const reply = await fetch('/api/rhea/telegram-mtproto?op=' + operation, {
+    const reply = await fetch(endpoint + '?op=' + operation, {
       method: operation === 'status' ? 'GET' : 'POST',
-      cache: 'no-store', credentials: 'same-origin', redirect: 'error',
+      cache: 'no-store', credentials: 'same-origin', redirect: 'error', signal: request.signal,
       ...(input ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) } : {}),
     });
     result = reply.status === 401 ? { state: 'access_required' } : reply.status === 403 ? { state: 'not_allowed' } :
@@ -83,9 +87,12 @@ async function run(operation, input) {
   } catch {
     result = { state: 'unavailable' };
   } finally {
-    active = false;
-    toggleButtons(false);
+    if (activeRequest === request) {
+      activeRequest = undefined;
+      toggleButtons(false);
+    }
   }
+  if (request.signal.aborted) return;
   try {
     display(result, operation);
   } catch {
@@ -105,11 +112,30 @@ for (const action of ['code', 'password']) {
     run(action, { [action]: input });
   });
 }
-window.addEventListener('pagehide', () => {
+let shown = root.dataset.telegramAutoload === 'true';
+function clearView() {
+  activeRequest?.abort();
+  activeRequest = undefined;
   for (const name of ['code', 'password']) get(name + '-input').value = '';
-  if (step === 'connected') setCatalogSnapshot();
+  display({ state: 'unconfigured' });
+  toggleButtons(false);
+  setCatalogSnapshot();
+  get('status').textContent = 'Verificando se o leitor está disponível.';
+  const dialog = root.querySelector('#plan-dialog');
+  if (dialog.open) dialog.close();
+}
+
+root.addEventListener('rhea:telegram-show', () => {
+  shown = true;
+  if (supportedEndpoint) run('status');
+  else display({ state: 'unconfigured' });
 });
+root.addEventListener('rhea:telegram-hide', () => {
+  shown = false;
+  clearView();
+});
+window.addEventListener('pagehide', clearView);
 window.addEventListener('pageshow', event => {
-  if (event.persisted) run('status');
+  if (event.persisted && shown) run('status');
 });
-run('status');
+if (shown) root.dispatchEvent(new Event('rhea:telegram-show'));

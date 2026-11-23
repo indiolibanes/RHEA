@@ -5,11 +5,10 @@ import '../../rhea/styles.css';
 import '../../rhea/tones.css';
 import '../../rhea/autoral.css';
 import '../../rhea/lamps.css';
-import '../../rhea/library/library.css';
+import TelegramLibrary from '../../rhea/library/TelegramLibrary.astro';
 import RheaFace from '../../rhea/RheaFace.astro';
 
 const links = [['/rhea/arquivos', 'Drive'], ['#telegram', 'Telegram'], ['#catalogo', 'Catálogo'], ['#reflow', 'Reordenação']];
-const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
 ---
 <!doctype html>
 <html lang="pt-BR" data-mode="autoral" data-tone="floresta" data-theme="dark" data-glass="off">
@@ -21,9 +20,7 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
   <title>Telegram · RHEA</title>
   <script is:inline src="/rhea-ui/settings.js"></script>
   <script>
-    import '../../rhea/library/preview.mjs';
     import '../../rhea/library/telegram-panel.mjs';
-    import '../../rhea/library/mtproto-panel.mjs';
   </script>
 </head>
 <body class="library">
@@ -53,117 +50,7 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
           </div>
           <button class="editorial-action" type="button" id="telegram-check" hidden>Verificar conexão</button>
         </section>
-        <section class="library-inventory library-demo prism-surface" aria-labelledby="mtproto-title">
-          <div>
-            <h2 id="mtproto-title">Histórico do Telegram</h2>
-            <p id="mtproto-status" role="status">Verificando se o leitor está disponível.</p>
-          </div>
-          <div id="mtproto-controls" class="library-actions">
-            <button class="editorial-action" type="button" id="mtproto-start" hidden>Enviar código</button>
-            <form id="mtproto-code" class="library-form" method="post" hidden>
-              <label>Código do Telegram <input id="mtproto-code-input" type="password" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{4,8}" maxlength="8" required></label>
-              <button class="editorial-action" type="submit">Confirmar código</button>
-            </form>
-            <form id="mtproto-password" class="library-form" method="post" hidden>
-              <label>Senha em duas etapas <input id="mtproto-password-input" type="password" autocomplete="off" maxlength="256" required></label>
-              <button class="editorial-action" type="submit">Confirmar senha</button>
-            </form>
-            <button class="editorial-action" type="button" id="mtproto-cancel" hidden>Cancelar conexão</button>
-            <button class="editorial-action" type="button" id="mtproto-inventory" hidden>Ler histórico</button>
-            <button class="editorial-action" type="button" id="mtproto-disconnect" hidden>Desconectar Telegram</button>
-          </div>
-        </section>
-        <section class="library-inventory library-demo prism-surface" aria-labelledby="demo-title">
-          <div>
-            <h2 id="demo-title">Canal de demonstração</h2>
-            <p id="inventory-source">Dados fictícios para testar o catálogo e a reordenação.</p>
-          </div>
-          <dl>
-            <div><dt>Séries</dt><dd id="series-count">—</dd></div>
-            <div><dt>Mensagens</dt><dd id="message-count">—</dd></div>
-            <div><dt>Para revisar</dt><dd id="duplicate-count">—</dd></div>
-          </dl>
-        </section>
-
-        <section class="library-section" id="catalogo" aria-labelledby="catalog-title">
-          <div class="library-heading">
-            <h2 id="catalog-title">Catálogo A–Z</h2>
-            <label class="library-search">Buscar por título ou variante
-              <input id="library-query" type="search" maxlength="120" placeholder="Ex. Kiro Tōdai">
-            </label>
-          </div>
-          <nav class="library-alphabet" aria-label="Filtrar catálogo por inicial">
-            <button type="button" data-letter="" aria-pressed="true">Todas</button>
-            {letters.map(letter => <button type="button" data-letter={letter} aria-pressed="false">{letter}</button>)}
-          </nav>
-          <p class="meta" id="catalog-result" role="status">Carregando demonstração.</p>
-          <div id="catalog-items" class="library-catalog"></div>
-        </section>
-
-        <section class="library-section" id="duplicatas" aria-labelledby="duplicates-title">
-          <h2 id="duplicates-title">Possíveis duplicatas</h2>
-          <p>O catálogo preserva todos os posts até você conferir os registros.</p>
-          <ul id="duplicate-items" class="library-duplicates"></ul>
-        </section>
-
-        <section class="library-section" id="correcoes" aria-labelledby="correction-title">
-          <h2 id="correction-title">Corrigir metadados</h2>
-          <p>As correções valem para esta prévia. Os campos originais ficam visíveis no catálogo.</p>
-          <form id="correction-form" class="library-form">
-            <label>Post<select id="correction-id" required></select></label>
-            <label>Série<select id="correction-series" required></select></label>
-            <label>Temporada<input id="correction-season" type="number" min="0" max="99999"></label>
-            <label>Episódio<input id="correction-episode" type="number" min="0" max="99999" step="any"></label>
-            <label>Parte<input id="correction-part" type="number" min="1" max="99999"></label>
-            <label>Tipo<select id="correction-kind"></select></label>
-            <label>Nome de exibição<input id="correction-label" type="text" maxlength="160"></label>
-            <div class="library-actions">
-              <button class="editorial-action rhea-primary" type="submit">Aplicar à prévia</button>
-              <button class="editorial-action" id="correction-reset" type="button">Redefinir</button>
-            </div>
-          </form>
-          <p class="meta" id="correction-feedback" role="status"></p>
-        </section>
-
-        <section class="library-section" id="reflow" aria-labelledby="reflow-title">
-          <h2 id="reflow-title">Prévia da reordenação</h2>
-          <div class="library-form">
-            <label>Estratégia
-              <select id="plan-strategy">
-                <option value="staging">Reconstruir em outro canal privado</option>
-                <option value="suffix">Republicar o sufixo no mesmo canal</option>
-              </select>
-            </label>
-            <label>Tamanho do lote<input id="plan-batch" type="number" min="1" max="100" value="10" required></label>
-            <label>Mostrar ordem por inicial<select id="plan-letter"><option value="">Todas</option><option value="K">K</option><option value="S">S</option></select></label>
-          </div>
-          <p id="plan-description"></p>
-          <p id="plan-estimates" role="status"></p>
-          <p id="plan-blockers" role="status" hidden></p>
-          <p>Posts republicados recebem novas datas e links. Reações, visualizações, pins e respostas podem se perder.</p>
-          <div class="library-orders">
-            <details><summary>Ordem atual</summary><ol id="original-order" class="library-order"></ol></details>
-            <details><summary>Ordem proposta</summary><ol id="target-order" class="library-order"></ol></details>
-          </div>
-          <button class="editorial-action" type="button" id="plan-review">Revisar verificações e aprovações</button>
-          <dialog id="plan-dialog" aria-labelledby="plan-dialog-title">
-            <h3 id="plan-dialog-title">Revisão da reordenação</h3>
-            <p id="plan-dialog-count"></p>
-            <ol>
-              <li>Conferir a revisão do canal e os posts esperados.</li>
-              <li>Aprovar a cópia no espaço protegido da RHEA.</li>
-              <li>Validar ordem, mídias, legendas, nomes de arquivos e álbuns.</li>
-              <li>Para limpar o sufixo original, verificar o backup acessível com as mídias e aprovar a exclusão separadamente.</li>
-            </ol>
-            <p>Após uma exclusão, a mídia pode ser republicada a partir do backup. IDs originais, links e reações não podem ser restaurados.</p>
-            <form method="dialog"><button class="editorial-action rhea-primary" autofocus>Voltar à prévia</button></form>
-          </dialog>
-          <dl class="library-run-status">
-            <div><dt>Execução</dt><dd>Apenas planejamento</dd></div>
-            <div><dt>Registro</dt><dd>Nenhuma operação no Telegram</dd></div>
-            <div><dt>Recuperação</dt><dd>Nenhuma pendência</dd></div>
-          </dl>
-        </section>
+        <TelegramLibrary />
       </main>
     </div>
   </div>
