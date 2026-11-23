@@ -11,4 +11,4 @@ ENV PORT=8789 \
     RHEA_TELEGRAM_MTPROTO_MODE=sandbox \
     RHEA_TELEGRAM_SESSION_FILE=/var/lib/rhea/session.enc
 USER node
-CMD ["node", "--env-file=/run/secrets/reader.env", "telegram-mtproto/server.mjs"]
+CMD ["sh", "-c", "if [ -f /run/secrets/reader.env ]; then exec node --env-file=/run/secrets/reader.env telegram-mtproto/server.mjs; else exec node telegram-mtproto/server.mjs; fi"]
