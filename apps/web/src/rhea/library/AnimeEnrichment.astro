@@ -1,6 +1,12 @@
 <details class="library-section" id="anime-enrichment">
   <summary><strong>Organizar com metadados</strong></summary>
   <p id="enrich-source" tabindex="-1" role="status"></p>
+  <ol class="library-steps" id="enrich-steps" aria-label="Etapas da organização" hidden>
+    <li data-step="search">Buscar no AniList</li>
+    <li data-step="confirm">Confirmar obra</li>
+    <li data-step="destinations">Conferir destinos</li>
+    <li data-step="review">Revisar publicação</li>
+  </ol>
   <form class="library-form" id="enrich-form" method="post" hidden>
     <label>Obra e temporada detectadas <select id="enrich-group" required></select></label>
     <label>Título para consulta <input id="enrich-title" type="search" minlength="2" maxlength="120" required></label>
@@ -23,7 +29,14 @@
     <div class="library-actions">
       <button class="editorial-action rhea-primary" id="enrich-check-destinations" type="button" hidden>Conferir destinos</button>
     </div>
+    <dl class="library-summary" id="enrich-summary" aria-label="Resumo da seleção">
+      <div><dt>Obra</dt><dd id="enrich-sum-work"></dd></div>
+      <div><dt>Arquivos</dt><dd id="enrich-sum-files"></dd></div>
+      <div><dt>Letra sugerida</dt><dd id="enrich-sum-letter"></dd></div>
+      <div><dt>Destinos</dt><dd id="enrich-sum-destinations">Ainda não conferidos</dd></div>
+    </dl>
     <p id="enrich-destination-status" role="status"></p>
+    <p class="library-note" id="enrich-pilot-note" hidden>Tópico encontrado não significa pronto: o piloto só copia para tópicos vazios nos dois grupos. Se um deles já tiver conteúdo, a cópia não começa.</p>
     <ul id="enrich-destinations" hidden></ul>
     <div id="enrich-publish" hidden>
       <div class="library-actions">
@@ -31,6 +44,10 @@
         <button class="editorial-action rhea-primary" id="enrich-publish-run" type="button" hidden>Executar cópia</button>
         <button class="editorial-action" id="enrich-publish-pause" type="button" hidden>Pausar após este lote</button>
       </div>
+      <ul class="library-progress" id="enrich-progress" aria-label="Progresso das cópias" hidden>
+        <li><span>Mesmo grupo</span><progress id="enrich-progress-local" max="1" value="0"></progress><strong id="enrich-progress-local-text"></strong></li>
+        <li><span>Backup</span><progress id="enrich-progress-backup" max="1" value="0"></progress><strong id="enrich-progress-backup-text"></strong></li>
+      </ul>
       <p id="enrich-publish-status" role="status"></p>
     </div>
     <div id="enrich-order" class="library-orders">

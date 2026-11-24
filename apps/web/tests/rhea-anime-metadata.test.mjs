@@ -13,7 +13,7 @@ function call(body, fetcher, { origin = url, authorized = true, site } = {}) {
 test('anime lookup sends only the typed public title and sanitizes candidates and links', async () => {
   const result = await call({ title: '  Te\u0301st Title  ' }, (target, init) => {
     assert.equal(target, 'https://graphql.anilist.co');
-    assert.equal(init.redirect, 'error');
+    assert.equal(init.redirect, 'manual');
     assert.ok(!new Headers(init.headers).has('Authorization'));
     const body = JSON.parse(init.body);
     assert.deepEqual(body.variables, { title: 'Tést Title' });
@@ -67,4 +67,65 @@ test('distinguishes an AniList refusal, rate limit and unavailable upstream with
   assert.deepEqual(await throttled.json(), { state: 'rate_limited', retryAfter: 30 });
   const down = await call({ title: 'Aurora' }, () => new Response(null, { status: 502 }));
   assert.deepEqual(await down.json(), { state: 'provider_unavailable' });
+});
+
+// Cloudflare Workers accept only the follow and manual redirect modes and fail the call before network I/O.
+const workers = reply => (target, init) => {
+  if (init.redirect !== 'follow' && init.redirect !== 'manual') throw new TypeError('Unsupported redirect mode.');
+  return reply(target, init);
+};
+const empty = () => Response.json({ data: { Page: { media: [] } } });
+
+test('a Workers-style runtime reaches the provider and a legitimate empty result is not a failure', async () => {
+  const result = await call({ title: 'Synthetic title' }, workers(empty));
+  assert.equal(result.status, 200);
+  assert.deepEqual(await result.json(), { state: 'candidates', candidates: [] });
+});
+
+test('classifies timeouts, transport failures, redirects and malformed provider answers separately', async () => {
+  const cases = [
+    [() => { throw new DOMException('timed out', 'TimeoutError'); }, 504, 'provider_timeout'],
+    [() => { throw new TypeError('network'); }, 503, 'provider_unreachable'],
+    [() => new Response(null, { status: 302, headers: { Location: 'https://other.invalid/' } }), 503, 'provider_unavailable'],
+    [() => new Response('Unavailable', { status: 503 }), 503, 'provider_unavailable'],
+    [() => new Response('{}', { status: 400, headers: { 'Content-Type': 'application/json' } }), 502, 'provider_error'],
+    [() => Response.json({ errors: [{ message: 'Validation failed', status: 400 }], data: null }), 502, 'provider_error'],
+    [() => new Response('<html>challenge</html>', { status: 200, headers: { 'Content-Type': 'text/html' } }), 502, 'provider_error'],
+    [() => Response.json({ data: { Page: { media: 'unexpected' } } }), 502, 'provider_error'],
+  ];
+  for (const [reply, status, state] of cases) {
+    const result = await call({ title: 'Aurora' }, reply);
+    assert.equal(result.status, status, state);
+    assert.deepEqual(await result.json(), { state });
+  }
+});
+
+test('failure logs carry fixed categories only', async () => {
+  const warnings = [];
+  const original = console.warn;
+  console.warn = (...values) => warnings.push(JSON.stringify(values));
+  try {
+    await call({ title: 'Private Synthetic Title' }, () => new Response('<p>Secret provider body</p>', {
+      status: 403, headers: { 'Content-Type': 'text/html', 'Set-Cookie': 'secret=1' } }));
+    await call({ title: 'Private Synthetic Title' }, () => Response.json({ errors: [{ message: 'Secret provider message' }] }));
+  } finally {
+    console.warn = original;
+  }
+  assert.equal(warnings.length, 2);
+  assert.match(warnings[0], /"refused"/);
+  assert.match(warnings[1], /"graphql_errors"/);
+  assert.doesNotMatch(warnings.join(), /Private Synthetic|Secret|secret/);
+});
+
+test('sends only the confirmed public title and keeps cookies and credentials out of the provider request', async () => {
+  let seen;
+  const request = new Request(url + '/api/rhea/anime-metadata', { method: 'POST',
+    headers: { Origin: url, 'Content-Type': 'application/json', Cookie: 'session=private', Authorization: 'Bearer private' },
+    body: JSON.stringify({ title: 'Tsuki ga Kirei' }) });
+  const result = await animeMetadata({ request, data: { cloudflareAccess: { JWT: { payload: { sub: 'operator' } } } } },
+    workers((target, init) => { seen = init; return empty(); }));
+  assert.equal(result.status, 200);
+  const names = [...new Headers(seen.headers).keys()];
+  assert.deepEqual(names.sort(), ['accept', 'content-type']);
+  assert.deepEqual(JSON.parse(seen.body).variables, { title: 'Tsuki ga Kirei' });
 });

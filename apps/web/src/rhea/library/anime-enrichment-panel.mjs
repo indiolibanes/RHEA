@@ -1,8 +1,9 @@
 import { alphabeticDestination, episodeLabel, groupTopicDocuments, proposeAnimePreview } from './anime-enrichment.mjs';
-import { animeFormats, lookupAnime, lookupMessage } from './anime-lookup.mjs';
+import { animeFormats, lookupAnime, lookupMessage, providerFallback, retryableLookup } from './anime-lookup.mjs';
 import { forumEnrichmentSnapshot } from './forum-panel.mjs';
 import { organizationPublication } from './organization-panel.mjs';
 import { mirrorLimit } from './mirror-contract.mjs';
+import { formatSize } from './sizes.mjs';
 
 const root = document.querySelector('[data-rhea-telegram-library]');
 const get = id => root.querySelector('#enrich-' + id);
@@ -15,11 +16,65 @@ let groups = [];
 let active;
 let destinationRead;
 let preview;
+let cooldown;
+const searchLabel = 'Buscar no AniList';
 
 const node = (tag, text) => Object.assign(document.createElement(tag), { textContent: text });
 const list = posts => posts.map(p => node('li', episodeLabel(p) + ' · ' + (p.filename || '#' + p.id)));
 const group = () => groups.find(item => item.key === select.value);
 
+const stepNames = ['search', 'confirm', 'destinations', 'review'];
+const stepState = { done: 'concluída', current: 'etapa atual', todo: 'pendente' };
+
+// The tracker shows position by text and marker, never by color alone.
+function setStep(current) {
+  const index = stepNames.indexOf(current);
+  get('steps').hidden = !groups.length;
+  stepNames.forEach((name, position) => {
+    const item = get('steps').querySelector('[data-step="' + name + '"]');
+    const state = position < index ? 'done' : position === index ? 'current' : 'todo';
+    item.dataset.state = state;
+    if (state === 'current') item.setAttribute('aria-current', 'step'); else item.removeAttribute('aria-current');
+    let hint = item.querySelector('.library-sr');
+    if (!hint) item.append(' ', hint = Object.assign(document.createElement('span'), { className: 'library-sr' }));
+    hint.textContent = '(' + stepState[state] + ')';
+  });
+}
+
+function summarize(work, files, letter, destinations) {
+  get('sum-work').textContent = work;
+  get('sum-files').textContent = files;
+  get('sum-letter').textContent = letter;
+  get('sum-destinations').textContent = destinations;
+}
+
+function stopCooldown() {
+  clearInterval(cooldown);
+  cooldown = undefined;
+}
+
+// A rate limit disables the search button for the provider's wait time (bounded by the route to 1 hour).
+function waitToRetry(seconds) {
+  stopCooldown();
+  let left = seconds;
+  const search = get('search');
+  const tick = () => {
+    if (left <= 0) {
+      stopCooldown();
+      search.disabled = false;
+      search.textContent = 'Tentar novamente';
+      status.textContent = 'O limite terminou. Você já pode repetir a busca.';
+      return;
+    }
+    search.disabled = true;
+    search.textContent = 'Tentar novamente em ' + left + ' s';
+    left -= 1;
+  };
+  tick();
+  cooldown = setInterval(tick, 1000);
+}
+
+// The provider wait survives edits to the title so the rate limit is honored; reset() ends it.
 function clearChoice() {
   publication.clear();
   active?.abort();
@@ -27,7 +82,10 @@ function clearChoice() {
   destinationRead?.abort();
   destinationRead = undefined;
   preview = undefined;
-  get('search').disabled = false;
+  if (!cooldown) {
+    get('search').disabled = false;
+    get('search').textContent = searchLabel;
+  }
   status.textContent = '';
   get('provider-search').hidden = true;
   get('result').hidden = true;
@@ -38,6 +96,9 @@ function clearChoice() {
   get('destinations').hidden = true;
   get('sorted').replaceChildren();
   get('candidates').replaceChildren();
+  get('pilot-note').hidden = true;
+  summarize('', '', '', 'Ainda não conferidos');
+  setStep('search');
 }
 
 function selectGroup() {
@@ -89,7 +150,7 @@ function show(candidate, manual = false) {
     'O título precisa começar com uma letra A–Z para sugerir um tópico.' :
     'Origem · ' + source.title + ' · Letra sugerida · ' + plan.letter;
   get('volume').textContent = plan.sizedCount ?
-    new Intl.NumberFormat('pt-BR').format(plan.totalBytes) + ' bytes em ' + plan.sizedCount + ' de ' +
+    formatSize(plan.totalBytes, { exact: true }) + ' em ' + plan.sizedCount + ' de ' +
       plan.sorted.length + ' arquivos.' : 'Tamanho dos arquivos pendente de conferência.';
   const warnings = [];
   if (plan.countMismatch) warnings.push('A entrada tem menos episódios que a numeração dos arquivos. Confira a edição.');
@@ -107,6 +168,10 @@ function show(candidate, manual = false) {
   if (candidate.url) links.push(providerLink('Ver entrada no AniList', candidate.url));
   if (candidate.cover) links.push(providerLink('Abrir capa sugerida', candidate.cover));
   get('links').replaceChildren(...links);
+  summarize(plan.title, plan.sorted.length + (plan.sorted.length === 1 ? ' arquivo' : ' arquivos') +
+    (plan.sizedCount ? ' · ' + formatSize(plan.totalBytes) : ''), plan.letter === '#' ? 'Indefinida' : plan.letter,
+    'Ainda não conferidos');
+  setStep('destinations');
   get('check-destinations').disabled = false;
   get('check-destinations').hidden = plan.letter === '#';
   get('result').hidden = false;
@@ -149,7 +214,8 @@ async function checkForum(letter, scope, signal) {
 
 function destinationLine(label, target, letter) {
   const messages = {
-    missing: 'Crie ou reabra o tópico Letter ' + letter + ' e confira novamente.',
+    missing: 'Não há tópico Letter ' + letter + ' neste grupo. Crie o tópico e confira novamente.',
+    closed: 'O tópico Letter ' + letter + ' está fechado. Reabra-o e confira novamente.',
     ambiguous: 'Há mais de um tópico ativo com essa letra.',
     source: 'O tópico encontrado é a origem. Use outro tópico.',
     unconfigured: 'O grupo de backup ainda precisa ser autorizado no Railway.',
@@ -191,7 +257,11 @@ get('check-destinations').addEventListener('click', async () => {
     if (request.signal.aborted) return;
     results.replaceChildren(destinationLine('No mesmo grupo', local, letter), destinationLine('No backup', backup, letter));
     results.hidden = false;
+    get('pilot-note').hidden = false;
     const found = Number(local.state === 'found') + Number(backup.state === 'found');
+    const word = target => target.state === 'found' ? 'encontrado' : target.state === 'closed' ? 'fechado' :
+      target.state === 'ambiguous' ? 'ambíguo' : target.state === 'missing' ? 'ausente' : 'indisponível';
+    get('sum-destinations').textContent = 'Mesmo grupo: ' + word(local) + ' · Backup: ' + word(backup);
     feedback.textContent = found === 2 ? '2 de 2 destinos encontrados.' :
       found + ' de 2 destinos encontrados. Veja o que falta abaixo.';
     if (found === 2) {
@@ -202,10 +272,13 @@ get('check-destinations').addEventListener('click', async () => {
         choice.duplicate || choice.missingEpisode || choice.albumReview || preview.countMismatch || preview.editionReview ?
           'Confira a edição, os episódios e os álbuns antes de publicar.' : '';
       if (blocker) feedback.textContent += ' ' + blocker;
-      else publication.prepare({
-        sourceTopicId: source.topicId, localTopicId: local.topic.id, backupTopicId: backup.topic.id,
-        letter, ids: preview.sorted.map(post => post.id),
-      });
+      else {
+        publication.prepare({
+          sourceTopicId: source.topicId, localTopicId: local.topic.id, backupTopicId: backup.topic.id,
+          letter, ids: preview.sorted.map(post => post.id),
+        });
+        setStep('review');
+      }
     }
   } finally {
     if (destinationRead === request) {
@@ -259,23 +332,32 @@ get('form').addEventListener('submit', async event => {
     if (request.signal.aborted) return;
     if (result.state !== 'candidates') {
       status.textContent = lookupMessage(result);
-      get('provider-search').hidden = !['provider_refused', 'provider_unavailable', 'rate_limited'].includes(result.state);
+      get('provider-search').hidden = !providerFallback.has(result.state);
+      if (result.state === 'rate_limited' && result.retryAfter) waitToRetry(result.retryAfter);
+      else if (retryableLookup.has(result.state)) get('search').textContent = 'Tentar novamente';
       return;
     }
     get('candidates').replaceChildren(...candidateChoices(result.candidates));
+    if (result.candidates.length) setStep('confirm');
     status.textContent = result.candidates.length ? 'Escolha o resultado que corresponde à edição dos seus arquivos.' :
       'Nenhuma obra encontrada. Tente um título alternativo ou use o título sem metadados.';
   } catch {
-    if (!request.signal.aborted) status.textContent = lookupMessage({ state: 'network' });
+    if (!request.signal.aborted) {
+      status.textContent = lookupMessage({ state: 'network' });
+      get('search').textContent = 'Tentar novamente';
+    }
   } finally {
     if (active === request) {
       active = undefined;
-      get('search').disabled = false;
+      if (!cooldown) get('search').disabled = false;
     }
   }
 });
 
-const reset = () => load(undefined);
+const reset = () => {
+  stopCooldown();
+  load(undefined);
+};
 root.addEventListener('rhea:telegram-hide', reset);
 root.addEventListener('rhea:forum-clear', reset);
 root.addEventListener('rhea:forum-inventory-change', () => { if (source) reset(); });

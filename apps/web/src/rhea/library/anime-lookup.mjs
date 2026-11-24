@@ -3,14 +3,16 @@ export const animeFormats = {
 };
 
 export async function lookupAnime(endpoint, title, signal) {
+  // Redirects stay manual: an expired Access session answers with a redirect to the identity provider.
   const response = await fetch(endpoint, {
-    method: 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'error',
+    method: 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'manual',
     signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),
   });
-  if (response.status === 401) return { state: 'access_required' };
-  if (response.status === 403) return { state: 'not_allowed' };
+  if (response.type === 'opaqueredirect' || response.status === 401) return { state: 'access_required' };
   if (response.status === 404 || response.status === 405) return { state: 'endpoint_missing' };
-  if (!response.headers.get('Content-Type')?.includes('application/json')) return { state: 'unexpected_response' };
+  if (!response.headers.get('Content-Type')?.includes('application/json')) {
+    return { state: response.status === 403 ? 'access_refused' : 'unexpected_response' };
+  }
   const result = await response.json().catch(() => null);
   if (!result || typeof result !== 'object') return { state: 'unexpected_response' };
   if (response.ok && result.state === 'candidates' && Array.isArray(result.candidates)) return result;
@@ -20,17 +22,28 @@ export async function lookupAnime(endpoint, title, signal) {
   return { state, retryAfter };
 }
 
+// Every failure names what the operator can do next. Retry and manual continuation keep the selected work.
 export const lookupErrors = {
   rate_limited: 'O AniList atingiu o limite de consultas. Aguarde e tente novamente.',
   invalid_title: 'Digite de 2 a 120 caracteres.',
-  access_required: 'Sua sessão expirou. Reabra o Private e entre novamente.',
+  access_required: 'Sua sessão expirou. Entre no Private novamente e repita a busca, ou continue com o título sem metadados.',
+  access_refused: 'O Cloudflare Access recusou esta sessão. Entre novamente com a conta autorizada e repita a busca.',
   not_allowed: 'O Private recusou a consulta. Recarregue a página e tente novamente.',
-  endpoint_missing: 'A busca de anime ainda não está disponível nesta versão do Private.',
-  provider_refused: 'O AniList recusou a consulta. Você pode tentar novamente mais tarde.',
-  provider_unavailable: 'O AniList não respondeu como esperado. Tente novamente mais tarde.',
-  unexpected_response: 'A RHEA recebeu uma resposta inesperada. Recarregue a página e tente novamente.',
-  network: 'Não foi possível conectar à RHEA. Verifique a conexão e tente novamente.',
+  endpoint_missing: 'A busca de anime ainda não está disponível nesta versão do Private. Continue com o título sem metadados.',
+  provider_refused: 'O AniList recusou a consulta. Tente novamente mais tarde, pesquise no site do AniList ou continue sem metadados.',
+  provider_timeout: 'O AniList demorou demais para responder. Tente novamente ou continue com o título sem metadados.',
+  provider_unreachable: 'A RHEA não conseguiu alcançar o AniList. Tente novamente em instantes ou continue sem metadados.',
+  provider_error: 'O AniList respondeu de forma inesperada. Tente novamente ou continue com o título sem metadados.',
+  provider_unavailable: 'O AniList não está disponível agora. Tente novamente mais tarde ou continue sem metadados.',
+  unexpected_response: 'A RHEA recebeu uma resposta inesperada. Tente novamente ou recarregue a página.',
+  network: 'Não foi possível conectar à RHEA. Verifique a conexão e tente novamente; sua seleção continua aqui.',
 };
+
+// States where repeating the search can help and the site search is a useful fallback.
+export const retryableLookup = new Set(['rate_limited', 'provider_refused', 'provider_timeout', 'provider_unreachable',
+  'provider_error', 'provider_unavailable', 'unexpected_response', 'network', 'access_required', 'access_refused']);
+export const providerFallback = new Set(['rate_limited', 'provider_refused', 'provider_timeout', 'provider_unreachable',
+  'provider_error', 'provider_unavailable']);
 
 export function lookupMessage({ state, retryAfter }) {
   return state === 'rate_limited' && retryAfter ?

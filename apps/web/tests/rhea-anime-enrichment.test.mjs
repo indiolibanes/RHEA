@@ -103,7 +103,7 @@ test('resolves one open topic per group and refuses a destination matching the i
   assert.deepEqual(alphabeticDestination('T', [backup]), { state: 'found', topic: backup });
   assert.equal(alphabeticDestination('T', [local], 35).state, 'source');
   assert.equal(alphabeticDestination('T', [local, { ...backup, id: 80 }]).state, 'ambiguous');
-  assert.equal(alphabeticDestination('T', [{ ...local, closed: true }, { id: 1, title: 'T' }]).state, 'missing');
+  assert.equal(alphabeticDestination('T', [{ ...local, closed: true }, { id: 1, title: 'T' }]).state, 'closed');
 });
 
 test('uses the suffix in Letter T and supports literal quotes without matching other topics', () => {
@@ -113,4 +113,16 @@ test('uses the suffix in Letter T and supports literal quotes without matching o
   assert.equal(alphabeticDestination('L', topics).topic.id, 12);
   assert.equal(alphabeticDestination('T', [{ id: 13, title: '  LETTER   “T”  ' }]).topic.id, 13);
   assert.equal(alphabeticDestination('R', [{ id: 14, title: 'Letter "R"' }]).topic.id, 14);
+});
+
+test('Letter T resolves in both authorized groups when Letter L coexists and reports closed or hidden topics apart', () => {
+  const local = [{ id: 20, title: 'Letter L' }, { id: 21, title: 'Letter T' }, { id: 22, title: 'Requests' }];
+  const backup = [{ id: 7, title: 'Letter L' }, { id: 8, title: 'Letra "T"' }];
+  assert.equal(alphabeticDestination('T', local, 22).topic.id, 21);
+  assert.equal(alphabeticDestination('T', backup).topic.id, 8);
+  assert.equal(alphabeticDestination('L', local, 22).topic.id, 20);
+  assert.equal(alphabeticDestination('T', [{ id: 21, title: 'Letter T', closed: true }, ...local.slice(0, 1)]).state, 'closed');
+  assert.equal(alphabeticDestination('T', [{ id: 21, title: 'Letter T', hidden: true }]).state, 'missing');
+  assert.equal(alphabeticDestination('T', [{ id: 21, title: 'Letter T', closed: true }, { id: 30, title: 'T' }]).topic.id, 30);
+  assert.equal(alphabeticDestination('T', [{ id: 21, title: 'Letter T', closed: true }, { id: 30, title: 'T' }, { id: 31, title: 'Letter T' }]).state, 'ambiguous');
 });

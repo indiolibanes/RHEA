@@ -1,4 +1,5 @@
 import { filenameReference, forumDocumentTotals } from './forum-names.mjs';
+import { formatSize } from './sizes.mjs';
 
 const root = document.querySelector('[data-rhea-telegram-library]');
 const get = id => root.querySelector('#forum-' + id);
@@ -27,7 +28,6 @@ const element = (tag, value) => {
 };
 const privateLink = (channel, topic, message) => 'https://t.me/c/' + channel + '/' +
   (topic === 1 ? '' : topic + '/') + message;
-const MiB = value => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 }).format(value / 2 ** 20) + ' MiB';
 
 let active;
 let cursor = null;
@@ -164,7 +164,7 @@ function postLine(post, referenceMatch, topicId) {
     if (referenceMatch.reason === 'tag') line.append(element('small', 'Sugestão pela etiqueta hexadecimal. Confira o episódio.'));
   } else if (referenceMatch) line.append(element('small', 'Nome original pendente de conferência.'));
   if (post.declaredSize) line.append(element('p', 'Tamanho informado · ' + post.declaredSize));
-  if (post.sizeBytes !== undefined) line.append(element('p', 'Tamanho do arquivo · ' + MiB(post.sizeBytes)));
+  if (post.sizeBytes !== undefined) line.append(element('p', 'Tamanho do arquivo · ' + formatSize(post.sizeBytes, { exact: true })));
   if (post.protected) line.append(element('p', 'Conteúdo protegido'));
   line.append(link);
   return line;
@@ -183,7 +183,7 @@ function render() {
     post, referenceMatch: post.filename ? reference?.match(post.filename) : undefined,
   }));
   const volumes = forumDocumentTotals(posts);
-  const format = bucket => new Intl.NumberFormat('pt-BR').format(bucket.bytes) + ' bytes em ' +
+  const format = bucket => formatSize(bucket.bytes, { exact: true }) + ' em ' +
     bucket.sized + ' de ' + bucket.count + ' arquivos.';
   total.textContent = (selected.next ? 'Páginas carregadas' : 'Tópico completo') + ' · ' + format(volumes);
   if (volumes.groups.length) {
