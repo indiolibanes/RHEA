@@ -56,7 +56,6 @@ test('reads 620 topic posts across pages without duplicates or authenticated wri
   const first = await forumReader(config, transport)('forumpage', { topicId, cursor: null });
   assert.equal((await forumReader(config, transport)('forumpage', { topicId: 31, cursor: first.forum.next })).state,
     'forum_cursor_invalid');
-  assert.equal((await forumReader(config, transport)('forumpage', { topicId: 1, cursor: null })).state, 'forum_general');
 });
 
 test('projects covers, bold titles, sizes and filenames and rejects cross-topic messages', async () => {
@@ -132,4 +131,68 @@ test('totals document bytes by exact, unambiguous Markdown section without guess
     { series: 'Aurora', section: 'Part 1', count: 1, sized: 1, bytes: 100n },
     { series: 'Aurora', section: 'Part 2', count: 1, sized: 0, bytes: 0n },
   ] });
+});
+
+test('reads General even when named Requests and advances past service-only pages', async () => {
+  const numberedTopic = { ...examplePost, replyTo: { className: 'MessageReplyHeader', forumTopic: true, replyToMsgId: topicId },
+    message: 'Other topic must not appear' };
+  const direct = { ...examplePost, id: 83, replyTo: undefined, message: 'General document' };
+  const reply = { ...direct, id: 82, replyTo: { className: 'MessageReplyHeader', replyToMsgId: 80 }, message: 'General reply' };
+  const rootReply = { ...reply, id: 81, replyTo: { ...reply.replyTo, replyToTopId: 1 } };
+  const transport = {
+    topics: async () => ({ topics: [{ className: 'ForumTopic', id: 1, title: 'Requests' }], count: 1 }),
+    hasTopic: () => assert.fail('General is implicit in a verified forum.'),
+    async posts(topic, offset, limit) {
+      assert.equal(topic, 1);
+      assert.equal(limit, 60);
+      const pages = new Map([[0, [{ ...direct, className: 'MessageService', id: 99 }, { className: 'MessageEmpty', id: 98 }]],
+        [98, [direct, reply, rootReply]], [81, []]]);
+      assert.ok(pages.has(offset));
+      return { messages: pages.get(offset) };
+    },
+  };
+  const read = forumReader(config, transport);
+  assert.equal((await read('forumtopics', { cursor: null })).forum.topics[0].title, 'Requests');
+  const first = await read('forumpage', { topicId: 1, cursor: null });
+  assert.equal(first.state, 'forum_page');
+  assert.deepEqual(first.forum.posts, []);
+  assert.ok(first.forum.next);
+  assert.equal((await read('forumpage', { topicId, cursor: first.forum.next })).state, 'forum_cursor_invalid');
+  const second = await read('forumpage', { topicId: 1, cursor: first.forum.next });
+  assert.deepEqual(second.forum.posts.map(({ id, caption }) => [id, caption]), [
+    [83, 'General document'], [82, 'General reply'], [81, 'General reply'],
+  ]);
+  assert.equal(second.forum.posts[0].albumId, '777');
+  assert.equal(second.forum.posts[0].sizeBytes, 4864);
+  assert.equal((await read('forumpage', { topicId: 1, cursor: second.forum.next })).forum.next, null);
+  for (const wrong of [numberedTopic, { ...numberedTopic, replyTo: { replyToTopId: 31 } },
+    { ...direct, peerId: { channelId: 999n } }]) {
+    const injected = forumReader(config, { posts: async () => ({ messages: [{ ...direct, id: 100 }, { ...wrong, id: 99 }] }) });
+    const rejected = await injected('forumpage', { topicId: 1, cursor: null });
+    assert.deepEqual(rejected, { state: 'forum_changed' });
+  }
+});
+
+test('General issues a bounded read request scoped to topic 1 of the pinned supergroup', async () => {
+  const calls = [];
+  const client = () => ({
+    connect: async () => {}, destroy: async () => {}, updateManager: { stop() {} },
+    async invoke(wrapper) {
+      const rpc = wrapper.query;
+      calls.push(rpc.className);
+      if (rpc instanceof Api.users.GetUsers) return [{ id: BigInt(config.ownerId) }];
+      if (rpc instanceof Api.messages.CheckChatInvite) return { className: 'ChatInviteAlready',
+        chat: { className: 'Channel', id: BigInt(config.forum.channelId), accessHash: 1n, megagroup: true, forum: true } };
+      assert.ok(rpc instanceof Api.messages.GetReplies);
+      assert.equal(rpc.msgId, 1);
+      assert.equal(rpc.peer.channelId.toString(), config.forum.channelId);
+      assert.equal(rpc.limit, 60);
+      assert.ok(rpc.getBytes().length > 0);
+      return { messages: [{ ...examplePost, replyTo: undefined }] };
+    },
+  });
+  const page = await telegramClient(config, client)(null, c => c.forumInventory('forumpage', { topicId: 1, cursor: null }));
+  assert.equal(page.state, 'forum_page');
+  assert.deepEqual(page.forum.posts.map(post => post.id), [100]);
+  assert.deepEqual(calls, ['users.GetUsers', 'messages.CheckChatInvite', 'messages.GetReplies']);
 });

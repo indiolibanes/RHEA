@@ -15,7 +15,7 @@ const errors = {
   forum_unavailable: 'Não foi possível confirmar o supergrupo privado ou o tópico autorizado.',
   forum_changed: 'A página retornada pelo Telegram não pôde ser validada. Tente a leitura novamente.',
   forum_cursor_invalid: 'O ponto de leitura deixou de ser válido. Reabra o inventário.',
-  forum_general: 'O tópico Geral ainda precisa de uma leitura específica.',
+  forum_general: 'O leitor no Railway ainda precisa ser atualizado para abrir este tópico.',
   rate_limited: 'O Telegram pediu uma pausa. Tente mais tarde.',
   busy: 'Outra leitura está em andamento. Tente novamente.',
   not_allowed: 'Esta sessão não tem acesso ao inventário.',
@@ -25,7 +25,8 @@ const element = (tag, value) => {
   if (value !== undefined) node.textContent = value;
   return node;
 };
-const privateLink = (channel, topic, message) => 'https://t.me/c/' + channel + '/' + topic + '/' + message;
+const privateLink = (channel, topic, message) => 'https://t.me/c/' + channel + '/' +
+  (topic === 1 ? '' : topic + '/') + message;
 const MiB = value => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 }).format(value / 2 ** 20) + ' MiB';
 
 let active;
@@ -89,9 +90,8 @@ function topicChoices() {
   const options = [element('option', 'Escolha um tópico')];
   options[0].value = '';
   for (const topic of [...topics.values()].sort((a, b) => collator.compare(a.title, b.title))) {
-    const option = element('option', topic.title + (topic.id === 1 ? ' · leitura indisponível' : ''));
+    const option = element('option', topic.title);
     option.value = String(topic.id);
-    option.disabled = topic.id === 1;
     options.push(option);
   }
   topicSelect.replaceChildren(...options);
@@ -132,8 +132,10 @@ async function readPosts() {
   selected.next = data.next;
   inventories.set(topicId, selected);
   notifyInventoryChanged();
-  status.textContent = selected.posts.size + ' publicações lidas' +
-    (data.next ? '. Há páginas anteriores para conferir.' : '. Fim do tópico.');
+  status.textContent = topicId === 1 && !data.posts.length && data.next ?
+    'Nenhuma publicação deste tópico nesta página. Continue para ler a página anterior.' :
+    selected.posts.size + ' publicações lidas' +
+      (data.next ? '. Há páginas anteriores para conferir.' : '. Fim do tópico.');
   refreshButtons();
   render();
 }
