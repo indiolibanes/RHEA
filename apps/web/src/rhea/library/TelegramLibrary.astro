@@ -42,6 +42,19 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
       <button class="editorial-action relay-primary" type="button" id="mtproto-stage-confirm">Aprovar e copiar os três posts</button>
     </div>
   </dialog>
+  <details class="library-section" id="mal-settings">
+    <summary><strong>Configurar MyAnimeList</strong></summary>
+    <form class="library-form" id="mal-client-form" method="post">
+      <label>Client ID do MyAnimeList
+        <input id="mal-client-id" type="password" minlength="32" maxlength="32" pattern="[A-Fa-f0-9]{32}" autocomplete="off" spellcheck="false" required>
+      </label>
+      <div class="library-actions">
+        <button class="editorial-action rhea-primary" type="submit">Usar nesta sessão</button>
+        <button class="editorial-action" id="mal-client-clear" type="button" hidden>Remover Client ID da sessão</button>
+      </div>
+    </form>
+    <p id="mal-client-status" role="status">Use o Client ID do aplicativo cadastrado no MyAnimeList.</p>
+  </details>
   <details class="library-section" id="forum-inventory" open>
     <summary><strong>Arquivos por tópico</strong></summary>
     <p>Carregue os tópicos, selecione Requests e escolha a obra que deseja organizar.</p>
@@ -72,6 +85,20 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
     </div>
   </details>
   <AnimeEnrichment />
+  <details class="library-section" id="anime-metadata">
+    <summary><strong>Consultar dados de anime</strong></summary>
+    <p>Digite o título da obra ou temporada. A consulta envia apenas o título à fonte escolhida.</p>
+    <form class="library-form" id="anime-lookup-form" method="post">
+      <label>Título <input id="anime-title" type="search" minlength="2" maxlength="120" placeholder="Kaguya-sama wa Kokurasetai?: Tensaitachi no Renai Zunousen" required></label>
+      <label>Fonte da consulta <select id="anime-provider"><option value="anilist">AniList</option><option value="mal">MyAnimeList</option></select></label>
+      <div class="library-actions">
+        <button class="editorial-action rhea-primary" type="submit">Buscar no AniList</button>
+        <button class="editorial-action" id="anime-example" type="button">Usar Kaguya-sama na busca</button>
+      </div>
+    </form>
+    <p id="anime-lookup-status" role="status"></p>
+    <div id="anime-lookup-results" class="library-catalog"></div>
+  </details>
   <details class="library-section" id="library-sandbox">
     <summary><strong>Ferramentas de teste</strong></summary>
     <div class="library-actions">
@@ -100,21 +127,12 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
         <button class="editorial-action rhea-primary" id="mirror-approve" type="button">Aprovar cópia</button>
       </div>
     </dialog>
-    <details class="library-section" id="anime-metadata">
-      <summary><strong>Consultar dados de anime</strong></summary>
-      <p>Digite o título da obra ou temporada. A consulta envia apenas o título à fonte escolhida.</p>
-      <form class="library-form" id="anime-lookup-form" method="post">
-        <label>Título <input id="anime-title" type="search" minlength="2" maxlength="120" required></label>
-        <label>Fonte da consulta <select id="anime-provider"><option value="anilist">AniList</option><option value="mal">MyAnimeList</option></select></label>
-        <div class="library-actions"><button class="editorial-action rhea-primary" type="submit">Buscar no AniList</button></div>
-      </form>
-      <p id="anime-lookup-status" role="status"></p>
-      <div id="anime-lookup-results" class="library-catalog"></div>
-    </details>
+
+  </details>
     <section class="library-inventory library-demo prism-surface" aria-labelledby="demo-title">
       <div>
-        <h2 id="demo-title">Canal de demonstração</h2>
-        <p id="inventory-source">Dados fictícios para explorar o catálogo.</p>
+        <h2 id="demo-title">Catálogo do Telegram</h2>
+        <p id="inventory-source">Carregue um tópico para ver as obras do seu acervo.</p>
       </div>
       <dl>
         <div><dt>Séries</dt><dd id="series-count">—</dd></div>
@@ -127,14 +145,14 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
       <div class="library-heading">
         <h2 id="catalog-title">Catálogo A–Z</h2>
         <label class="library-search">Buscar por título ou variante
-          <input id="library-query" type="search" maxlength="120" placeholder="Ex. Kiro Tōdai">
+          <input id="library-query" type="search" maxlength="120" placeholder="Busque uma obra cadastrada">
         </label>
       </div>
       <nav class="library-alphabet" aria-label="Filtrar catálogo por inicial">
         <button type="button" data-letter="" aria-pressed="true">Todas</button>
         {letters.map(letter => <button type="button" data-letter={letter} aria-pressed="false">{letter}</button>)}
       </nav>
-      <p class="meta" id="catalog-result" role="status">Carregando demonstração.</p>
+      <p class="meta" id="catalog-result" role="status">Carregue um tópico para começar.</p>
       <div id="catalog-items" class="library-catalog"></div>
     </section>
 
@@ -163,7 +181,6 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
       <p class="meta" id="correction-feedback" role="status"></p>
     </section>
 
-  </details>
 </div>
 <script>
   import './preview.mjs';

@@ -3,6 +3,7 @@ import { open } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { forumId } from '../src/rhea/library/forum-contract.mjs';
 import { mirrorLimit } from '../src/rhea/library/mirror-contract.mjs';
+import { rebuildLimit } from '../src/rhea/library/organization-contract.mjs';
 import { MirrorPreflightError, mirrorUnits } from './mirror-messages.mjs';
 
 const approvalTtl = 5 * 60_000;
@@ -10,13 +11,13 @@ const digest = value => createHash('sha256').update(JSON.stringify(value)).diges
 const idsOf = unit => unit.map(post => post.id);
 const fingerprint = posts => posts.map(({ id, parent, album, contents }) => [id, parent, album, contents]);
 
-function readLog(lines, scope, dual, ordered) {
+function readLog(lines, scope, dual, ordered, limit) {
   const [header, ...events] = lines;
   if (header?.type !== 'approved' || header.scope !== scope ||
       !/^[0-9a-f]{64}$/.test(header.evidence ?? '') || !Array.isArray(header.units) ||
       header.units.some(unit => !Array.isArray(unit) || !unit.length || unit.length > 10)) return null;
   const ids = header.units.flat();
-  if (!ids.length || ids.length > mirrorLimit || new Set(ids).size !== ids.length ||
+  if (!ids.length || ids.length > limit || new Set(ids).size !== ids.length ||
       ids.some((id, i) => !forumId(id) || (!ordered && i && ids[i - 1] >= id))) return null;
   const copies = [];
   const localCopies = [];
@@ -72,11 +73,14 @@ function verifyDestination(source, destination, mappings) {
 export function mirrorControl(config, now = Date.now) {
   if (!config.mirror) return { handle: async () => ({ state: 'mirror_disabled' }), reset() {} };
   const { source, destination, local } = config.mirror;
-  const ordered = config.mirror.organization;
+  const { rebuild, intake, organization } = config.mirror;
+  const ordered = organization ?? rebuild;
+  const limit = rebuild ? rebuildLimit : mirrorLimit;
   const target = digest([destination.channelId, destination.topicId]);
   const scope = digest([config.actor, config.ownerId, source.channelId, source.topicId, target, ...(local ? [local.topicId] : []),
-    ...(ordered ? [ordered.letter, ordered.ids] : [])]);
-  const journal = join(dirname(config.file), ordered ? 'organization-pilot.jsonl' : 'mirror-' + target + '.jsonl');
+    ...(ordered ? [ordered.letter, ordered.ids] : []), ...(rebuild ? [intake.topicId, rebuild.beforeId] : [])]);
+  const journal = join(dirname(config.file), rebuild ? 'letter-rebuild-pilot.jsonl' :
+    ordered ? 'organization-pilot.jsonl' : 'mirror-' + target + '.jsonl');
   let pending;
   let active = false;
 
@@ -85,10 +89,10 @@ export function mirrorControl(config, now = Date.now) {
     try {
       file = await open(journal, 'r');
       const { size } = await file.stat();
-      if (size < 1 || size > 16384) return false;
+      if (size < 1 || size > (rebuild ? 262144 : 16384)) return false;
       const contents = await file.readFile('utf8');
       if (!contents.endsWith('\n')) return false;
-      return readLog(contents.trimEnd().split('\n').map(line => JSON.parse(line)), scope, Boolean(local), Boolean(ordered)) ?? false;
+      return readLog(contents.trimEnd().split('\n').map(line => JSON.parse(line)), scope, Boolean(local), Boolean(ordered), limit) ?? false;
     } catch (error) {
       return error.code === 'ENOENT' ? null : false;
     } finally {

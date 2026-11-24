@@ -1,6 +1,7 @@
 import { Api } from 'teleproto';
 import { forumId, forumPageSize } from '../src/rhea/library/forum-contract.mjs';
 import { mirrorLimit, mirrorTestTopic } from '../src/rhea/library/mirror-contract.mjs';
+import { rebuildLimit } from '../src/rhea/library/organization-contract.mjs';
 import { alphabeticDestination } from '../src/rhea/library/anime-enrichment.mjs';
 import { belongsToGeneral } from './forum.mjs';
 
@@ -74,12 +75,12 @@ function describe(message, topicId, reject, byteLimit) {
   return { id: message.id, parent: parent === topicId ? null : parent, album, contents, message };
 }
 
-export function topicSnapshot(result, channelId, topicId, reject = () => null, byteLimit = fixtureBytes) {
+export function topicSnapshot(result, channelId, topicId, reject = () => null, byteLimit = fixtureBytes, limit = mirrorLimit) {
   if (result?.inexact || result?.offsetIdOffset > 0 || !Array.isArray(result?.messages)) return reject('history_unverified');
   // The unpaged MTProto constructor carries all messages and has no count.
   const count = result.className === 'messages.Messages' ? result.messages.length : result.count;
   if (!Number.isInteger(count) || count < 0) return reject('history_unverified');
-  if (result.messages.length > mirrorLimit + 1 || count > mirrorLimit + 1) return reject('history_limit');
+  if (result.messages.length > limit + 1 || count > limit + 1) return reject('history_limit');
   if (count > result.messages.length + 1) return reject('history_unverified');
   const posts = [];
   let previous = Infinity;
@@ -95,7 +96,7 @@ export function topicSnapshot(result, channelId, topicId, reject = () => null, b
     if (!post) return null;
     posts.push(post);
   }
-  if (posts.length > mirrorLimit) return reject('history_limit');
+  if (posts.length > limit) return reject('history_limit');
   return posts.reverse();
 }
 
@@ -176,15 +177,16 @@ function organizedSource(result, channelId, topicId, orderedIds, reject) {
 export async function openMirror(config, privateChat, peerFor, invoke, download) {
   const dual = Boolean(config.local);
   const organization = config.organization;
+  const rebuild = config.rebuild;
   let sourceRevision;
-  const byteLimit = dual ? largeFixtureBytes : fixtureBytes;
+  const byteLimit = dual || rebuild ? largeFixtureBytes : fixtureBytes;
   const names = { source: mirrorTestTopic, local: 'RHEA Organized Test',
     destination: dual ? 'RHEA Backup Test' : mirrorTestTopic };
 
   const chats = new Map();
   async function topic(side) {
     const scope = config[side];
-    const reject = (code, postId, detail) => { throw new MirrorPreflightError(side, code, postId, detail); };
+    const reject = (code, postId, detail) => { throw new MirrorPreflightError(side === 'intake' ? 'source' : side, code, postId, detail); };
     let chat;
     try {
       chat = chats.get(scope.channelId) ?? await privateChat(scope);
@@ -211,24 +213,53 @@ export async function openMirror(config, privateChat, peerFor, invoke, download)
         throw error;
       }
     }
-    const entry = organization && side === 'source' && topicId === 1 ? { title: 'General (1)' } :
+    const entry = ((organization && side === 'source') || (rebuild && side === 'intake')) && topicId === 1 ? { title: 'General (1)' } :
       (await resolve(new Api.messages.GetForumTopicsByID({ peer, topics: [topicId] }), 'topic_missing'))
         .topics?.find(item => item.className === 'ForumTopic' && item.id === topicId);
     if (!entry) reject('topic_missing');
-    if (entry.closed || entry.hidden) reject('topic_closed');
-    if (organization) {
+    if (entry.hidden || (entry.closed && !(rebuild && side !== 'destination'))) reject('topic_closed');
+    if (rebuild) {
+      if (side !== 'intake' && alphabeticDestination(rebuild.letter, [{ ...entry, closed: false }], undefined,
+        side === 'destination' ? 'replacement' : 'letter').state !== 'found') reject('topic_name');
+    } else if (organization) {
       if (side !== 'source' && alphabeticDestination(organization.letter, [entry]).state !== 'found') reject('topic_name');
     } else if (entry.title !== names[side]) reject(dual && side !== 'source' ? 'dual_topic_name' : 'topic_name');
     return {
       peer, topicId, title: chat.title + ' / ' + entry.title,
       async read({ requireEmpty = false } = {}) {
-        const ordered = organization && side === 'source';
-        const result = await resolve(new Api.messages.GetReplies({
-          peer, msgId: topicId, offsetId: 0, limit: ordered ? forumPageSize + 1 : mirrorLimit + 2,
-          offsetDate: 0, addOffset: 0, maxId: 0, minId: 0, hash: 0,
+        const ordered = (organization && side === 'source') || (rebuild && side === 'intake');
+        const page = (offsetId, limit) => resolve(new Api.messages.GetReplies({
+          peer, msgId: topicId, offsetId, limit, offsetDate: 0, addOffset: 0, maxId: 0, minId: 0, hash: 0,
         }), 'history_unverified');
+        if (rebuild && !ordered && !requireEmpty) {
+          const rows = [];
+          let count;
+          for (let offset = 0, pages = 0; pages < Math.ceil((rebuildLimit + 1) / forumPageSize) + 1; pages++) {
+            const result = await page(offset, forumPageSize);
+            const messages = result?.messages;
+            if (!Array.isArray(messages) || messages.length > forumPageSize || result.inexact || result.offsetIdOffset > 0 ||
+                messages.some((item, i) => !forumId(item?.id) || (i ? item.id >= messages[i - 1].id : offset && item.id >= offset))) {
+              return reject('history_unverified');
+            }
+            if (Number.isInteger(result.count)) {
+              if (result.count > rebuildLimit + 1) return reject('history_limit');
+              if (count !== undefined && count !== result.count) return reject('history_unverified');
+              count = result.count;
+            } else if (result.className !== 'messages.Messages') return reject('history_unverified');
+            rows.push(...messages);
+            if (rows.length > rebuildLimit + 1) return reject('history_limit');
+            if (!messages.length || messages.at(-1).id === topicId) {
+              if (count !== undefined && Math.abs(count - rows.length) > 1) return reject('history_unverified');
+              return topicSnapshot({ className: 'messages.Messages', messages: rows }, scope.channelId, topicId,
+                (code, id, detail) => reject(code, id, detail === 'file_size' ? 'large_file_size' : detail), byteLimit, rebuildLimit);
+            }
+            offset = messages.at(-1).id;
+          }
+          return reject('history_limit');
+        }
+        const result = await page(0, ordered ? forumPageSize + 1 : mirrorLimit + 2);
         if (ordered) {
-          const snapshot = organizedSource(result, scope.channelId, topicId, organization.ids, reject);
+          const snapshot = organizedSource(result, scope.channelId, topicId, (rebuild ?? organization).ids, reject);
           sourceRevision = snapshot.revision;
           return snapshot.posts;
         }
@@ -243,6 +274,17 @@ export async function openMirror(config, privateChat, peerFor, invoke, download)
   const from = await topic('source');
   const backup = await topic('destination');
   const local = dual ? await topic('local') : undefined;
+  const intake = rebuild ? await topic('intake') : undefined;
+
+  async function readSource() {
+    const current = await from.read();
+    if (!rebuild) return current;
+    const incoming = await intake.read();
+    const before = rebuild.beforeId === null ? current.length : current.findIndex(post => post.id === rebuild.beforeId);
+    if (before < 0) throw new MirrorPreflightError('source', 'selection_changed');
+    if (current.length + incoming.length > rebuildLimit) throw new MirrorPreflightError('source', 'history_limit');
+    return [...current.slice(0, before), ...incoming, ...current.slice(before)];
+  }
 
   function destinationTransport(to) {
     async function copy(unit, randomIds, targetParent) {
@@ -269,12 +311,12 @@ export async function openMirror(config, privateChat, peerFor, invoke, download)
   }
   const target = destinationTransport(backup);
   return {
-    sourceTitle: from.title, destinationTitle: target.title,
-    readSource: from.read, readDestination: target.read, copy: target.copy,
+    sourceTitle: intake ? from.title + ' + ' + intake.title : from.title, destinationTitle: target.title,
+    readSource, readDestination: target.read, copy: target.copy,
     get sourceRevision() { return sourceRevision; },
     ...(dual && { local: destinationTransport(local) }),
     async verifyMedia(posts) {
-      if (dual) return true;
+      if (dual || rebuild) return true;
       for (const post of posts) {
         if (post.contents.kind === 'text') continue;
         let readable = false;

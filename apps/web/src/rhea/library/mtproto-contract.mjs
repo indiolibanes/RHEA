@@ -1,6 +1,6 @@
 import { forumInput, forumResponse, isForumOperation } from './forum-contract.mjs';
 import { isMirrorOperation, mirrorInput, mirrorIssue, mirrorResponse } from './mirror-contract.mjs';
-import { isOrganizationOperation, organizationInput } from './organization-contract.mjs';
+import { isOrganizationOperation, isRebuildOperation, organizationInput, rebuildLimit } from './organization-contract.mjs';
 
 export const overviewLimit = 2 * 1024 * 1024;
 export const inventoryLimit = 500;
@@ -8,7 +8,8 @@ const routes = { status: 'GET', start: 'POST', code: 'POST', password: 'POST', c
   inventory: 'POST', disconnect: 'POST', stagepreview: 'POST', stagecopy: 'POST',
   forumtopics: 'POST', forumpage: 'POST',
   mirrorstatus: 'POST', mirrorpreview: 'POST', mirrorapprove: 'POST', mirrornext: 'POST',
-  organizepreview: 'POST', organizeapprove: 'POST', organizenext: 'POST', organizestatus: 'POST' };
+  organizepreview: 'POST', organizeapprove: 'POST', organizenext: 'POST', organizestatus: 'POST',
+  rebuildpreview: 'POST', rebuildapprove: 'POST', rebuildnext: 'POST', rebuildstatus: 'POST' };
 const statusCodes = {
   unconfigured: 200, disconnected: 200, code: 200, password: 200, connected: 200, inventory: 200,
   access_required: 401, not_allowed: 403, invalid_request: 400, invalid_code: 409, invalid_password: 409,
@@ -83,7 +84,7 @@ function overview(value) {
   return { channelId: value.channelId, revision: value.revision, complete: value.complete, messages };
 }
 
-export function mtprotoResult(state, extra = {}) {
+export function mtprotoResult(state, extra = {}, operation) {
   const status = Object.hasOwn(statusCodes, state) ? statusCodes[state] : null;
   if (!status) return mtprotoResult('unavailable');
   const body = { state };
@@ -102,7 +103,7 @@ export function mtprotoResult(state, extra = {}) {
   }
   if (['mirror_preview', 'mirror_progress', 'mirror_done'].includes(state) ||
       (state === 'mirror_recovery' && extra.mirror)) {
-    body.mirror = mirrorResponse(state, extra.mirror);
+    body.mirror = mirrorResponse(state, extra.mirror, isRebuildOperation(operation) ? rebuildLimit : undefined);
     if (!body.mirror) return mtprotoResult('unavailable');
   }
   if (state === 'stage_preview') {

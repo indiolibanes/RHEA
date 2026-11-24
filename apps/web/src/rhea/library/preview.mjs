@@ -1,5 +1,8 @@
 import { buildCatalog, duplicateCandidates, editionTypes, findSeries, letterFor } from './catalog.mjs';
-import { syntheticSnapshot } from './fixtures.mjs';
+import { forumEnrichmentSnapshot } from './forum-panel.mjs';
+import { forumCatalogSnapshot } from './live-catalog.mjs';
+
+const library = document.querySelector('[data-rhea-telegram-library]');
 
 const get = id => document.getElementById(id);
 function element(tag, text) {
@@ -64,7 +67,8 @@ function renderCatalog() {
     cards.push(unresolved);
   }
   get('catalog-items').replaceChildren(...cards);
-  get('catalog-result').textContent = entries.length ? count.format(entries.length) + ' séries exibidas' : 'Nenhuma série corresponde à busca.';
+  get('catalog-result').textContent = entries.length ? count.format(entries.length) + ' séries exibidas' :
+    snapshot.sourceId === 'empty' ? 'Carregue um tópico para começar.' : 'Nenhuma série corresponde à busca.';
   if (catalog.unresolved.length) get('catalog-result').textContent += ' · ' + catalog.unresolved.flatMap(group => group.items).length + ' posts sem série confirmada.';
   for (const button of alphabet) {
     button.setAttribute('aria-pressed', String(button.dataset.letter === selected));
@@ -112,10 +116,12 @@ function chooseLetter(letter) {
   renderCatalog();
 }
 
-export function setCatalogSnapshot(current = syntheticSnapshot()) {
+export function setCatalogSnapshot(current = { sourceId: 'empty', series: [], messages: [], correctionIds: [] }) {
   snapshot = { ...current, overrides: {} };
-  get('demo-title').textContent = snapshot.sourceId === 'demo' ? 'Canal de demonstração' : 'Canal de teste autorizado';
-  get('inventory-source').textContent = snapshot.sourceId === 'demo' ? 'Dados fictícios para explorar o catálogo.' :
+  if (selected && !snapshot.series.some(entry => letterFor(entry.title) === selected)) selected = '';
+  get('demo-title').textContent = snapshot.sourceId === 'forum-topic' ? 'Catálogo · ' + snapshot.title :
+    snapshot.sourceId === 'empty' ? 'Catálogo do Telegram' : 'Canal de teste autorizado';
+  get('inventory-source').textContent = snapshot.sourceId === 'empty' ? 'Carregue um tópico para ver as obras do seu acervo.' :
     snapshot.complete ? 'Histórico consultado no Telegram. As correções valem nesta sessão.' :
       'Inventário parcial do Telegram. O catálogo mostra os posts lidos.';
   get('correction-id').replaceChildren(...snapshot.correctionIds.map(id => new Option('Post #' + id, String(id))));
@@ -146,4 +152,9 @@ get('correction-reset').addEventListener('click', () => {
   get('correction-feedback').textContent = 'Correção removida do catálogo.';
 });
 selected = /^[A-Z]$/.test(location.hash.slice(1)) ? location.hash.slice(1) : '';
+library.addEventListener('rhea:forum-inventory-change', () => {
+  const forum = forumEnrichmentSnapshot();
+  if (forum?.channelId) setCatalogSnapshot(forumCatalogSnapshot(forum));
+  else if (snapshot?.sourceId === 'forum-topic') setCatalogSnapshot();
+});
 setCatalogSnapshot();

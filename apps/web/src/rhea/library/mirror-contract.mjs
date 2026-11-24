@@ -33,9 +33,9 @@ export function mirrorInput(operation, input) {
   return { approval: input.approval, confirm: true };
 }
 
-export function mirrorResponse(state, value) {
+export function mirrorResponse(state, value, limit = mirrorLimit) {
   if (state === 'mirror_idle') return {};
-  if (!value || !Number.isInteger(value.total) || value.total < 1 || value.total > mirrorLimit) return null;
+  if (!value || !Number.isInteger(value.total) || value.total < 1 || value.total > limit) return null;
   if (state === 'mirror_preview') {
     if (!token(value.approval) || !Number.isSafeInteger(value.expiresAt) ||
         typeof value.source !== 'string' || typeof value.destination !== 'string' ||

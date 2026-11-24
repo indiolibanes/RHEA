@@ -2,6 +2,7 @@ import { alphabeticDestination, episodeLabel, groupTopicDocuments, proposeAnimeP
 import { animeFormats, animeProviders, lookupAnime, lookupMessage, providerFallback, retryableLookup } from './anime-lookup.mjs';
 import { manualAnimeMetadata } from './manual-anime-metadata.mjs';
 import { letterRebuildTopics, planLetterRebuild } from './letter-rebuild.mjs';
+import { rebuildLimit } from './organization-contract.mjs';
 import { forumEnrichmentSnapshot } from './forum-panel.mjs';
 import { organizationPublication } from './organization-panel.mjs';
 import { mirrorLimit } from './mirror-contract.mjs';
@@ -20,6 +21,7 @@ let destinationRead;
 let preview;
 let rebuildRead;
 let rebuildSelection;
+let rebuildPosts;
 let cooldown;
 const retryAt = new Map();
 const currentProvider = () => get('provider').value;
@@ -230,12 +232,27 @@ async function checkForum(letter, scope, signal) {
 
 function clearRebuild() {
   rebuildRead?.abort();
-  rebuildRead = rebuildSelection = undefined;
+  rebuildRead = rebuildSelection = rebuildPosts = undefined;
   get('rebuild').hidden = true;
+  get('rebuild-insert').hidden = true;
   get('rebuild-review').disabled = false;
   get('rebuild-status').textContent = '';
   get('rebuild-items').replaceChildren();
 }
+
+get('rebuild-anchor').addEventListener('change', event => {
+  publication.clear();
+  if (!rebuildSelection || !rebuildPosts || !event.target.value) return;
+  const beforeId = event.target.value === 'end' ? null : Number(event.target.value);
+  const oldIds = rebuildPosts.map(post => post.id);
+  const before = beforeId === null ? oldIds.length : oldIds.indexOf(beforeId);
+  if (before < 0) return;
+  const ids = preview.sorted.map(post => post.id);
+  const { current, target } = rebuildSelection;
+  publication.prepare({ currentTopicId: current.id, replacementTopicId: target.id, sourceTopicId: source.topicId,
+    letter: preview.letter, beforeId, ids }, [...oldIds.slice(0, before), ...ids, ...oldIds.slice(before)]);
+  setStep('review');
+});
 
 async function readCurrentLetter({ channelId, current }, signal) {
   const posts = new Map();
@@ -263,6 +280,9 @@ get('rebuild-review').addEventListener('click', async () => {
   const request = new AbortController();
   const selection = rebuildSelection;
   rebuildRead = request;
+  rebuildPosts = undefined;
+  publication.clear();
+  get('rebuild-insert').hidden = true;
   get('rebuild-review').disabled = true;
   get('rebuild-items').replaceChildren();
   get('rebuild-status').textContent = 'Lendo as publicações do tópico atual…';
@@ -272,15 +292,22 @@ get('rebuild-review').addEventListener('click', async () => {
     const plan = planLetterRebuild({ letter: preview.letter, currentPosts: posts, intakeGroup: group(),
       intakeTitle: preview.title, reference: source.reference, complete: complete && source.complete });
     const { checks } = plan;
+    const blocker = checks.incomplete ? 'Termine a leitura dos dois tópicos antes de publicar.' :
+      posts.length + preview.sorted.length > rebuildLimit ? 'O piloto aceita até ' + rebuildLimit + ' publicações por reconstrução.' :
+      preview.sorted.length > mirrorLimit ? 'O piloto aceita até ' + mirrorLimit + ' arquivos vindos de Requests.' :
+      checks.protectedGroups || posts.some(post => post.protected) ? 'Há publicações protegidas pelo Telegram.' :
+      group().duplicate || group().missingEpisode || group().albumReview || preview.countMismatch || preview.editionReview ?
+        'Confira a numeração, a edição e os álbuns da obra de Requests.' : '';
     const messages = [
-      plan.groups.length + ' blocos na ordem proposta.',
+      plan.groups.length + ' blocos identificados, exibidos por título.',
       checks.incomplete && 'A leitura é parcial.',
       checks.sameTitle && 'A obra também aparece no tópico atual. Confira a edição e possíveis duplicatas.',
       checks.outOfLetter && 'Há títulos fora da letra escolhida.',
       checks.ambiguousGroups > 0 && checks.ambiguousGroups + ' blocos com episódios ou álbuns a conferir.',
       checks.protectedGroups > 0 && checks.protectedGroups + ' blocos com conteúdo protegido.',
-      checks.unassigned > 0 && checks.unassigned + ' arquivos sem obra identificada no tópico atual.',
-      checks.otherPosts > 0 && checks.otherPosts + ' capas, notas ou outras publicações precisam de associação.',
+      checks.unassigned > 0 && checks.unassigned + ' arquivos sem obra identificada serão mantidos na ordem atual.',
+      checks.otherPosts > 0 && checks.otherPosts + ' capas, notas ou outras publicações serão mantidas na ordem atual.',
+      blocker || 'Escolha o ponto de inserção para revisar a cópia de todas as publicações do tópico atual.',
     ];
     get('rebuild-status').textContent = messages.filter(Boolean).join(' ');
     get('rebuild-items').replaceChildren(...plan.groups.map(item => {
@@ -296,6 +323,14 @@ get('rebuild-review').addEventListener('click', async () => {
       row.append(details);
       return row;
     }));
+    if (!blocker) {
+      rebuildPosts = [...posts].sort((a, b) => a.id - b.id);
+      get('rebuild-anchor').replaceChildren(new Option('Escolha o ponto de inserção', ''),
+        ...rebuildPosts.map(post => new Option('Antes de #' + post.id + ' · ' +
+          (post.heading || post.filename || post.caption || post.kind).slice(0, 120), String(post.id))),
+        new Option('Depois da última publicação', 'end'));
+      get('rebuild-insert').hidden = false;
+    }
   } catch {
     if (!request.signal.aborted) get('rebuild-status').textContent = 'A leitura do tópico atual falhou. Confira o acesso e tente novamente.';
   } finally {
@@ -349,7 +384,7 @@ get('check-destinations').addEventListener('click', async () => {
     const local = await lookup(undefined);
     if (request.signal.aborted) return;
     if (local.topic && ['found', 'closed'].includes(local.state) && local.replacement?.state === 'found') {
-      rebuildSelection = { channelId: local.channelId, current: local.topic };
+      rebuildSelection = { channelId: local.channelId, current: local.topic, target: local.replacement.topic };
       get('rebuild-targets').textContent = local.topic.title + ' + ' + source.title + ' → ' + local.replacement.topic.title;
       get('rebuild').hidden = false;
       results.replaceChildren(destinationLine('Destino da reconstrução', { ...local.replacement, channelId: local.channelId }, letter));

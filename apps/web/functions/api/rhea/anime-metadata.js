@@ -1,4 +1,5 @@
 import { boundedTelegramJson } from '../../../src/rhea/library/telegram-contract.mjs';
+import { validMalClientId } from '../../../src/rhea/library/anime-lookup.mjs';
 
 const query = `query ($title: String!) {
   Page(page: 1, perPage: 6) {
@@ -63,13 +64,16 @@ export async function animeMetadata({ request, data, env }, fetcher = fetch) {
   if (!/^application\/json(?:[; ]|$)/i.test(request.headers.get('Content-Type') ?? '')) return json({ state: 'invalid_title' }, 400);
   let title;
   let provider = 'anilist';
+  let sessionClientId;
   try {
     const input = await boundedTelegramJson(request, 1024);
     const keys = Object.keys(input ?? {});
-    if (typeof input?.title === 'string' && keys.every(key => key === 'title' || key === 'provider') &&
+    if (typeof input?.title === 'string' && keys.every(key => ['title', 'provider', 'malClientId'].includes(key)) &&
+        (!Object.hasOwn(input, 'malClientId') || (input.provider === 'mal' && validMalClientId(input.malClientId))) &&
         (input.provider === undefined || ['anilist', 'mal'].includes(input.provider))) {
       title = input.title.trim().normalize('NFC');
       provider = input.provider ?? provider;
+      sessionClientId = input.malClientId;
     }
   } catch { /* Reject unreadable or oversized input. */ }
   if (!title || title.length < 2 || title.length > 120 || /[\p{Cc}]/u.test(title)) return json({ state: 'invalid_title' }, 400);
@@ -78,7 +82,7 @@ export async function animeMetadata({ request, data, env }, fetcher = fetch) {
   let options = { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ query, variables: { title } }) };
   if (useMal) {
-    const clientId = env?.RHEA_MAL_CLIENT_ID?.trim();
+    const clientId = sessionClientId ?? env?.RHEA_MAL_CLIENT_ID?.trim();
     if (!clientId) return json({ state: 'provider_unconfigured' }, 503);
     const url = new URL('https://api.myanimelist.net/v2/anime');
     url.search = new URLSearchParams({ q: title, limit: '6', nsfw: 'false',
