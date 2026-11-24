@@ -1,5 +1,7 @@
 import { alphabeticDestination, episodeLabel, groupTopicDocuments, proposeAnimePreview } from './anime-enrichment.mjs';
-import { animeFormats, lookupAnime, lookupMessage, providerFallback, retryableLookup } from './anime-lookup.mjs';
+import { animeFormats, animeProviders, lookupAnime, lookupMessage, providerFallback, retryableLookup } from './anime-lookup.mjs';
+import { manualAnimeMetadata } from './manual-anime-metadata.mjs';
+import { letterRebuildTopics, planLetterRebuild } from './letter-rebuild.mjs';
 import { forumEnrichmentSnapshot } from './forum-panel.mjs';
 import { organizationPublication } from './organization-panel.mjs';
 import { mirrorLimit } from './mirror-contract.mjs';
@@ -16,8 +18,12 @@ let groups = [];
 let active;
 let destinationRead;
 let preview;
+let rebuildRead;
+let rebuildSelection;
 let cooldown;
-const searchLabel = 'Buscar no AniList';
+const retryAt = new Map();
+const currentProvider = () => get('provider').value;
+const searchLabel = () => 'Buscar no ' + animeProviders[currentProvider()];
 
 const node = (tag, text) => Object.assign(document.createElement(tag), { textContent: text });
 const list = posts => posts.map(p => node('li', episodeLabel(p) + ' · ' + (p.filename || '#' + p.id)));
@@ -54,38 +60,37 @@ function stopCooldown() {
 }
 
 // A rate limit disables the search button for the provider's wait time (bounded by the route to 1 hour).
-function waitToRetry(seconds) {
+function updateSearchButton() {
   stopCooldown();
-  let left = seconds;
   const search = get('search');
+  const provider = currentProvider();
   const tick = () => {
+    const left = Math.ceil(((retryAt.get(provider) ?? 0) - Date.now()) / 1000);
     if (left <= 0) {
+      const waited = retryAt.has(provider);
+      retryAt.delete(provider);
       stopCooldown();
-      search.disabled = false;
-      search.textContent = 'Tentar novamente';
-      status.textContent = 'O limite terminou. Você já pode repetir a busca.';
-      return;
+      search.disabled = Boolean(active);
+      search.textContent = waited ? 'Tentar novamente' : searchLabel();
+      return false;
     }
     search.disabled = true;
     search.textContent = 'Tentar novamente em ' + left + ' s';
-    left -= 1;
+    return true;
   };
-  tick();
-  cooldown = setInterval(tick, 1000);
+  if (tick()) cooldown = setInterval(tick, 1000);
 }
 
 // The provider wait survives edits to the title so the rate limit is honored; reset() ends it.
 function clearChoice() {
   publication.clear();
+  clearRebuild();
   active?.abort();
   active = undefined;
   destinationRead?.abort();
   destinationRead = undefined;
   preview = undefined;
-  if (!cooldown) {
-    get('search').disabled = false;
-    get('search').textContent = searchLabel;
-  }
+  updateSearchButton();
   status.textContent = '';
   get('provider-search').hidden = true;
   get('result').hidden = true;
@@ -103,10 +108,14 @@ function clearChoice() {
 
 function selectGroup() {
   clearChoice();
+  get('manual').reset();
+  get('manual').hidden = true;
+  get('manual-open').setAttribute('aria-expanded', 'false');
+  get('manual-status').textContent = '';
   const item = group();
   title.value = item?.title.slice(0, 120) ?? '';
   get('original').replaceChildren(...list(item?.posts ?? []));
-  if (item) status.textContent = 'Confira o título da obra. A busca envia só esse título ao AniList.';
+  if (item) status.textContent = 'Confira o título da obra. A busca envia apenas esse campo à fonte que você escolher.';
 }
 
 function load(input) {
@@ -133,6 +142,7 @@ function providerLink(text, url) {
 
 function show(candidate, manual = false) {
   publication.clear();
+  clearRebuild();
   destinationRead?.abort();
   destinationRead = undefined;
   get('destination-status').textContent = '';
@@ -143,8 +153,10 @@ function show(candidate, manual = false) {
   preview = plan;
   const fmt = animeFormats[candidate.format];
   get('provider-search').hidden = true;
-  get('match').textContent = [plan.title, manual ? 'Título informado, sem metadados do AniList' : fmt,
-    candidate.year, candidate.episodes && candidate.episodes + ' episódios', candidate.studios[0],
+  const providerLabel = candidate.provider === 'manual' ? 'Dados preenchidos manualmente' : animeProviders[candidate.provider ?? 'anilist'];
+  get('match').textContent = [plan.title, manual ? 'Título informado, sem metadados do AniList' : providerLabel, fmt,
+    candidate.year, candidate.episodes && candidate.episodes + ' episódios',
+    candidate.duration && candidate.duration + ' min por episódio', candidate.studios[0],
     candidate.genres.join(', ')].filter(Boolean).join(' · ');
   get('destination').textContent = plan.letter === '#' ?
     'O título precisa começar com uma letra A–Z para sugerir um tópico.' :
@@ -165,7 +177,7 @@ function show(candidate, manual = false) {
   get('caption').textContent = caption || 'Confirme a edição e a numeração para montar a legenda.';
   get('sorted').replaceChildren(...list(plan.sorted));
   const links = [];
-  if (candidate.url) links.push(providerLink('Ver entrada no AniList', candidate.url));
+  if (candidate.url) links.push(providerLink(candidate.provider === 'mal' ? 'Ver no MyAnimeList' : 'Ver no AniList', candidate.url));
   if (candidate.cover) links.push(providerLink('Abrir capa sugerida', candidate.cover));
   get('links').replaceChildren(...links);
   summarize(plan.title, plan.sorted.length + (plan.sorted.length === 1 ? ' arquivo' : ' arquivos') +
@@ -206,11 +218,93 @@ async function checkForum(letter, scope, signal) {
       seen.add(topic.id);
       topics.push(topic);
     }
-    if (forum.next === null) return { channelId, ...alphabeticDestination(letter, topics, scope ? undefined : source.topicId) };
+    if (forum.next === null) {
+      if (scope) return { channelId, ...alphabeticDestination(letter, topics) };
+      const { current, replacement } = letterRebuildTopics(letter, topics, source.topicId);
+      return { channelId, ...current, replacement };
+    }
     cursor = forum.next;
   }
   return { state: 'incomplete' };
 }
+
+function clearRebuild() {
+  rebuildRead?.abort();
+  rebuildRead = rebuildSelection = undefined;
+  get('rebuild').hidden = true;
+  get('rebuild-review').disabled = false;
+  get('rebuild-status').textContent = '';
+  get('rebuild-items').replaceChildren();
+}
+
+async function readCurrentLetter({ channelId, current }, signal) {
+  const posts = new Map();
+  let cursor = null;
+  for (let page = 0; page < 20; page++) {
+    const response = await fetch(root.dataset.telegramEndpoint + '?op=forumpage', {
+      method: 'POST', credentials: 'same-origin', redirect: 'manual', cache: 'no-store', signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topicId: current.id, cursor }),
+    });
+    const data = await response.json();
+    const forum = data.forum;
+    if (!response.ok || data.state !== 'forum_page' || forum?.channelId !== channelId || forum.topicId !== current.id ||
+        !Array.isArray(forum.posts) || forum.posts.some(post => posts.has(post.id)) ||
+        (forum.next !== null && (!forum.next || forum.next === cursor))) throw new Error('Letter page could not be verified.');
+    for (const post of forum.posts) posts.set(post.id, post);
+    if (forum.next === null) return { posts: [...posts.values()], complete: true };
+    cursor = forum.next;
+  }
+  return { posts: [...posts.values()], complete: false };
+}
+
+get('rebuild-review').addEventListener('click', async () => {
+  if (!rebuildSelection || rebuildRead) return;
+  const request = new AbortController();
+  const selection = rebuildSelection;
+  rebuildRead = request;
+  get('rebuild-review').disabled = true;
+  get('rebuild-items').replaceChildren();
+  get('rebuild-status').textContent = 'Lendo as publicações do tópico atual…';
+  try {
+    const { posts, complete } = await readCurrentLetter(selection, request.signal);
+    if (request.signal.aborted) return;
+    const plan = planLetterRebuild({ letter: preview.letter, currentPosts: posts, intakeGroup: group(),
+      intakeTitle: preview.title, reference: source.reference, complete: complete && source.complete });
+    const { checks } = plan;
+    const messages = [
+      plan.groups.length + ' blocos na ordem proposta.',
+      checks.incomplete && 'A leitura é parcial.',
+      checks.sameTitle && 'A obra também aparece no tópico atual. Confira a edição e possíveis duplicatas.',
+      checks.outOfLetter && 'Há títulos fora da letra escolhida.',
+      checks.ambiguousGroups > 0 && checks.ambiguousGroups + ' blocos com episódios ou álbuns a conferir.',
+      checks.protectedGroups > 0 && checks.protectedGroups + ' blocos com conteúdo protegido.',
+      checks.unassigned > 0 && checks.unassigned + ' arquivos sem obra identificada no tópico atual.',
+      checks.otherPosts > 0 && checks.otherPosts + ' capas, notas ou outras publicações precisam de associação.',
+    ];
+    get('rebuild-status').textContent = messages.filter(Boolean).join(' ');
+    get('rebuild-items').replaceChildren(...plan.groups.map(item => {
+      const row = document.createElement('li');
+      const details = document.createElement('details');
+      const episodes = document.createElement('ol');
+      episodes.append(...list(item.posts));
+      details.append(node('summary', [
+        item.title, item.season === undefined ? '' : 'Temporada ' + item.season,
+        item.posts.length + (item.posts.length === 1 ? ' arquivo' : ' arquivos'),
+        item.origin === 'current' ? selection.current.title : source.title,
+      ].filter(Boolean).join(' · ')), episodes);
+      row.append(details);
+      return row;
+    }));
+  } catch {
+    if (!request.signal.aborted) get('rebuild-status').textContent = 'A leitura do tópico atual falhou. Confira o acesso e tente novamente.';
+  } finally {
+    if (rebuildRead === request) {
+      rebuildRead = undefined;
+      get('rebuild-review').disabled = false;
+    }
+  }
+});
 
 function destinationLine(label, target, letter) {
   const messages = {
@@ -249,10 +343,27 @@ get('check-destinations').addEventListener('click', async () => {
   feedback.textContent = 'Conferindo tópicos dos dois grupos…';
   const { letter } = preview;
   publication.clear();
+  clearRebuild();
   const lookup = scope => checkForum(letter, scope, request.signal).catch(() => ({ state: 'unavailable' }));
   try {
     const local = await lookup(undefined);
     if (request.signal.aborted) return;
+    if (local.topic && ['found', 'closed'].includes(local.state) && local.replacement?.state === 'found') {
+      rebuildSelection = { channelId: local.channelId, current: local.topic };
+      get('rebuild-targets').textContent = local.topic.title + ' + ' + source.title + ' → ' + local.replacement.topic.title;
+      get('rebuild').hidden = false;
+      results.replaceChildren(destinationLine('Destino da reconstrução', { ...local.replacement, channelId: local.channelId }, letter));
+      results.hidden = false;
+      get('pilot-note').hidden = true;
+      get('sum-destinations').textContent = local.replacement.topic.title;
+      feedback.textContent = 'Os tópicos da reconstrução foram encontrados. Confira a ordem antes de planejar a cópia.';
+      return;
+    }
+    if (['closed', 'ambiguous'].includes(local.replacement?.state)) {
+      feedback.textContent = local.replacement.state === 'closed' ? 'O tópico de reconstrução está fechado.' :
+        'Há mais de um tópico de reconstrução com a mesma letra.';
+      return;
+    }
     const backup = await lookup('backup');
     if (request.signal.aborted) return;
     results.replaceChildren(destinationLine('No mesmo grupo', local, letter), destinationLine('No backup', backup, letter));
@@ -316,24 +427,53 @@ get('use-title').addEventListener('click', () => {
   clearChoice();
   show({ titles: [title.value.trim()], studios: [], genres: [] }, true);
 });
+get('manual-open').addEventListener('click', () => {
+  const form = get('manual');
+  form.hidden = !form.hidden;
+  get('manual-open').setAttribute('aria-expanded', String(!form.hidden));
+  if (!form.hidden) form.elements.link.focus();
+});
+get('manual').addEventListener('submit', event => {
+  event.preventDefault();
+  if (!group() || !title.reportValidity()) return;
+  const fields = Object.fromEntries(new FormData(event.currentTarget));
+  const candidate = manualAnimeMetadata({ ...fields, title: title.value });
+  if (!candidate) {
+    get('manual-status').textContent = 'Confira os campos. O link deve apontar para a ficha da obra no AniList.';
+    return;
+  }
+  get('manual-status').textContent = '';
+  get('manual').hidden = true;
+  get('manual-open').setAttribute('aria-expanded', 'false');
+  clearChoice();
+  show(candidate);
+});
 select.addEventListener('change', selectGroup);
 title.addEventListener('input', clearChoice);
+get('provider').addEventListener('change', clearChoice);
 
 get('form').addEventListener('submit', async event => {
   event.preventDefault();
-  if (!source || !group() || active) return;
+  const provider = currentProvider();
+  if (!source || !group() || active || (retryAt.get(provider) ?? 0) > Date.now()) return;
   clearChoice();
   const request = new AbortController();
   active = request;
   get('search').disabled = true;
-  status.textContent = 'Buscando candidatos…';
+  status.textContent = 'Consultando o ' + animeProviders[provider] + '…';
   try {
-    const result = await lookupAnime(root.dataset.animeMetadataEndpoint, title.value, request.signal);
+    const result = await lookupAnime(root.dataset.animeMetadataEndpoint, title.value, request.signal, provider);
     if (request.signal.aborted) return;
     if (result.state !== 'candidates') {
-      status.textContent = lookupMessage(result);
-      get('provider-search').hidden = !providerFallback.has(result.state);
-      if (result.state === 'rate_limited' && result.retryAfter) waitToRetry(result.retryAfter);
+      status.textContent = lookupMessage(result, provider);
+      const site = get('provider-search');
+      site.href = provider === 'mal' ? 'https://myanimelist.net/anime.php' : 'https://anilist.co/search/anime';
+      site.textContent = 'Pesquisar no site do ' + animeProviders[provider];
+      site.hidden = !providerFallback.has(result.state);
+      if (result.state === 'rate_limited' && result.retryAfter) {
+        retryAt.set(provider, Date.now() + result.retryAfter * 1000);
+        updateSearchButton();
+      }
       else if (retryableLookup.has(result.state)) get('search').textContent = 'Tentar novamente';
       return;
     }
@@ -355,8 +495,8 @@ get('form').addEventListener('submit', async event => {
 });
 
 const reset = () => {
-  stopCooldown();
   load(undefined);
+  stopCooldown();
 };
 root.addEventListener('rhea:telegram-hide', reset);
 root.addEventListener('rhea:forum-clear', reset);

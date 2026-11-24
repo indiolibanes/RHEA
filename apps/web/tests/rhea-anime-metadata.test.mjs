@@ -3,12 +3,45 @@ import { test } from 'node:test';
 import { animeMetadata } from '../functions/api/rhea/anime-metadata.js';
 
 const url = 'https://workspace.example';
-function call(body, fetcher, { origin = url, authorized = true, site } = {}) {
+function call(body, fetcher, { origin = url, authorized = true, site, env } = {}) {
   const request = new Request(url + '/api/rhea/anime-metadata', { method: 'POST',
     headers: { ...(origin && { Origin: origin }), ...(site && { 'Sec-Fetch-Site': site }),
       'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  return animeMetadata({ request, data: authorized ? { cloudflareAccess: { JWT: { payload: { sub: 'operator' } } } } : {} }, fetcher);
+  return animeMetadata({ request, env,
+    data: authorized ? { cloudflareAccess: { JWT: { payload: { sub: 'operator' } } } } : {} }, fetcher);
 }
+
+test('uses the configured MyAnimeList client ID only at the official API and maps public metadata', async () => {
+  const result = await call({ title: '  Synthetic "T" ', provider: 'mal' }, (endpoint, init) => {
+    const target = new URL(endpoint);
+    assert.equal(target.origin + target.pathname, 'https://api.myanimelist.net/v2/anime');
+    assert.equal(target.searchParams.get('q'), 'Synthetic "T"');
+    assert.equal(target.searchParams.get('limit'), '6');
+    assert.equal(target.searchParams.get('nsfw'), 'false');
+    assert.match(target.searchParams.get('fields'), /studios/);
+    assert.equal(init.redirect, 'manual');
+    assert.equal(new Headers(init.headers).get('X-MAL-Client-ID'), 'fixture-client-id');
+    assert.equal(init.body, undefined);
+    return Response.json({ data: [null, { node: { id: 75, title: 'Synthetic T', media_type: 'tv', start_date: '2017-04-07',
+      num_episodes: 12, average_episode_duration: 1500, studios: [{ name: 'Fixture Studio' }],
+      genres: [{ name: 'Romance' }], main_picture: { large: 'https://cdn.myanimelist.net/images/anime/9/3.jpg' } } }] });
+  }, { env: { RHEA_MAL_CLIENT_ID: 'fixture-client-id' } });
+  assert.equal(result.status, 200);
+  assert.deepEqual(await result.json(), { state: 'candidates', candidates: [{
+    id: 75, provider: 'mal', titles: ['Synthetic T'], format: 'TV', year: 2017, episodes: 12, duration: 25,
+    studios: ['Fixture Studio'], genres: ['Romance'], url: 'https://myanimelist.net/anime/75',
+    cover: 'https://cdn.myanimelist.net/images/anime/9/3.jpg',
+  }] });
+});
+
+test('requires a configured MAL ID and rejects private fields and arbitrary providers before fetching', async () => {
+  const noFetch = () => assert.fail('Input must not reach a provider.');
+  const input = { title: 'Synthetic T', provider: 'mal' };
+  assert.deepEqual(await (await call(input, noFetch)).json(), { state: 'provider_unconfigured' });
+  assert.equal((await call(input, noFetch, { authorized: false })).status, 401);
+  assert.equal((await call({ ...input, filename: 'Private.mkv' }, noFetch)).status, 400);
+  assert.equal((await call({ ...input, provider: 'https://untrusted.invalid' }, noFetch)).status, 400);
+});
 
 test('anime lookup sends only the typed public title and sanitizes candidates and links', async () => {
   const result = await call({ title: '  Te\u0301st Title  ' }, (target, init) => {

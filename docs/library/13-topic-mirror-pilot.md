@@ -113,3 +113,25 @@ until the operator has reviewed the outcome and a subsequent rollout defines arc
 AniList public lookup does not require an API key. The protected Pages endpoint accepts a
 suppressed Origin only for an authenticated request with the same-origin browser Fetch Metadata
 header. An upstream refusal remains visible and the confirmed-title workflow stays available.
+
+## Alternate metadata and read-only letter reconstruction
+
+Use **Fonte da consulta → MyAnimeList** to select the official MAL catalog. Set the
+`RHEA_MAL_CLIENT_ID` runtime binding in the protected Cloudflare Pages environment. The route
+sends the registered application's Client ID only to the official MAL API and requests a bounded
+set of public metadata. The Telegram adapter and Railway environment need no MAL settings.
+See [MyAnimeList application settings](https://myanimelist.net/apiconfig).
+
+When the providers are unavailable, open the public AniList entry and choose **Preencher metadados**
+in RHEA. The operator can enter the year, format, episode count, minutes per episode, studio, and
+genres, and paste the public work link for attribution. The fields stay in the current browser
+review and do not initiate a lookup. The operator still confirms that the edition matches the files.
+
+To preview a rebuilt letter, keep the current alphabetical topic as a source and add a separate
+topic named **Letter T [NEW]** in the same forum (substitute the desired letter). Select the
+incoming work from Requests and check destinations. **Montar prévia da letra** reads the current
+letter, combines its confidently recognized document groups with the incoming work, and displays
+the resulting alphabetical series and numeric episode order. It flags ambiguous albums or
+episodes, possible same-title duplicates, protected content, unassigned files, and covers or notes
+that need association. The preview reads at most 20 pages from the current letter and labels a
+partial result. It does not use the one-source publication pilot or copy into the backup forum.
