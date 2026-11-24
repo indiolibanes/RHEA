@@ -40,7 +40,7 @@ test('missing route, HTML refusal and unexpected bodies are distinct states', as
 });
 
 test('provider states from the route keep their category and a bounded wait', async () => {
-  for (const state of ['provider_refused', 'provider_timeout', 'provider_unreachable', 'provider_error', 'provider_unavailable']) {
+  for (const state of ['provider_refused', 'provider_suspended', 'provider_timeout', 'provider_unreachable', 'provider_error', 'provider_unavailable']) {
     assert.equal((await lookup(reply({ state }, { status: 503 }))).state, state);
   }
   const limited = await lookup(reply({ state: 'rate_limited', retryAfter: 12 }, { status: 429 }));

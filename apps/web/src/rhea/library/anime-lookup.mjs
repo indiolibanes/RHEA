@@ -30,7 +30,8 @@ export const lookupErrors = {
   access_refused: 'O Cloudflare Access recusou esta sessão. Entre novamente com a conta autorizada e repita a busca.',
   not_allowed: 'O Private recusou a consulta. Recarregue a página e tente novamente.',
   endpoint_missing: 'A busca de anime ainda não está disponível nesta versão do Private. Continue com o título sem metadados.',
-  provider_refused: 'O AniList recusou a consulta. Tente novamente mais tarde, pesquise no site do AniList ou continue sem metadados.',
+  provider_refused: 'O AniList recusou a consulta feita pelo servidor da RHEA. Isso é um bloqueio do provedor e não é contornado aqui. Pesquise no site do AniList ou continue com o título sem metadados; você também pode tentar novamente mais tarde.',
+  provider_suspended: 'O AniList informou que a API está temporariamente suspensa. Tente novamente mais tarde ou continue com o título sem metadados.',
   provider_timeout: 'O AniList demorou demais para responder. Tente novamente ou continue com o título sem metadados.',
   provider_unreachable: 'A RHEA não conseguiu alcançar o AniList. Tente novamente em instantes ou continue sem metadados.',
   provider_error: 'O AniList respondeu de forma inesperada. Tente novamente ou continue com o título sem metadados.',
@@ -40,9 +41,9 @@ export const lookupErrors = {
 };
 
 // States where repeating the search can help and the site search is a useful fallback.
-export const retryableLookup = new Set(['rate_limited', 'provider_refused', 'provider_timeout', 'provider_unreachable',
+export const retryableLookup = new Set(['rate_limited', 'provider_refused', 'provider_suspended', 'provider_timeout', 'provider_unreachable',
   'provider_error', 'provider_unavailable', 'unexpected_response', 'network', 'access_required', 'access_refused']);
-export const providerFallback = new Set(['rate_limited', 'provider_refused', 'provider_timeout', 'provider_unreachable',
+export const providerFallback = new Set(['rate_limited', 'provider_refused', 'provider_suspended', 'provider_timeout', 'provider_unreachable',
   'provider_error', 'provider_unavailable']);
 
 export function lookupMessage({ state, retryAfter }) {

@@ -33,6 +33,8 @@ function json(body, status = 200) {
     ...(body.retryAfter ? { 'Retry-After': String(body.retryAfter) } : {}) } });
 }
 
+const userAgent = 'RHEA-AniList-Lookup/1.0 (+https://github.com/indiolibanes/RHEA)';
+
 export async function animeMetadata({ request, data }, fetcher = fetch) {
   const origin = new URL(request.url).origin;
   if (!data.cloudflareAccess?.JWT?.payload?.sub) return json({ state: 'access_required' }, 401);
@@ -58,7 +60,8 @@ export async function animeMetadata({ request, data }, fetcher = fetch) {
     // Cloudflare Workers reject redirect: 'error' before any network I/O, so redirects are refused manually.
     response = await fetcher('https://graphql.anilist.co', {
       method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(6000),
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      // An honest, stable identity: AniList sits behind an edge that refuses requests with no User-Agent.
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'User-Agent': userAgent },
       body: JSON.stringify({ query, variables: { title } }),
     });
   } catch (error) {
@@ -73,8 +76,10 @@ export async function animeMetadata({ request, data }, fetcher = fetch) {
         ...(Number.isInteger(retryAfter) && retryAfter >= 1 && retryAfter <= 3600 ? { retryAfter } : {}) }, 429);
     }
     if (response.status === 403) {
-      return failed('refused', 'provider_refused', 503,
-        { status: 403, html: /text\/html/i.test(response.headers.get('Content-Type') ?? '') });
+      // AniList documents a JSON 403 for a temporary suspension; an HTML 403 comes from the provider's edge.
+      const json403 = /^application\/json(?:[; ]|$)/i.test(response.headers.get('Content-Type') ?? '');
+      return failed(json403 ? 'suspended' : 'refused', json403 ? 'provider_suspended' : 'provider_refused', 503,
+        { status: 403, html: !json403 });
     }
     if (response.status >= 300 && response.status < 400) return failed('redirect', 'provider_unavailable', 503, { status: response.status });
     if (response.status >= 500) return failed('upstream_status', 'provider_unavailable', 503, { status: response.status });

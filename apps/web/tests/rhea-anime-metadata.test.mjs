@@ -62,6 +62,9 @@ test('distinguishes an AniList refusal, rate limit and unavailable upstream with
   const refused = await call({ title: 'Aurora' }, () => new Response('<p>Provider challenge</p>', { status: 403 }));
   assert.equal(refused.status, 503);
   assert.deepEqual(await refused.json(), { state: 'provider_refused' });
+  const suspended = await call({ title: 'Aurora' }, () => Response.json({ errors: [{ message: 'API temporarily disabled' }] }, { status: 403 }));
+  assert.equal(suspended.status, 503);
+  assert.deepEqual(await suspended.json(), { state: 'provider_suspended' });
   const throttled = await call({ title: 'Aurora' }, () => new Response(null, { status: 429, headers: { 'Retry-After': '30' } }));
   assert.equal(throttled.headers.get('Retry-After'), '30');
   assert.deepEqual(await throttled.json(), { state: 'rate_limited', retryAfter: 30 });
@@ -126,6 +129,7 @@ test('sends only the confirmed public title and keeps cookies and credentials ou
     workers((target, init) => { seen = init; return empty(); }));
   assert.equal(result.status, 200);
   const names = [...new Headers(seen.headers).keys()];
-  assert.deepEqual(names.sort(), ['accept', 'content-type']);
+  assert.deepEqual(names.sort(), ['accept', 'content-type', 'user-agent']);
+  assert.match(new Headers(seen.headers).get('user-agent'), /^RHEA-AniList-Lookup\/\d+\.\d+ \(\+https:\/\/github\.com\/indiolibanes\/RHEA\)$/);
   assert.deepEqual(JSON.parse(seen.body).variables, { title: 'Tsuki ga Kirei' });
 });
