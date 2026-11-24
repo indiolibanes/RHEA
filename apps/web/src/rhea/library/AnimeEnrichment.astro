@@ -2,7 +2,7 @@
   <summary><strong>Organizar com metadados</strong></summary>
   <p id="enrich-source" tabindex="-1" role="status"></p>
   <ol class="library-steps" id="enrich-steps" aria-label="Etapas da organização" hidden>
-    <li data-step="search">Buscar no AniList</li>
+    <li data-step="search">Consultar metadados</li>
     <li data-step="confirm">Confirmar obra</li>
     <li data-step="destinations">Conferir destinos</li>
     <li data-step="review">Revisar publicação</li>
@@ -10,10 +10,27 @@
   <form class="library-form" id="enrich-form" method="post" hidden>
     <label>Obra e temporada detectadas <select id="enrich-group" required></select></label>
     <label>Título para consulta <input id="enrich-title" type="search" minlength="2" maxlength="120" required></label>
+    <label>Fonte da consulta <select id="enrich-provider"><option value="anilist">AniList</option><option value="mal">MyAnimeList</option></select></label>
     <div class="library-actions">
       <button type="submit" class="editorial-action rhea-primary" id="enrich-search">Buscar no AniList</button>
+      <button type="button" class="editorial-action" id="enrich-manual-open" aria-expanded="false" aria-controls="enrich-manual">Preencher metadados</button>
       <button type="button" class="editorial-action" id="enrich-use-title">Usar título sem metadados</button>
     </div>
+  </form>
+  <form class="library-form" id="enrich-manual" method="post" hidden>
+    <p class="library-note library-field-row">Abra a ficha pública da obra no AniList, copie os campos que quiser e cole o link da edição como referência.</p>
+    <label class="library-field-row">Link da obra no AniList <input name="link" type="url" maxlength="512" placeholder="https://anilist.co/anime/98202"></label>
+    <label>Formato <select name="format">
+      <option value="">A conferir</option><option value="TV">Série</option><option value="TV_SHORT">Série curta</option>
+      <option value="MOVIE">Filme</option><option value="SPECIAL">Especial</option><option value="OVA">OVA</option><option value="ONA">ONA</option>
+    </select></label>
+    <label>Ano <input name="year" type="number" min="1900" max="2200"></label>
+    <label>Episódios <input name="episodes" type="number" min="1" max="9999"></label>
+    <label>Minutos por episódio <input name="duration" type="number" min="1" max="999"></label>
+    <label>Estúdio <input name="studio" type="text" maxlength="100"></label>
+    <label>Gêneros, separados por vírgulas <input name="genres" type="text" maxlength="160"></label>
+    <div class="library-actions library-field-row"><button class="editorial-action rhea-primary" type="submit">Usar metadados preenchidos</button></div>
+    <p class="library-field-row" id="enrich-manual-status" role="status"></p>
   </form>
   <p id="enrich-status" role="status"></p>
   <a id="enrich-provider-search" href="https://anilist.co/search/anime" target="_blank" rel="noopener noreferrer" hidden>Pesquisar no site do AniList</a>
@@ -38,6 +55,13 @@
     <p id="enrich-destination-status" role="status"></p>
     <p class="library-note" id="enrich-pilot-note" hidden>Tópico encontrado não significa pronto: o piloto só copia para tópicos vazios nos dois grupos. Se um deles já tiver conteúdo, a cópia não começa.</p>
     <ul id="enrich-destinations" hidden></ul>
+    <section id="enrich-rebuild" hidden>
+      <h4>Reconstruir a letra em outro tópico</h4>
+      <p id="enrich-rebuild-targets"></p>
+      <div class="library-actions"><button id="enrich-rebuild-review" class="editorial-action rhea-primary" type="button">Montar prévia da letra</button></div>
+      <p id="enrich-rebuild-status" role="status"></p>
+      <ol class="library-order" id="enrich-rebuild-items"></ol>
+    </section>
     <div id="enrich-publish" hidden>
       <div class="library-actions">
         <button class="editorial-action rhea-primary" id="enrich-publish-review" type="button">Revisar publicação</button>
@@ -70,5 +94,5 @@
   import './anime-enrichment-panel.mjs';
 </script>
 <style>
-  #enrich-form .library-actions { grid-column: 1 / -1; }
+  #enrich-form .library-actions, .library-field-row { grid-column: 1 / -1; }
 </style>

@@ -2,11 +2,13 @@ export const animeFormats = {
   TV: 'Série', TV_SHORT: 'Série curta', MOVIE: 'Filme', SPECIAL: 'Especial', OVA: 'OVA', ONA: 'ONA', MUSIC: 'Música',
 };
 
-export async function lookupAnime(endpoint, title, signal) {
+export const animeProviders = { anilist: 'AniList', mal: 'MyAnimeList' };
+
+export async function lookupAnime(endpoint, title, signal, provider = 'anilist') {
   // Redirects stay manual: an expired Access session answers with a redirect to the identity provider.
   const response = await fetch(endpoint, {
     method: 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'manual',
-    signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),
+    signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, ...(provider === 'mal' && { provider }) }),
   });
   if (response.type === 'opaqueredirect' || response.status === 401) return { state: 'access_required' };
   if (response.status === 404 || response.status === 405) return { state: 'endpoint_missing' };
@@ -30,6 +32,7 @@ export const lookupErrors = {
   access_refused: 'O Cloudflare Access recusou esta sessão. Entre novamente com a conta autorizada e repita a busca.',
   not_allowed: 'O Private recusou a consulta. Recarregue a página e tente novamente.',
   endpoint_missing: 'A busca de anime ainda não está disponível nesta versão do Private. Continue com o título sem metadados.',
+  provider_unconfigured: 'O MyAnimeList precisa do Client ID configurado no Private. Você pode usar outro provedor ou preencher os dados manualmente.',
   provider_refused: 'O AniList recusou a consulta. Tente novamente mais tarde, pesquise no site do AniList ou continue sem metadados.',
   provider_timeout: 'O AniList demorou demais para responder. Tente novamente ou continue com o título sem metadados.',
   provider_unreachable: 'A RHEA não conseguiu alcançar o AniList. Tente novamente em instantes ou continue sem metadados.',
@@ -45,7 +48,9 @@ export const retryableLookup = new Set(['rate_limited', 'provider_refused', 'pro
 export const providerFallback = new Set(['rate_limited', 'provider_refused', 'provider_timeout', 'provider_unreachable',
   'provider_error', 'provider_unavailable']);
 
-export function lookupMessage({ state, retryAfter }) {
-  return state === 'rate_limited' && retryAfter ?
+export function lookupMessage({ state, retryAfter }, provider = 'anilist') {
+  const message = state === 'rate_limited' && retryAfter ?
     'O AniList pediu uma pausa. Tente novamente em ' + retryAfter + ' s.' : lookupErrors[state];
+  if (provider !== 'mal' || !message) return message;
+  return message.replaceAll('AniList', 'MyAnimeList');
 }

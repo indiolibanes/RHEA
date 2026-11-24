@@ -70,19 +70,20 @@ export function groupTopicDocuments(posts, reference) {
     (a.season ?? Infinity) - (b.season ?? Infinity)), unassigned };
 }
 
-export function alphabeticDestination(letter, topics, sourceTopicId) {
+export function alphabeticDestination(letter, topics, sourceTopicId, role = 'letter') {
   if (!/^[A-Z]$/.test(letter)) return { state: 'unsupported' };
   const matches = topics.filter(topic => {
     if (!forumId(topic.id) || topic.id === 1 || topic.hidden || typeof topic.title !== 'string') return false;
     const label = titleKey(topic.title).replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
-    const match = /^(?:(?:letter|letra) )?(?:([a-z])|"([a-z])"|'([a-z])')$/.exec(label);
-    return match && (match[1] ?? match[2] ?? match[3]).toUpperCase() === letter;
+    const match = /^(?:(?:letter|letra) )?(?:([a-z])|"([a-z])"|'([a-z])')( \[new\])?$/.exec(label);
+    return match && (match[1] ?? match[2] ?? match[3]).toUpperCase() === letter &&
+      (match[4] ? 'replacement' : 'letter') === role;
   });
   // A closed topic is located but cannot receive files: it needs its own message, not "missing".
   const open = matches.filter(topic => !topic.closed);
   if (open.length > 1) return { state: 'ambiguous' };
   const [topic] = open;
-  if (!topic) return { state: matches.length ? 'closed' : 'missing' };
+  if (!topic) return { state: matches.length ? 'closed' : 'missing', ...(matches.length === 1 && { topic: matches[0] }) };
   return topic.id === sourceTopicId ? { state: 'source' } : { state: 'found', topic };
 }
 

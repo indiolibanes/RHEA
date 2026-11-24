@@ -67,7 +67,7 @@ base = f'http://127.0.0.1:{server.server_port}'
 GIB = 1_610_612_736  # 1.5 GiB per synthetic file
 calls = []
 lookups = []
-state = {'lookup': [], 'local_closed': True}
+state = {'lookup': [], 'local_closed': True, 'replacement': False}
 
 def respond(route):
     request = route.request
@@ -87,9 +87,18 @@ def respond(route):
         topics = [{'id': 8, 'title': 'Letra "T"'}] if backup else [
             {'id': 1, 'title': 'Requests'}, {'id': 12, 'title': 'Letter L'},
             {'id': 9, 'title': 'Letter T', 'closed': state['local_closed']}]
+        if not backup and state['replacement']:
+            topics.append({'id': 81, 'title': 'Letter T [NEW]'})
         route.fulfill(json={'state': 'forum_topics', 'forum': {
             'next': None, 'channelId': '11111' if backup else '22222', 'topics': topics, **({'scope': 'backup'} if backup else {})}})
     elif operation == 'forumpage':
+        if data['topicId'] == 9:
+            route.fulfill(json={'state': 'forum_page', 'forum': {'next': None, 'topicId': 9, 'channelId': '22222', 'posts': [
+                {'id': 19, 'kind': 'document', 'filename': '[Fixture] Tundra - 01.mkv'},
+                {'id': 16, 'kind': 'document', 'filename': '[Fixture] Tapestry - 01.mkv'},
+                {'id': 15, 'kind': 'cover', 'caption': 'Tapestry'},
+            ]}})
+            return
         route.fulfill(json={'state': 'forum_page', 'forum': {'next': None, 'topicId': 1, 'channelId': '22222', 'posts': [
             {'id': 37, 'kind': 'document', 'filename': '[Fixture]_Tsuki_ga_Kirei_01_[1280x720].mkv', 'sizeBytes': GIB},
             {'id': 30, 'kind': 'document', 'filename': '[Fixture]_Tsuki_ga_Kirei_10_[1280x720][synthetic_release_tag_that_is_long_enough_to_force_wrapping_on_a_phone].mkv', 'sizeBytes': GIB}]}})
@@ -136,7 +145,8 @@ def snap(page, name):
 def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
     calls.clear(); lookups.clear()
     state['local_closed'] = True
-    browser = playwright.chromium.launch()
+    browser = playwright.chromium.launch(executable_path=os.environ.get('RHEA_BROWSER_PATH'),
+                                          args=['--single-process'] if os.environ.get('RHEA_BROWSER_PATH') else [])
     context = browser.new_context(viewport=viewport, is_mobile=mobile, has_touch=mobile, color_scheme=scheme, reduced_motion=reduced)
     context.route('**/api/rhea/**', respond)
     page = context.new_page()
@@ -157,7 +167,7 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         return
 
     steps = page.locator('#enrich-steps')
-    expect(steps.locator('[aria-current="step"]')).to_contain_text('Buscar no AniList')
+    expect(steps.locator('[aria-current="step"]')).to_contain_text('Consultar metadados')
 
     # Timeout: clear message, retry label, manual continuation stays available, selection survives.
     state['lookup'] = [(504, {'state': 'provider_timeout'}), (200, {'state': 'candidates', 'candidates': [candidate]})]
@@ -224,6 +234,44 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
     expect(page.locator('#enrich-progress-local-text')).to_have_text('2 de 2 verificadas · concluído')
     expect(page.locator('#enrich-progress-backup-text')).to_have_text('2 de 2 verificadas · concluído')
     snap(page, f'{name}-6-done')
+
+    if name == 'mobile-light':
+        # A separate provider request uses only the edited title and provider name.
+        page.locator('#enrich-provider').select_option('mal')
+        state['lookup'] = [(200, {'state': 'candidates', 'candidates': [{
+            **candidate, 'provider': 'mal', 'duration': 25, 'url': 'https://myanimelist.net/anime/1',
+        }]})]
+        page.locator('#enrich-search').click()
+        page.locator('#enrich-candidates button').first.click()
+        expect(page.locator('#enrich-match')).to_contain_text('MyAnimeList')
+        expect(page.locator('#enrich-links a')).to_have_attribute('href', 'https://myanimelist.net/anime/1')
+        assert lookups[-1] == {'title': 'Tsuki ga Kirei', 'provider': 'mal'}
+        previous_count = len(lookups)
+        page.locator('#enrich-manual-open').click()
+        page.locator('#enrich-manual input[name=link]').fill('https://anilist.co/anime/98202/Tsuki-ga-Kirei')
+        page.locator('#enrich-manual select[name=format]').select_option('TV')
+        page.locator('#enrich-manual input[name=episodes]').fill('12')
+        page.locator('#enrich-manual input[name=duration]').fill('25')
+        page.get_by_role('button', name='Usar metadados preenchidos').click()
+        expect(page.locator('#enrich-match')).to_contain_text('Dados preenchidos manualmente')
+        expect(page.locator('#enrich-match')).to_contain_text('25 min por episódio')
+        expect(page.locator('#enrich-links a')).to_have_attribute('href', 'https://anilist.co/anime/98202')
+        assert len(lookups) == previous_count
+
+        # Letter T is a source, the new topic is the target, and rebuilding only reads.
+        state['replacement'] = True
+        organization_calls = sum(call.startswith('organize') for call in calls)
+        page.locator('#enrich-check-destinations').click()
+        expect(page.locator('#enrich-rebuild-targets')).to_contain_text('Letter T + Requests → Letter T [NEW]')
+        page.locator('#enrich-rebuild-review').click()
+        expect(page.locator('#enrich-rebuild-items > li')).to_have_count(3)
+        expect(page.locator('#enrich-rebuild-items summary').nth(0)).to_contain_text('Tapestry')
+        expect(page.locator('#enrich-rebuild-items summary').nth(1)).to_contain_text('Tsuki ga Kirei')
+        expect(page.locator('#enrich-rebuild-items summary').nth(2)).to_contain_text('Tundra')
+        expect(page.locator('#enrich-rebuild-status')).to_contain_text('precisam de associação')
+        expect(page.locator('#enrich-publish')).to_be_hidden()
+        assert sum(call.startswith('organize') for call in calls) == organization_calls
+        state['replacement'] = False
 
     no_overflow(page, name)
     assert small_targets(page) == [], small_targets(page)
