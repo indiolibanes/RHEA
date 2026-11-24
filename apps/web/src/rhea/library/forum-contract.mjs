@@ -8,7 +8,11 @@ export const isForumOperation = operation => operation === 'forumtopics' || oper
 export function forumInput(operation, value) {
   if (!value || typeof value !== 'object' || Array.isArray(value) ||
       !(value.cursor === null || cursorToken(value.cursor))) return null;
-  if (operation === 'forumtopics') return Object.keys(value).length === 1 ? { cursor: value.cursor } : null;
+  if (operation === 'forumtopics') {
+    if (Object.keys(value).length === 1) return { cursor: value.cursor };
+    return Object.keys(value).length === 2 && value.scope === 'backup' ?
+      { cursor: value.cursor, scope: 'backup' } : null;
+  }
   if (Object.keys(value).length !== 2 || !forumId(value.topicId)) return null;
   return { topicId: value.topicId, cursor: value.cursor };
 }
@@ -21,10 +25,12 @@ export function forumResponse(state, value) {
   if (!value || !channelId(value.channelId) || !(value.next === null || cursorToken(value.next))) return null;
   const result = { channelId: value.channelId, next: value.next };
   if (state === 'forum_topics') {
-    if (!Array.isArray(value.topics) || value.topics.length > forumPageSize ||
+    if ((value.scope !== undefined && value.scope !== 'backup') ||
+        !Array.isArray(value.topics) || value.topics.length > forumPageSize ||
         new Set(value.topics.map(topic => topic?.id)).size !== value.topics.length ||
         value.topics.some(topic => !forumId(topic?.id) || typeof topic?.title !== 'string')) return null;
-    return { ...result, topics: value.topics.map(topic => ({ id: topic.id, title: topic.title.slice(0, 128),
+    return { ...result, ...(value.scope ? { scope: value.scope } : {}),
+      topics: value.topics.map(topic => ({ id: topic.id, title: topic.title.slice(0, 128),
       closed: topic.closed === true, hidden: topic.hidden === true })) };
   }
   if (!forumId(value.topicId) || !Array.isArray(value.posts) || value.posts.length > forumPageSize ||

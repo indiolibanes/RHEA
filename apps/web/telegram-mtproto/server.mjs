@@ -18,6 +18,8 @@ export function configuration(env) {
   const stagingInvite = env.RHEA_TELEGRAM_STAGING_CHANNEL_INVITE;
   const forumId = env.RHEA_TELEGRAM_FORUM_ID;
   const forumInvite = env.RHEA_TELEGRAM_FORUM_INVITE;
+  const backupId = env.RHEA_TELEGRAM_BACKUP_FORUM_ID;
+  const backupInvite = env.RHEA_TELEGRAM_BACKUP_FORUM_INVITE;
   if (env.RHEA_TELEGRAM_MTPROTO_MODE !== 'sandbox' ||
     !/^[1-9][0-9]{0,9}$/.test(env.RHEA_TELEGRAM_API_ID ?? '') || apiId > 0x7fffffff ||
     !/^[a-fA-F0-9]{32}$/.test(env.RHEA_TELEGRAM_API_HASH ?? '') || !id(env.RHEA_TELEGRAM_CHANNEL_ID) ||
@@ -36,6 +38,9 @@ export function configuration(env) {
       [env.RHEA_TELEGRAM_CHANNEL_ID, stagingId].includes(forumId))) {
     throw new Error('Invalid MTProto forum configuration.');
   }
+  const backupForum = forumId && id(backupId) && invite(backupInvite) && backupInvite !== forumInvite &&
+    ![forumId, env.RHEA_TELEGRAM_CHANNEL_ID, stagingId].includes(backupId) ?
+    { channelId: backupId, inviteHash: invite(backupInvite) } : undefined;
   const mirrorScope = side => {
     const prefix = 'RHEA_TELEGRAM_MIRROR_' + side + '_';
     const channelId = env[prefix + 'ID'];
@@ -66,7 +71,7 @@ export function configuration(env) {
     apiId, apiHash: env.RHEA_TELEGRAM_API_HASH, channelId: env.RHEA_TELEGRAM_CHANNEL_ID,
     ownerId: env.RHEA_TELEGRAM_OWNER_ID, phone: env.RHEA_TELEGRAM_PHONE, inviteHash, actor: env.RHEA_TELEGRAM_ACCESS_SUB,
     key: env.RHEA_TELEGRAM_MTPROTO_KEY, encryptionKey: Buffer.from(env.RHEA_TELEGRAM_SESSION_KEY, 'base64url'),
-    file: env.RHEA_TELEGRAM_SESSION_FILE, port, bindHost, mirror, invalidMirror,
+    file: env.RHEA_TELEGRAM_SESSION_FILE, port, bindHost, mirror, invalidMirror, backupForum,
     staging: stagingId ? { channelId: stagingId, inviteHash: invite(stagingInvite) } : undefined,
     forum: forumId ? { channelId: forumId, inviteHash: invite(forumInvite) } : undefined,
   };

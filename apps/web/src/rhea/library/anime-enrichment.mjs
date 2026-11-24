@@ -2,6 +2,7 @@ import { letterFor, parseEpisodeLabel, titleKey } from './catalog.mjs';
 import { forumId } from './forum-contract.mjs';
 
 const filenameTitle = /^(?:\[[^\[\]]+\]\s*)*([^\[\]]+?)[ ._-]+[ST]\d{1,3}[ ._-]*E\d{1,4}(?=$|[^\p{L}\p{N}]|V\d)/iu;
+const numberedFansubTitle = /^(?:\[[^\[\]]+\][ ._-]*)+([^\[\]]+?)[ _-]+(\d{1,3})(?:v[1-9]\d?)?(?:[ ._-]*\[[^\[\]]+\])*[ ._-]*\.(?:mkv|mp4|avi|webm)$/iu;
 const seriesCaption = /^Series:[ \t]*(.{1,120}?)(?:[ \t]*\||\s*$)/iu;
 const titleFromFilename = filename => filename?.match(filenameTitle)?.[1]?.replace(/[_.]+/g, ' ').trim();
 const order = (a, b) => (a.season ?? Infinity) - (b.season ?? Infinity) ||
@@ -11,6 +12,12 @@ const episodeValue = value => Number.isFinite(value) ? 'E' + String(value).padSt
 const slotKey = ({ season, episode, part }) => [season, episode, part ?? 0].join('/');
 
 export const sortAnimeEpisodes = posts => [...posts].sort(order);
+
+function numberedFansubEpisode(filename) {
+  const match = numberedFansubTitle.exec(filename.normalize('NFKC'));
+  if (!match || !/\p{L}/u.test(match[1]) || /(?:^|[ ._-])[ST]?\d{1,3}$/i.test(match[1])) return null;
+  return { title: match[1].replace(/[_.]+/g, ' ').trim(), episode: Number(match[2]) };
+}
 
 export function episodeLabel({ season, episode, part }) {
   const label = seasonValue(season) + episodeValue(episode);
@@ -31,7 +38,9 @@ export function groupTopicDocuments(posts, reference) {
     const explicit = match?.reason === 'exact' ? match.series : undefined;
     const filename = post.filename ?? '';
     const metadata = parseEpisodeLabel(filename);
-    const detected = metadata.episode !== undefined && titleFromFilename(filename);
+    const numbered = metadata.episode === undefined ? numberedFansubEpisode(filename) : null;
+    if (numbered) metadata.episode = numbered.episode;
+    const detected = numbered?.title || (metadata.episode !== undefined && titleFromFilename(filename));
     const title = (explicit || captionTitle || detected || sectionTitle || '').trim();
     const groupKey = title && JSON.stringify([titleKey(title, { foldDiacritics: false }), metadata.season ?? null]);
     if (post.albumId) {
@@ -40,7 +49,8 @@ export function groupTopicDocuments(posts, reference) {
     }
     if (!groupKey) { unassigned++; continue; }
     if (!groups.has(groupKey)) groups.set(groupKey, { key: groupKey, title, season: metadata.season, posts: [] });
-    groups.get(groupKey).posts.push({ id: post.id, filename, albumId: post.albumId, ...metadata });
+    groups.get(groupKey).posts.push({ id: post.id, filename, albumId: post.albumId, sizeBytes: post.sizeBytes,
+      protected: post.protected === true, ...metadata });
   }
   for (const group of groups.values()) {
     group.posts.sort((a, b) => a.id - b.id);
@@ -60,16 +70,27 @@ export function groupTopicDocuments(posts, reference) {
     (a.season ?? Infinity) - (b.season ?? Infinity)), unassigned };
 }
 
+export function alphabeticDestination(letter, topics, sourceTopicId) {
+  if (!/^[A-Z]$/.test(letter)) return { state: 'unsupported' };
+  const topicNames = new Set([letter, 'Letter ' + letter, 'Letra ' + letter].map(title => titleKey(title)));
+  const candidates = topics.filter(topic => forumId(topic.id) && topic.id > 1 &&
+    !topic.closed && !topic.hidden && typeof topic.title === 'string' && topicNames.has(titleKey(topic.title)));
+  if (candidates.length > 1) return { state: 'ambiguous' };
+  const [topic] = candidates;
+  if (!topic) return { state: 'missing' };
+  return topic.id === sourceTopicId ? { state: 'source' } : { state: 'found', topic };
+}
+
 export function proposeAnimePreview(group, candidate, topics = []) {
   const title = candidate.titles[0];
   const letter = letterFor(title);
-  const topicNames = new Set([letter, 'letter ' + letter.toLowerCase(), 'letra ' + letter.toLowerCase()].map(t => t.toLowerCase()));
-  const destinations = letter === '#' ? [] : topics.filter(t => forumId(t.id) && t.id > 1 && !t.closed && !t.hidden && topicNames.has(t.title.trim().toLowerCase()));
+  const { topic: destination, state } = alphabeticDestination(letter, topics);
   const sorted = sortAnimeEpisodes(group.posts);
   const countMismatch = Number.isSafeInteger(candidate.episodes) && sorted.some(p => p.episode > candidate.episodes);
-  const destination = destinations.length === 1 ? destinations[0] : undefined;
+  const sized = sorted.filter(post => Number.isSafeInteger(post.sizeBytes) && post.sizeBytes >= 0);
   return { title, letter, destination: destination?.title, destinationTopicId: destination?.id,
-    topicAmbiguous: destinations.length > 1, countMismatch, sorted,
+    topicAmbiguous: state === 'ambiguous', countMismatch, sorted, sizedCount: sized.length,
+    totalBytes: sized.reduce((total, post) => total + BigInt(post.sizeBytes), 0n),
     editionReview: Number.isInteger(group.season) && !['TV', 'TV_SHORT', 'ONA'].includes(candidate.format),
     caption: sorted.map(post => ({
       id: post.id,

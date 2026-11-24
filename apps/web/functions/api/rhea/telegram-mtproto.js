@@ -70,7 +70,7 @@ export async function mtprotoPage({ request, data, env }, fetcher = fetch) {
     if ((payload?.state === 'stage_preview' && operation !== 'stagepreview') ||
       (typeof payload?.state === 'string' && payload.state.startsWith('stage_') && !staging)) return mtprotoResult('unavailable');
     if ((typeof payload?.state === 'string' && payload.state.startsWith('forum_') && !forum) ||
-        (payload?.state === 'forum_topics' && operation !== 'forumtopics') ||
+        (payload?.state === 'forum_topics' && (operation !== 'forumtopics' || payload.forum?.scope !== input.scope)) ||
         (payload?.state === 'forum_page' && (operation !== 'forumpage' || payload.forum?.topicId !== input.topicId))) {
       return mtprotoResult('unavailable');
     }

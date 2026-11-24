@@ -9,7 +9,7 @@
   <form class="library-form" id="enrich-form" method="post" hidden>
     <label>Obra e temporada detectadas <select id="enrich-group" required></select></label>
     <label>Título para consulta <input id="enrich-title" type="search" minlength="2" maxlength="120" required></label>
-    <div class="library-actions"><button type="submit" class="editorial-action" id="enrich-search">Buscar candidatos</button></div>
+    <div class="library-actions"><button type="submit" class="editorial-action" id="enrich-search">Buscar no AniList</button></div>
   </form>
   <p id="enrich-status" role="status"></p>
   <div id="enrich-candidates" class="library-catalog"></div>
@@ -21,9 +21,15 @@
     <h3>Prévia do destino e da legenda</h3>
     <p id="enrich-match"></p>
     <p id="enrich-destination"></p>
+    <p id="enrich-volume"></p>
     <p id="enrich-review"></p>
     <blockquote id="enrich-caption"></blockquote>
     <div class="library-actions" id="enrich-links"></div>
+    <div class="library-actions">
+      <button class="editorial-action rhea-primary" id="enrich-check-destinations" type="button" hidden>Conferir destinos</button>
+    </div>
+    <p id="enrich-destination-status" role="status"></p>
+    <ul id="enrich-destinations" hidden></ul>
   </div>
 </details>
 <script>

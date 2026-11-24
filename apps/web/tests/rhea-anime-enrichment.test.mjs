@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { groupTopicDocuments, proposeAnimePreview } from '../src/rhea/library/anime-enrichment.mjs';
+import { alphabeticDestination, groupTopicDocuments, proposeAnimePreview } from '../src/rhea/library/anime-enrichment.mjs';
 import { filenameReference } from '../src/rhea/library/forum-names.mjs';
 
 const candidate = { titles: ['Re:Zero'], format: 'TV', year: 2026, episodes: 12, studios: ['Fixture studio'] };
@@ -74,4 +74,34 @@ test('an unidentified topic never becomes a routing destination', () => {
   const plan = proposeAnimePreview(groups[0], candidate, [{ id: 1, title: 'R' }, { title: 'Letter R' }]);
   assert.equal(plan.letter, 'R');
   assert.equal(plan.destinationTopicId, undefined);
+});
+
+test('orders fansub episodes without season tags and totals known document sizes', () => {
+  const name = episode => '[Fixture]_TARI_TARI_' + episode + '_[1280x720][A1B2C3D4].mkv';
+  const { groups, unassigned } = groupTopicDocuments([
+    document(9, name('10'), { sizeBytes: 4_294_967_296 }),
+    document(8, name('02')),
+    document(7, name('01v2'), { sizeBytes: 100 }),
+    document(6, '[Fixture]_TARI_TARI_01-02.mkv'),
+    document(5, '[Fixture]_TARI_TARI_1080.mkv'),
+  ]);
+  assert.equal(unassigned, 2);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].season, undefined);
+  const plan = proposeAnimePreview(groups[0], { ...candidate, titles: ['TARI TARI'], episodes: 13 });
+  assert.equal(plan.letter, 'T');
+  assert.deepEqual(plan.sorted.map(item => item.episode), [1, 2, 10]);
+  assert.equal(plan.sorted[0].filename, name('01v2'));
+  assert.equal(plan.sizedCount, 2);
+  assert.equal(plan.totalBytes, 4_294_967_396n);
+});
+
+test('resolves one open topic per group and refuses a destination matching the intake topic', () => {
+  const local = { id: 35, title: 'Letter T' };
+  const backup = { id: 35, title: 'Letra T' };
+  assert.deepEqual(alphabeticDestination('T', [local], 1), { state: 'found', topic: local });
+  assert.deepEqual(alphabeticDestination('T', [backup]), { state: 'found', topic: backup });
+  assert.equal(alphabeticDestination('T', [local], 35).state, 'source');
+  assert.equal(alphabeticDestination('T', [local, { ...backup, id: 80 }]).state, 'ambiguous');
+  assert.equal(alphabeticDestination('T', [{ ...local, closed: true }, { id: 1, title: 'T' }]).state, 'missing');
 });
