@@ -47,25 +47,26 @@ export function configuration(env) {
   };
   const mirrorMode = env.RHEA_TELEGRAM_MIRROR_MODE;
   let mirror;
-  if (Object.keys(env).some(name => name.startsWith('RHEA_TELEGRAM_MIRROR_') && env[name])) {
+  let invalidMirror = false;
+  if (mirrorMode !== 'disabled' && Object.keys(env).some(name => name.startsWith('RHEA_TELEGRAM_MIRROR_') && env[name])) {
     const source = mirrorScope('SOURCE');
     const destination = mirrorScope('DESTINATION');
     const localTopicValue = env.RHEA_TELEGRAM_MIRROR_LOCAL_TOPIC_ID;
     const localTopicId = Number(localTopicValue);
     const dual = mirrorMode === 'synthetic-dual';
-    if ((!dual && mirrorMode !== 'synthetic') || !source || !destination ||
+    invalidMirror = (!dual && mirrorMode !== 'synthetic') || !source || !destination ||
         (dual ? !/^[1-9][0-9]{0,9}$/.test(localTopicValue ?? '') || !isTopicId(localTopicId) ||
           localTopicId === 1 || localTopicId === source.topicId : Boolean(localTopicValue)) ||
         source.channelId === destination.channelId || source.inviteHash === destination.inviteHash ||
         [source.channelId, destination.channelId].some(value => [env.RHEA_TELEGRAM_CHANNEL_ID, stagingId].includes(value)) ||
-        destination.channelId === forumId) throw new Error('Invalid MTProto mirror test configuration.');
-    mirror = { source, destination, ...(dual && { local: { ...source, topicId: localTopicId } }) };
+        destination.channelId === forumId;
+    if (!invalidMirror) mirror = { source, destination, ...(dual && { local: { ...source, topicId: localTopicId } }) };
   }
   return {
     apiId, apiHash: env.RHEA_TELEGRAM_API_HASH, channelId: env.RHEA_TELEGRAM_CHANNEL_ID,
     ownerId: env.RHEA_TELEGRAM_OWNER_ID, phone: env.RHEA_TELEGRAM_PHONE, inviteHash, actor: env.RHEA_TELEGRAM_ACCESS_SUB,
     key: env.RHEA_TELEGRAM_MTPROTO_KEY, encryptionKey: Buffer.from(env.RHEA_TELEGRAM_SESSION_KEY, 'base64url'),
-    file: env.RHEA_TELEGRAM_SESSION_FILE, port, bindHost, mirror,
+    file: env.RHEA_TELEGRAM_SESSION_FILE, port, bindHost, mirror, invalidMirror,
     staging: stagingId ? { channelId: stagingId, inviteHash: invite(stagingInvite) } : undefined,
     forum: forumId ? { channelId: forumId, inviteHash: invite(forumInvite) } : undefined,
   };
@@ -73,6 +74,7 @@ export function configuration(env) {
 
 function start() {
   const config = configuration(process.env);
+  if (config.invalidMirror) console.warn('Telegram mirror is disabled because its configuration is incomplete or invalid.');
   const store = sessionStore(config.file, config.encryptionKey, [config.actor, config.ownerId, config.channelId, config.apiId]);
   const handle = mtprotoControl(config, store, telegramClient(config));
   createServer({ requestTimeout: 12_000, headersTimeout: 8000, maxHeaderSize: 8192 }, async (incoming, outgoing) => {
