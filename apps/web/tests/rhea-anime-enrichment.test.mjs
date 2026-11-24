@@ -15,8 +15,9 @@ test('groups a Fansub block and previews numeric order with a unique alphabetica
   assert.equal(groups.length, 3);
   const group = groups.find(g => g.title === 'Re Zero' && g.season === 4);
   assert.deepEqual(group.posts.map(p => p.id), [5, 7, 9]);
-  const plan = proposeAnimePreview(group, candidate, [{ title: 'Letter R' }, { title: 'R', closed: true }]);
+  const plan = proposeAnimePreview(group, candidate, [{ id: 35, title: 'Letter R' }, { id: 36, title: 'R', closed: true }]);
   assert.equal(plan.destination, 'Letter R');
+  assert.equal(plan.destinationTopicId, 35);
   assert.deepEqual(plan.sorted.map(p => p.episode), [2, 3, 10]);
   assert.equal(plan.sorted[1].filename, exactName);
   assert.equal(plan.caption[1].value, 'Re:Zero · T04E03 · 2026 · Fixture studio');
@@ -29,7 +30,7 @@ test('flags ambiguous filenames, albums, duplicate slots and incompatible provid
   const group = groups.find(g => g.title === 'Example');
   assert.equal(group.duplicate, true);
   assert.equal(group.albumReview, true);
-  const plan = proposeAnimePreview(group, { ...candidate, episodes: 1, format: 'SPECIAL' }, [{ title: 'R' }, { title: 'Letter R' }]);
+  const plan = proposeAnimePreview(group, { ...candidate, episodes: 1, format: 'SPECIAL' }, [{ id: 8, title: 'R' }, { id: 190, title: 'Letter R' }]);
   assert.equal(plan.destination, undefined);
   assert.equal(plan.topicAmbiguous, true);
   assert.equal(plan.editionReview, true);
@@ -47,4 +48,30 @@ test('uses an exact Markdown name or explicit block header without inventing epi
   assert.equal(unassigned, 1);
   assert.deepEqual(groups.map(g => [g.title, g.missingEpisode]), [['Exact name', true], ['Kestrel Circuit', true]]);
   assert.equal(groups[1].posts[0].episode, undefined);
+});
+
+test('excludes the fansub prefix and accepts Portuguese season markers without changing filenames', () => {
+  const portuguese = '[Zeta Sub][WEB] nome_anime t04e03 [767AB765C].mkv';
+  const { groups, unassigned } = groupTopicDocuments([
+    document(41, portuguese), document(42, '[Alpha] nome_anime-S04E02.mkv'),
+    document(43, '[Zeta Sub] nome_anime-T04E04-E05.mkv'),
+  ]);
+  assert.equal(unassigned, 1);
+  assert.deepEqual(groups.map(g => [g.title, g.season]), [['nome anime', 4]]);
+  const [group] = groups;
+  const metadata = { ...candidate, titles: ['Nome Anime'] };
+  const plan = proposeAnimePreview(group, metadata, [
+    { id: 1, title: 'N' }, { id: 73, title: 'Letra N' }, { id: 14, title: 'Z' },
+  ]);
+  assert.equal(plan.letter, 'N');
+  assert.equal(plan.destinationTopicId, 73);
+  assert.deepEqual(plan.sorted.map(p => p.episode), [2, 3]);
+  assert.equal(plan.sorted[1].filename, portuguese);
+});
+
+test('an unidentified topic never becomes a routing destination', () => {
+  const { groups } = groupTopicDocuments([document(21, '[Team] Re_Zero T04E03.mkv')]);
+  const plan = proposeAnimePreview(groups[0], candidate, [{ id: 1, title: 'R' }, { title: 'Letter R' }]);
+  assert.equal(plan.letter, 'R');
+  assert.equal(plan.destinationTopicId, undefined);
 });

@@ -25,7 +25,7 @@ export function letterFor(title) {
 export function parseEpisodeLabel(label) {
   if (typeof label !== 'string') return {};
   const text = label.normalize('NFKC');
-  const matches = [...text.matchAll(/(?:^|[^\p{L}\p{N}])S(\d{1,3})[ ._-]*E(\d{1,4}(?:\.\d+)?)(?=$|[^\p{L}\p{N}]|V\d)/giu)];
+  const matches = [...text.matchAll(/(?:^|[^\p{L}\p{N}])[ST](\d{1,3})[ ._-]*E(\d{1,4}(?:\.\d+)?)(?=$|[^\p{L}\p{N}]|V\d)/giu)];
   const part = [...text.matchAll(/\b(?:part|parte|pt)[ ._-]*(\d{1,3})\b/giu)];
   if (matches.length !== 1 || /E\d+[ ._-]*[-–][ ._-]*E?\d|\d+[ ._-]*(?:&|\+)[ ._-]*E?\d/iu.test(text)) return {};
   return { season: Number(matches[0][1]), episode: Number(matches[0][2]),
