@@ -25,6 +25,7 @@ const issueMessages = {
   group_protected: 'Este supergrupo tem proteção de conteúdo. Use um supergrupo descartável com mídias de teste que possam ser copiadas.',
   topic_missing: 'Não encontrei o tópico nesse supergrupo. Confira o ID do tópico no Railway.',
   topic_name: 'O nome do tópico deve ser exatamente RHEA Mirror Test.',
+  dual_topic_name: 'Confira o nome do tópico. Use RHEA Organized Test no mesmo grupo e RHEA Backup Test no grupo reserva.',
   topic_closed: 'Abra o tópico de teste antes de preparar a prévia.',
   history_unverified: 'O Telegram não devolveu um histórico completo e verificável para o tópico. Tente novamente.',
   history_limit: 'O tópico ultrapassou o limite de 20 publicações do piloto.',
@@ -43,10 +44,11 @@ const postDetails = {
   media_reference: 'O Telegram não devolveu uma referência reutilizável para essa mídia ou capa de vídeo.',
   filename: 'O documento precisa ter um nome de arquivo válido no Telegram.',
   file_size: 'O Telegram informou um tamanho inválido ou acima de 25 MiB para este arquivo.',
+  large_file_size: 'O Telegram informou um tamanho inválido ou acima de 4 GiB para este arquivo.',
 };
 function issueMessage(issue) {
   if (!issue || !Object.hasOwn(issueMessages, issue.code)) return '';
-  const side = issue.side === 'source' ? 'Origem · ' : issue.side === 'destination' ? 'Destino · ' : '';
+  const side = { source: 'Origem · ', destination: 'Destino · ', local: 'Tópico organizado · ' }[issue.side] ?? '';
   if (issue.code === 'unsupported_post' && issue.postId && Object.hasOwn(postDetails, issue.detail)) {
     return side + 'Publicação #' + issue.postId + ' · ' + postDetails[issue.detail];
   }
@@ -90,13 +92,17 @@ function render(result) {
   const { state, mirror, issue } = result;
   canContinue = state === 'mirror_progress';
   const copies = mirror?.copies ?? [];
-  const count = mirror ? copies.length + ' de ' + mirror.total + ' posts verificados.' : '';
+  const localCopies = mirror?.localCopies;
+  const count = localCopies ? 'Organizado: ' + localCopies.length + '/' + mirror.total +
+    ' · Backup: ' + copies.length + '/' + mirror.total + ' verificados pelo Telegram.' :
+    mirror ? copies.length + ' de ' + mirror.total + ' posts verificados.' : '';
   if (state === 'mirror_idle') status.textContent = 'Nenhuma cópia aprovada.';
   else if (state === 'mirror_progress') status.textContent = count;
   else if (state === 'mirror_done') status.textContent = 'Cópia de teste concluída. ' + count;
   else status.textContent = [issueMessage(issue) || errors[state] || 'Não foi possível consultar o espelho.', count].filter(Boolean).join(' ');
-  get('receipts').hidden = !copies.length;
-  get('mapping').replaceChildren(...copies.map(copy => node('li', '#' + copy.sourceId + ' → #' + copy.destinationId)));
+  get('receipts').hidden = !copies.length && !localCopies?.length;
+  const rows = (items, prefix) => items.map(copy => node('li', prefix + '#' + copy.sourceId + ' → #' + copy.destinationId));
+  get('mapping').replaceChildren(...rows(localCopies ?? [], 'Organizado · '), ...rows(copies, localCopies ? 'Backup · ' : ''));
   buttons();
 }
 
@@ -106,7 +112,8 @@ async function preview() {
   if (result?.state !== 'mirror_preview') return render(result);
   expected = result.mirror.approval;
   get('source').textContent = result.mirror.source;
-  get('destination').textContent = result.mirror.destination;
+  get('destination').textContent = result.mirror.localDestination ?
+    'Organizado · ' + result.mirror.localDestination + ' | Backup · ' + result.mirror.destination : result.mirror.destination;
   get('posts').replaceChildren(...result.mirror.posts.map(post =>
     node('li', ['#' + post.id, labels[post.kind], post.label].filter(Boolean).join(' · '))));
   dialog.showModal();

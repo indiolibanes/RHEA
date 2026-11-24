@@ -11,13 +11,14 @@ export class MirrorPreflightError extends Error {
 
 const unavailablePeer = new Set(['CHANNEL_PRIVATE', 'CHANNEL_INVALID', 'INVITE_HASH_INVALID', 'INVITE_HASH_EXPIRED']);
 const fixtureBytes = 25 * 1024 ** 2;
+const largeFixtureBytes = 4 * 1024 ** 3;
 const reusable = media => /^-?[0-9]{1,20}$/.test(media?.id?.toString() ?? '') &&
   media.fileReference?.length > 0 && Boolean(media.accessHash);
 const safeEntities = new Set(['MessageEntityBold', 'MessageEntityItalic', 'MessageEntityUnderline',
   'MessageEntityStrike', 'MessageEntitySpoiler', 'MessageEntityCode', 'MessageEntityPre',
   'MessageEntityUrl', 'MessageEntityTextUrl', 'MessageEntityBlockquote']);
 
-function describeDocument(media, reject) {
+function describeDocument(media, reject, byteLimit) {
   const { document } = media;
   if (media.voice || media.round || document?.className !== 'Document') return reject('media_type');
   if (!reusable(document)) return reject('media_reference');
@@ -29,7 +30,7 @@ function describeDocument(media, reject) {
   const filename = document.attributes?.find(attribute => attribute.className === 'DocumentAttributeFilename')?.fileName;
   if ((!video || filename != null) && (typeof filename !== 'string' || !filename || filename.length > 512)) return reject('filename');
   const size = Number(document.size);
-  if (!Number.isSafeInteger(size) || size < 1 || size > fixtureBytes) return reject('file_size');
+  if (!Number.isSafeInteger(size) || size < 1 || size > byteLimit) return reject('file_size');
   const cover = media.videoCover;
   if (cover && (cover.className !== 'Photo' || !reusable(cover))) return reject('media_reference');
   const timestamp = media.videoTimestamp ?? 0;
@@ -39,7 +40,7 @@ function describeDocument(media, reject) {
     ...(timestamp && { videoTimestamp: timestamp }) };
 }
 
-function describe(message, topicId, reject) {
+function describe(message, topicId, reject, byteLimit) {
   const reply = message.replyTo;
   const parent = reply?.replyToMsgId ?? (reply?.forumTopic && reply.replyToTopId === topicId ? topicId : undefined);
   if ((reply?.replyToTopId ?? parent) !== topicId || !forumId(parent) || reply.replyToPeerId ||
@@ -54,7 +55,7 @@ function describe(message, topicId, reject) {
   const media = message.media;
   if (media && media.className !== 'MessageMediaEmpty') {
     if (media.className === 'MessageMediaDocument') {
-      const document = describeDocument(media, reject);
+      const document = describeDocument(media, reject, byteLimit);
       if (!document) return null;
       Object.assign(contents, document);
     } else if (media.className === 'MessageMediaPhoto' && media.photo?.className === 'Photo') {
@@ -70,7 +71,7 @@ function describe(message, topicId, reject) {
   return { id: message.id, parent: parent === topicId ? null : parent, album, contents, message };
 }
 
-export function topicSnapshot(result, channelId, topicId, reject = () => null) {
+export function topicSnapshot(result, channelId, topicId, reject = () => null, byteLimit = fixtureBytes) {
   if (result?.inexact || result?.offsetIdOffset > 0 || !Array.isArray(result?.messages)) return reject('history_unverified');
   // The unpaged MTProto constructor carries all messages and has no count.
   const count = result.className === 'messages.Messages' ? result.messages.length : result.count;
@@ -87,7 +88,7 @@ export function topicSnapshot(result, channelId, topicId, reject = () => null) {
     previous = id;
     if (id === topicId && message.className === 'MessageService') continue;
     if (id === topicId || message.className !== 'Message') return reject('unsupported_post', id, 'service_event');
-    const post = describe(message, topicId, detail => reject('unsupported_post', id, detail));
+    const post = describe(message, topicId, detail => reject('unsupported_post', id, detail), byteLimit);
     if (!post) return null;
     posts.push(post);
   }
@@ -133,12 +134,18 @@ function inputMedia(post) {
 }
 
 export async function openMirror(config, privateChat, peerFor, invoke, download) {
+  const dual = Boolean(config.local);
+  const byteLimit = dual ? largeFixtureBytes : fixtureBytes;
+  const names = { source: mirrorTestTopic, local: 'RHEA Organized Test',
+    destination: dual ? 'RHEA Backup Test' : mirrorTestTopic };
+
+  const chats = new Map();
   async function topic(side) {
     const scope = config[side];
     const reject = (code, postId, detail) => { throw new MirrorPreflightError(side, code, postId, detail); };
     let chat;
     try {
-      chat = await privateChat(scope);
+      chat = chats.get(scope.channelId) ?? await privateChat(scope);
     } catch (error) {
       if (unavailablePeer.has(error?.errorMessage)) reject('group_unavailable');
       throw error;
@@ -147,6 +154,7 @@ export async function openMirror(config, privateChat, peerFor, invoke, download)
     if (!chat.megagroup || !chat.forum || chat.broadcast) reject('group_not_forum');
     if (!chat.creator) reject('group_not_owned');
     if (chat.noforwards) reject('group_protected');
+    chats.set(scope.channelId, chat);
 
     const peer = peerFor(chat);
     const topicId = scope.topicId;
@@ -164,7 +172,7 @@ export async function openMirror(config, privateChat, peerFor, invoke, download)
     const topics = await resolve(new Api.messages.GetForumTopicsByID({ peer, topics: [topicId] }), 'topic_missing');
     const entry = topics.topics?.find(item => item.className === 'ForumTopic' && item.id === topicId);
     if (!entry) reject('topic_missing');
-    if (entry.title !== mirrorTestTopic) reject('topic_name');
+    if (entry.title !== names[side]) reject(dual && side !== 'source' ? 'dual_topic_name' : 'topic_name');
     if (entry.closed || entry.hidden) reject('topic_closed');
     return {
       peer, topicId, title: chat.title + ' / ' + entry.title,
@@ -174,19 +182,18 @@ export async function openMirror(config, privateChat, peerFor, invoke, download)
         }), 'history_unverified');
         if (requireEmpty && Array.isArray(result.messages) &&
             result.messages.some(message => message.id !== topicId)) reject('destination_not_empty');
-        return topicSnapshot(result, scope.channelId, topicId, reject);
+        return topicSnapshot(result, scope.channelId, topicId, (code, postId, detail) =>
+          reject(code, postId, dual && detail === 'file_size' ? 'large_file_size' : detail), byteLimit);
       },
     };
   }
 
   const from = await topic('source');
-  const to = await topic('destination');
-  const sourceTitle = from.title;
-  const destinationTitle = to.title;
-  return {
-    sourceTitle, destinationTitle,
-    readSource: from.read, readDestination: to.read,
-    async copy(unit, randomIds, targetParent) {
+  const backup = await topic('destination');
+  const local = dual ? await topic('local') : undefined;
+
+  function destinationTransport(to) {
+    async function copy(unit, randomIds, targetParent) {
       const replyTo = new Api.InputReplyToMessage({ replyToMsgId: targetParent ?? to.topicId,
         ...(targetParent !== null ? { topMsgId: to.topicId } : {}) });
       const options = { peer: to.peer, replyTo, silent: true };
@@ -205,8 +212,16 @@ export async function openMirror(config, privateChat, peerFor, invoke, download)
       const mapped = new Map(result.updates?.filter(item => item.className === 'UpdateMessageID')
         .map(item => [item.randomId?.toString(), item.id]));
       return randomIds.map(id => mapped.get(id.toString()));
-    },
+    }
+    return { title: to.title, read: to.read, copy };
+  }
+  const target = destinationTransport(backup);
+  return {
+    sourceTitle: from.title, destinationTitle: target.title,
+    readSource: from.read, readDestination: target.read, copy: target.copy,
+    ...(dual && { local: destinationTransport(local) }),
     async verifyMedia(posts) {
+      if (dual) return true;
       for (const post of posts) {
         if (post.contents.kind === 'text') continue;
         let readable = false;

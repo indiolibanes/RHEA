@@ -45,15 +45,21 @@ export function configuration(env) {
     return id(channelId) && hash && /^[1-9][0-9]{0,9}$/.test(rawTopic ?? '') &&
       isTopicId(topicId) && topicId !== 1 ? { channelId, inviteHash: hash, topicId } : null;
   };
+  const mirrorMode = env.RHEA_TELEGRAM_MIRROR_MODE;
   let mirror;
   if (Object.keys(env).some(name => name.startsWith('RHEA_TELEGRAM_MIRROR_') && env[name])) {
     const source = mirrorScope('SOURCE');
     const destination = mirrorScope('DESTINATION');
-    if (env.RHEA_TELEGRAM_MIRROR_MODE !== 'synthetic' || !source || !destination ||
+    const localTopicValue = env.RHEA_TELEGRAM_MIRROR_LOCAL_TOPIC_ID;
+    const localTopicId = Number(localTopicValue);
+    const dual = mirrorMode === 'synthetic-dual';
+    if ((!dual && mirrorMode !== 'synthetic') || !source || !destination ||
+        (dual ? !/^[1-9][0-9]{0,9}$/.test(localTopicValue ?? '') || !isTopicId(localTopicId) ||
+          localTopicId === 1 || localTopicId === source.topicId : Boolean(localTopicValue)) ||
         source.channelId === destination.channelId || source.inviteHash === destination.inviteHash ||
         [source.channelId, destination.channelId].some(value => [env.RHEA_TELEGRAM_CHANNEL_ID, stagingId].includes(value)) ||
         destination.channelId === forumId) throw new Error('Invalid MTProto mirror test configuration.');
-    mirror = { source, destination };
+    mirror = { source, destination, ...(dual && { local: { ...source, topicId: localTopicId } }) };
   }
   return {
     apiId, apiHash: env.RHEA_TELEGRAM_API_HASH, channelId: env.RHEA_TELEGRAM_CHANNEL_ID,
