@@ -1,6 +1,7 @@
 import { letterFor, parseEpisodeLabel, titleKey } from './catalog.mjs';
+import { forumId } from './forum-contract.mjs';
 
-const filenameTitle = /^(?:\[[^\[\]]+\]\s*)*([^\[\]]+?)[ ._-]+S\d{1,3}[ ._-]*E\d{1,4}(?=$|[^\p{L}\p{N}]|V\d)/iu;
+const filenameTitle = /^(?:\[[^\[\]]+\]\s*)*([^\[\]]+?)[ ._-]+[ST]\d{1,3}[ ._-]*E\d{1,4}(?=$|[^\p{L}\p{N}]|V\d)/iu;
 const seriesCaption = /^Series:[ \t]*(.{1,120}?)(?:[ \t]*\||\s*$)/iu;
 const titleFromFilename = filename => filename?.match(filenameTitle)?.[1]?.replace(/[_.]+/g, ' ').trim();
 const order = (a, b) => (a.season ?? Infinity) - (b.season ?? Infinity) ||
@@ -63,10 +64,11 @@ export function proposeAnimePreview(group, candidate, topics = []) {
   const title = candidate.titles[0];
   const letter = letterFor(title);
   const topicNames = new Set([letter, 'letter ' + letter.toLowerCase(), 'letra ' + letter.toLowerCase()].map(t => t.toLowerCase()));
-  const destinations = letter === '#' ? [] : topics.filter(t => !t.closed && !t.hidden && topicNames.has(t.title.trim().toLowerCase()));
+  const destinations = letter === '#' ? [] : topics.filter(t => forumId(t.id) && t.id > 1 && !t.closed && !t.hidden && topicNames.has(t.title.trim().toLowerCase()));
   const sorted = sortAnimeEpisodes(group.posts);
   const countMismatch = Number.isSafeInteger(candidate.episodes) && sorted.some(p => p.episode > candidate.episodes);
-  return { title, letter, destination: destinations.length === 1 ? destinations[0].title : undefined,
+  const destination = destinations.length === 1 ? destinations[0] : undefined;
+  return { title, letter, destination: destination?.title, destinationTopicId: destination?.id,
     topicAmbiguous: destinations.length > 1, countMismatch, sorted,
     editionReview: Number.isInteger(group.season) && !['TV', 'TV_SHORT', 'ONA'].includes(candidate.format),
     caption: sorted.map(post => ({
