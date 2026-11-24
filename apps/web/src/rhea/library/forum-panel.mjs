@@ -36,6 +36,18 @@ let visible = 80;
 
 function current() { return inventories.get(Number(topicSelect.value)); }
 
+export function forumEnrichmentSnapshot() {
+  const selected = current();
+  if (!selected) return undefined;
+  const topic = topics.get(Number(topicSelect.value));
+  return { title: topic?.title ?? 'Tópico carregado', posts: [...selected.posts.values()],
+    topics: [...topics.values()], complete: selected.next === null, reference };
+}
+
+function notifyInventoryChanged() {
+  root.dispatchEvent(new Event('rhea:forum-inventory-change'));
+}
+
 function refreshButtons() {
   get('load').disabled = Boolean(active);
   topicSelect.disabled = Boolean(active) || !topics.size;
@@ -93,6 +105,7 @@ async function readTopics(next) {
   if (next === null) {
     topics.clear();
     inventories.clear();
+    notifyInventoryChanged();
     topicSelect.value = '';
     render();
   }
@@ -118,6 +131,7 @@ async function readPosts() {
   for (const post of data.posts) selected.posts.set(post.id, post);
   selected.next = data.next;
   inventories.set(topicId, selected);
+  notifyInventoryChanged();
   status.textContent = selected.posts.size + ' publicações lidas' +
     (data.next ? '. Há páginas anteriores para conferir.' : '. Fim do tópico.');
   refreshButtons();
@@ -197,6 +211,7 @@ function reset() {
   active = undefined;
   topics.clear();
   inventories.clear();
+  notifyInventoryChanged();
   cursor = null;
   channelId = reference = undefined;
   visible = 80;
@@ -213,6 +228,7 @@ get('more-topics').addEventListener('click', () => readTopics(cursor));
 get('more-posts').addEventListener('click', readPosts);
 get('more-results').addEventListener('click', () => { visible += 80; render(); });
 topicSelect.addEventListener('change', () => {
+  notifyInventoryChanged();
   visible = 80;
   render();
   refreshButtons();
@@ -223,6 +239,7 @@ get('query').addEventListener('input', () => { visible = 80; render(); });
 get('reference').addEventListener('change', async event => {
   const file = event.target.files[0];
   reference = undefined;
+  notifyInventoryChanged();
   if (!file) { get('reference-status').textContent = ''; render(); return; }
   if (file.size > 2 * 1024 * 1024) {
     get('reference-status').textContent = 'O Markdown pode ter até 2 MiB.';
@@ -233,6 +250,7 @@ get('reference').addEventListener('change', async event => {
     const text = await file.text();
     if (event.target.files[0] !== file) return;
     reference = filenameReference(text);
+    notifyInventoryChanged();
     get('reference-status').textContent = reference.count + ' nomes de referência carregados neste navegador.';
   } catch {
     get('reference-status').textContent = 'Não foi possível ler o Markdown.';

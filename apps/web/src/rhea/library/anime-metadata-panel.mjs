@@ -1,3 +1,5 @@
+import { animeFormats as formats, lookupAnime, lookupErrors } from './anime-lookup.mjs';
+
 const root = document.querySelector('[data-rhea-telegram-library]');
 const form = root.querySelector('#anime-lookup-form');
 const input = root.querySelector('#anime-title');
@@ -5,7 +7,6 @@ const submit = form.querySelector('button');
 const status = root.querySelector('#anime-lookup-status');
 const results = root.querySelector('#anime-lookup-results');
 const endpoint = root.dataset.animeMetadataEndpoint;
-const formats = { TV: 'Série', TV_SHORT: 'Série curta', MOVIE: 'Filme', SPECIAL: 'Especial', OVA: 'OVA', ONA: 'ONA', MUSIC: 'Música' };
 const node = (tag, value) => Object.assign(document.createElement(tag), { textContent: value });
 let active;
 
@@ -49,13 +50,10 @@ form.addEventListener('submit', async event => {
   status.textContent = 'Consultando o AniList…';
   results.replaceChildren();
   try {
-    const response = await fetch(endpoint, { method: 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'error',
-      signal: request.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: input.value }) });
-    const result = await response.json();
+    const result = await lookupAnime(endpoint, input.value, request.signal);
     if (request.signal.aborted) return;
-    if (!response.ok || result.state !== 'candidates') {
-      status.textContent = result.state === 'rate_limited' ? 'O AniList pediu uma pausa. Tente mais tarde.' :
-        result.state === 'invalid_title' ? 'Digite de 2 a 120 caracteres.' : 'A consulta está indisponível.';
+    if (result.state !== 'candidates') {
+      status.textContent = lookupErrors[result.state];
       return;
     }
     results.replaceChildren(...result.candidates.map(show));
