@@ -18,6 +18,9 @@ test('normalization preserves explicit options and parses only unambiguous episo
   assert.equal(titleKey('  O Kairō   10 ', { ignoreArticles: true }), 'kairo 10');
   assert.equal(titleKey('O Kairō 10', { foldCase: false, foldDiacritics: false }), 'O Kairō 10');
   assert.deepEqual(parseEpisodeLabel('Kairō.S02E10.5v2.Parte-2.mkv'), { season: 2, episode: 10.5, part: 2 });
+  assert.deepEqual(parseEpisodeLabel('[Demo]Sample-Series-S04E03 [12345678].mkv'), { season: 4, episode: 3 });
+  assert.deepEqual(parseEpisodeLabel('Sample.Series.S04E03.1080.mkv'), { season: 4, episode: 3 });
+  assert.deepEqual(parseEpisodeLabel('Sample Series S04E03.5 [12345678].mkv'), { season: 4, episode: 3.5 });
   assert.deepEqual(parseEpisodeLabel('Kairō.S02E10-E11.mkv'), {});
   assert.deepEqual(parseEpisodeLabel('Kairō 1080 x 1920.mkv'), {});
   assert.equal(titleKey('霧の駅'), '霧の駅');

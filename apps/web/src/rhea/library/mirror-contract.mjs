@@ -5,7 +5,7 @@ export const mirrorTestTopic = 'RHEA Mirror Test';
 const operations = new Set(['mirrorstatus', 'mirrorpreview', 'mirrorapprove', 'mirrornext']);
 const issueCodes = new Set(['account_unverified', 'group_unavailable', 'group_not_forum',
   'group_not_owned', 'group_protected', 'topic_missing', 'topic_name', 'dual_topic_name', 'topic_closed',
-  'history_unverified', 'history_limit', 'unsupported_post', 'album_or_reply', 'source_empty', 'destination_not_empty']);
+  'history_unverified', 'history_limit', 'unsupported_post', 'album_or_reply', 'source_empty', 'destination_not_empty', 'destination_in_use']);
 
 const postDetails = new Set(['service_event', 'reply', 'protected_or_temporary', 'forwarded_or_bot',
   'text_format', 'media_type', 'media_reference', 'filename', 'file_size', 'large_file_size']);
@@ -15,7 +15,8 @@ export function mirrorIssue(issue) {
   if (issue.code === 'account_unverified') return issue.side === 'account' ? { side: 'account', code: issue.code } : undefined;
   if (!['source', 'destination', 'local'].includes(issue.side) ||
       (issue.code === 'source_empty' && issue.side !== 'source') ||
-      (issue.code === 'destination_not_empty' && issue.side === 'source')) return undefined;
+      (issue.code === 'destination_not_empty' && issue.side === 'source') ||
+      (issue.code === 'destination_in_use' && issue.side !== 'local')) return undefined;
   const result = { side: issue.side, code: issue.code };
   if (issue.code === 'unsupported_post' && forumId(issue.postId) && postDetails.has(issue.detail)) {
     return { ...result, postId: issue.postId, detail: issue.detail };

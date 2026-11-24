@@ -7,7 +7,7 @@ import { Api } from 'teleproto';
 import { mtprotoPage } from '../functions/api/rhea/telegram-mtproto.js';
 import { mtprotoControl } from './control.mjs';
 import { mirrorControl } from './mirror.mjs';
-import { openMirror, topicSnapshot } from './mirror-messages.mjs';
+import { mirrorUnits, openMirror, topicSnapshot } from './mirror-messages.mjs';
 import { configuration } from './server.mjs';
 
 const source = { channelId: '11111', inviteHash: 'fixtureSourceInvite', topicId: 10 };
@@ -62,12 +62,14 @@ async function harness(t, options = {}) {
   function copyTo(scope, target, firstId) {
     return async (unit, randomIds, parent) => {
       calls.push({ ids: unit.map(item => item.id), randomIds, parent, ...(options.dual && { side: scope === organized ? 'local' : 'backup' }) });
+      if (options.rejectBeforeSend) throw options.rejectBeforeSend;
       const album = unit.length > 1 ? BigInt(target.length + 100) : undefined;
       const ids = unit.map((item, i) => target.length + firstId + i);
       target.push(...unit.map((item, i) => ({ ...item.message, id: ids[i], groupedId: album,
         peerId: { channelId: BigInt(scope.channelId) },
         replyTo: parent === null ? { replyToMsgId: scope.topicId } :
           { replyToMsgId: parent, replyToTopId: scope.topicId } })));
+      if (options.rejectAfterSend) throw options.rejectAfterSend;
       if (options.loseReceipt || (options.loseBackupReceipt && scope === destination)) {
         throw new Error('Synthetic network interruption after sending.');
       }
@@ -416,4 +418,149 @@ test('dual transport serializes 4 GiB file references for both topics without do
   assert.deepEqual(targets, [[source.channelId, organized.topicId], [destination.channelId, destination.topicId]]);
   media.document.size += 1n;
   await assert.rejects(transport.readSource(), { issue: { side: 'source', code: 'unsupported_post', postId: 11, detail: 'large_file_size' } });
+});
+
+const rejection = (errorMessage, seconds) => Object.assign(new Error('Synthetic provider rejection.'), { errorMessage, ...(seconds && { seconds }) });
+
+test('a definitive provider rejection retracts the intent so the same unit can be retried', async t => {
+  for (const error of [rejection('FLOOD_WAIT_30', 30), rejection('FILE_REFERENCE_EXPIRED')]) {
+    const options = { rejectBeforeSend: error };
+    const f = await harness(t, options);
+    await f.approve();
+    await assert.rejects(f.call('mirrornext'), error);
+    assert.equal((await f.call('mirrorstatus')).state, 'mirror_progress');
+    f.restart();
+    assert.equal((await f.call('mirrorstatus')).state, 'mirror_progress');
+    assert.equal(f.backup.length, 0);
+    options.rejectBeforeSend = undefined;
+    assert.equal((await f.call('mirrornext')).mirror.copies.length, 0);
+    assert.equal((await f.call('mirrornext')).mirror.copies.length, 1);
+    assert.equal(f.calls.length, 2);
+    assert.equal(f.backup.length, 1);
+  }
+});
+
+test('a retracted rejection never resends when the unit had already reached Telegram', async t => {
+  const f = await harness(t, { rejectAfterSend: rejection('FLOOD_WAIT_5', 5) });
+  await f.approve();
+  await assert.rejects(f.call('mirrornext'));
+  assert.equal(f.backup.length, 1);
+  assert.equal((await f.call('mirrornext')).state, 'mirror_changed');
+  assert.equal(f.calls.length, 1);
+});
+
+test('an unclassified transport failure still locks the run for manual reconciliation', async t => {
+  const f = await harness(t, { rejectBeforeSend: rejection('RPC_CALL_FAIL') });
+  await f.approve();
+  await assert.rejects(f.call('mirrornext'));
+  assert.equal((await f.call('mirrorstatus')).state, 'mirror_recovery');
+  assert.equal((await f.call('mirrornext')).state, 'mirror_recovery');
+  assert.equal(f.calls.length, 1);
+});
+
+test('repeated rejections stop at a bounded journal instead of growing without limit', async t => {
+  const options = { rejectBeforeSend: rejection('FLOOD_WAIT_1', 1) };
+  const f = await harness(t, options);
+  await f.approve();
+  let state;
+  for (let attempt = 0; attempt < 60 && state !== 'mirror_recovery'; attempt++) {
+    try { state = (await f.call('mirrornext')).state; } catch { state = (await f.call('mirrorstatus')).state; }
+  }
+  assert.equal(state, 'mirror_recovery');
+  const [name] = await readdir(f.cache);
+  assert.ok((await readFile(join(f.cache, name))).length < 16384);
+});
+
+test('an organized topic stays reserved while another backup configuration is unresolved', async t => {
+  const f = await harness(t, { dual: true });
+  await f.approve();
+  const other = mirrorControl({ ...f.settings, mirror: { ...f.settings.mirror,
+    destination: { channelId: '33333', inviteHash: 'fixtureOtherInvite', topicId: 50 } } }, () => 1000);
+  const reserved = { state: 'mirror_ineligible', issue: { side: 'local', code: 'destination_in_use' } };
+  assert.deepEqual(await other.handle('mirrorpreview', {}, f.client), reserved);
+  assert.equal((await other.handle('mirrorapprove', { approval: 'x'.repeat(43), confirm: true }, f.client)).state, 'mirror_changed');
+  assert.equal((await other.handle('mirrornext', {}, f.client)).state, 'mirror_idle');
+  assert.equal((await readdir(f.cache)).filter(name => name.endsWith('.jsonl')).length, 1);
+  f.restart();
+  assert.equal((await f.call('mirrornext')).state, 'mirror_progress');
+});
+
+test('source captions above the media keep their layout and cannot mix inside an album', async () => {
+  const channels = [source, destination].map(scope => ({ id: BigInt(scope.channelId), accessHash: 100n,
+    title: scope.channelId, creator: true, forum: true, megagroup: true }));
+  const privateChat = async scope => channels.find(channel => channel.id.toString() === scope.channelId);
+  const peerFor = channel => new Api.InputPeerChannel({ channelId: channel.id, accessHash: channel.accessHash });
+  const posts = fixtures();
+  posts[0].invertMedia = true;
+  const seen = [];
+  const invoke = async rpc => {
+    if (rpc instanceof Api.messages.GetForumTopicsByID) return { topics: [{ className: 'ForumTopic', id: rpc.topics[0], title: 'RHEA Mirror Test' }] };
+    if (rpc instanceof Api.messages.GetReplies) return getReplies(source, posts);
+    seen.push(rpc);
+    const ids = rpc.multiMedia?.map(media => media.randomId) ?? [rpc.randomId];
+    return { updates: ids.map((randomId, i) => ({ className: 'UpdateMessageID', randomId, id: 31 + i })) };
+  };
+  const mirror = await openMirror(config.mirror, privateChat, peerFor, invoke);
+  const inventory = await mirror.readSource();
+  assert.equal(inventory[0].contents.invertMedia, true);
+  assert.equal('invertMedia' in inventory[1].contents, false);
+  await mirror.copy(inventory.slice(0, 1), [1n], null);
+  await mirror.copy(inventory.slice(2), [2n, 3n], null);
+  assert.equal(seen[0].invertMedia, true);
+  assert.notEqual(seen[1].invertMedia, true);
+  posts[3].invertMedia = true;
+  assert.equal(mirrorUnits(await mirror.readSource()), null);
+});
+
+test('dual preflight refuses swapped, stale, closed, misnamed and unauthorized destinations', async () => {
+  const scope = { ...config.mirror, local: organized };
+  const titles = new Map([[source.topicId, 'RHEA Mirror Test'], [organized.topicId, 'RHEA Organized Test'],
+    [destination.topicId, 'RHEA Backup Test']]);
+  const channels = () => [source, destination].map(item => ({ id: BigInt(item.channelId), accessHash: 100n,
+    title: item.channelId, creator: true, forum: true, megagroup: true }));
+  const open = async ({ chats = channels(), names = titles, patch = {}, failure } = {}) => openMirror(scope,
+    async value => {
+      if (failure) throw failure;
+      return chats.find(chat => chat.id.toString() === value.channelId);
+    },
+    chat => new Api.InputPeerChannel({ channelId: chat.id, accessHash: chat.accessHash }),
+    async rpc => {
+      if (rpc instanceof Api.messages.GetForumTopicsByID) {
+        const id = rpc.topics[0];
+        if (patch.missing === id) throw rejection('TOPIC_ID_INVALID');
+        return { topics: [{ className: 'ForumTopic', id, title: names.get(id), ...(patch.closed === id && { closed: true }) }] };
+      }
+      return getReplies(source, []);
+    });
+  await open();
+  const swapped = new Map(titles).set(organized.topicId, 'RHEA Backup Test').set(destination.topicId, 'RHEA Organized Test');
+  await assert.rejects(open({ names: swapped }), { issue: { side: 'destination', code: 'dual_topic_name' } });
+  const swappedSource = new Map(titles).set(source.topicId, 'RHEA Organized Test').set(organized.topicId, 'RHEA Mirror Test');
+  await assert.rejects(open({ names: swappedSource }), { issue: { side: 'source', code: 'topic_name' } });
+  await assert.rejects(open({ patch: { closed: destination.topicId } }), { issue: { side: 'destination', code: 'topic_closed' } });
+  await assert.rejects(open({ patch: { closed: organized.topicId } }), { issue: { side: 'local', code: 'topic_closed' } });
+  await assert.rejects(open({ patch: { missing: organized.topicId } }), { issue: { side: 'local', code: 'topic_missing' } });
+  await assert.rejects(open({ failure: rejection('INVITE_HASH_EXPIRED') }), { issue: { side: 'source', code: 'group_unavailable' } });
+  await assert.rejects(open({ chats: [] }), { issue: { side: 'source', code: 'group_unavailable' } });
+  const unowned = channels();
+  unowned[1].creator = false;
+  await assert.rejects(open({ chats: unowned }), { issue: { side: 'destination', code: 'group_not_owned' } });
+  const plain = channels();
+  plain[1].forum = false;
+  await assert.rejects(open({ chats: plain }), { issue: { side: 'destination', code: 'group_not_forum' } });
+  const protectedDestination = channels();
+  protectedDestination[1].noforwards = true;
+  await assert.rejects(open({ chats: protectedDestination }), { issue: { side: 'destination', code: 'group_protected' } });
+});
+
+test('journals keep every approval, receipt and verification step without content or secrets', async t => {
+  const f = await harness(t, { dual: true });
+  await f.approve();
+  for (let step = 0; step < 16; step++) await f.call('mirrornext');
+  const [journal] = (await readdir(f.cache)).filter(name => name.endsWith('.jsonl'));
+  const lines = (await readFile(join(f.cache, journal), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+  assert.equal(lines[0].type, 'approved');
+  assert.deepEqual([...new Set(lines.slice(1).map(line => line.type))].sort(), ['intent', 'receipt', 'verified']);
+  assert.equal((await readdir(f.cache)).filter(name => name.endsWith('.lock')).length, 1);
+  assert.doesNotMatch(JSON.stringify(lines), /Aurora|secret|Fixture|Invite|token/);
 });

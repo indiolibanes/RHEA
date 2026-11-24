@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { open } from 'node:fs/promises';
+import { open, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { forumId } from '../src/rhea/library/forum-contract.mjs';
 import { mirrorLimit } from '../src/rhea/library/mirror-contract.mjs';
@@ -9,6 +9,11 @@ const approvalTtl = 5 * 60_000;
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const idsOf = unit => unit.map(post => post.id);
 const fingerprint = posts => posts.map(({ id, parent, album, contents }) => [id, parent, album, contents]);
+// Telegram answered with an RPC error, so the request was refused and nothing was published.
+// Transport failures carry no errorMessage and stay unresolved until the owner reconciles them.
+const refusal = /^(?:(?:FLOOD|SLOWMODE)_WAIT(?:_\d+)?|FILE_REFERENCE_(?:\d+_)?(?:EXPIRED|INVALID|EMPTY)|TOPIC_CLOSED|TOPIC_DELETED|CHAT_WRITE_FORBIDDEN|MEDIA_EMPTY|MEDIA_INVALID)$/;
+const rejectedByTelegram = error => typeof error?.errorMessage === 'string' && refusal.test(error.errorMessage);
+const maxRetractions = 20;
 
 function readLog(lines, scope, dual) {
   const [header, ...events] = lines;
@@ -20,6 +25,7 @@ function readLog(lines, scope, dual) {
   const copies = [];
   const localCopies = [];
   let step = 0;
+  let retractions = 0;
   let intent;
   let receipt;
   for (const event of events) {
@@ -34,6 +40,10 @@ function readLog(lines, scope, dual) {
     } else if (event.type === 'receipt' && intent && !receipt && Array.isArray(event.ids) && event.ids.length === unit.length &&
         event.ids.every((id, i) => forumId(id) && id > (i ? event.ids[i - 1] : last))) {
       receipt = event;
+    } else if (event.type === 'retract' && intent && !receipt && retractions < maxRetractions) {
+      // Written only after Telegram refused the request. The next attempt still requires an unchanged destination.
+      retractions++;
+      intent = undefined;
     } else if (event.type === 'verified' && receipt) {
       targetCopies.push(...receipt.ids.map((id, i) => ({ sourceId: unit[i], destinationId: id })));
       step++;
@@ -42,7 +52,7 @@ function readLog(lines, scope, dual) {
       return null;
     }
   }
-  return { ...header, total: ids.length, step, copies, localCopies, intent, receipt };
+  return { ...header, total: ids.length, step, copies, localCopies, intent, receipt, retractions };
 }
 
 async function append(handle, event) {
@@ -74,6 +84,8 @@ export function mirrorControl(config, now = Date.now) {
   const target = digest([destination.channelId, destination.topicId]);
   const scope = digest([config.actor, config.ownerId, source.channelId, source.topicId, target, ...(local ? [local.topicId] : [])]);
   const journal = join(dirname(config.file), 'mirror-' + target + '.jsonl');
+  // The journal is keyed by the backup topic, so the organized topic needs its own reservation.
+  const reservation = local && join(dirname(config.file), 'mirror-local-' + digest([local.channelId, local.topicId]) + '.lock');
   let pending;
   let active = false;
 
@@ -93,11 +105,35 @@ export function mirrorControl(config, now = Date.now) {
     }
   }
 
+  async function reservedByAnotherRun() {
+    if (!reservation) return false;
+    try {
+      return JSON.parse(await readFile(reservation, 'utf8')).target !== target;
+    } catch (error) {
+      return error.code !== 'ENOENT';
+    }
+  }
+
+  async function reserve() {
+    if (!reservation) return;
+    try {
+      const handle = await open(reservation, 'wx', 0o600);
+      try {
+        await handle.writeFile(JSON.stringify({ target }) + '\n');
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+    } catch (error) {
+      if (error.code !== 'EEXIST' || await reservedByAnotherRun()) throw error;
+    }
+  }
+
   function status(log) {
     if (log === null) return { state: 'mirror_idle' };
     if (!log) return { state: 'mirror_recovery' };
     const state = log.copies.length === log.total ? 'mirror_done' :
-      log.intent && !log.receipt ? 'mirror_recovery' : 'mirror_progress';
+      (log.intent && !log.receipt) || log.retractions >= maxRetractions ? 'mirror_recovery' : 'mirror_progress';
     return progress(state, log);
   }
 
@@ -122,6 +158,7 @@ export function mirrorControl(config, now = Date.now) {
   async function approve(preview, plan) {
     let file;
     try {
+      await reserve();
       file = await open(journal, 'wx', 0o600);
       await append(file, { type: 'approved', scope, evidence: plan.evidence, units: plan.units.map(idsOf), at: now(),
         approval: digest(preview.approval) });
@@ -167,7 +204,13 @@ export function mirrorControl(config, now = Date.now) {
       if (targetParent === undefined) return { state: 'mirror_changed' };
       const ids = unit.map(() => (randomBytes(8).readBigUInt64BE() >> 1n) || 1n);
       await append(file, { type: 'intent', step, ids: ids.map(String) });
-      const receipt = await copy(unit, ids, targetParent);
+      let receipt;
+      try {
+        receipt = await copy(unit, ids, targetParent);
+      } catch (error) {
+        if (rejectedByTelegram(error)) await append(file, { type: 'retract', step }).catch(() => {});
+        throw error;
+      }
       const last = verified.at(-1)?.destinationId ?? 0;
       if (!Array.isArray(receipt) || receipt.length !== unit.length ||
           receipt.some((id, i) => !forumId(id) || id <= (i ? receipt[i - 1] : last))) {
@@ -195,6 +238,7 @@ export function mirrorControl(config, now = Date.now) {
         return await next(previous, plan);
       }
       if (previous) return result;
+      if (await reservedByAnotherRun()) throw new MirrorPreflightError('local', 'destination_in_use');
 
       const approval = pending;
       pending = undefined;
