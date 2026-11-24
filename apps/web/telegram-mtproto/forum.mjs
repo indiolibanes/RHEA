@@ -1,6 +1,14 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { forumId, forumPageSize } from '../src/rhea/library/forum-contract.mjs';
 
+const generalTopicId = 1;
+
+function belongsToGeneral(message) {
+  const reply = message.replyTo;
+  // Non-General posts have a forum reply header, even when they reply directly to the topic root.
+  return !reply || (!reply.forumTopic && (reply.replyToTopId == null || reply.replyToTopId === generalTopicId));
+}
+
 const positive = value => Number.isInteger(value) && value > 0;
 const signers = ({ actor, ownerId, key, forum }) => {
   const mac = text => createHmac('sha256', key).update(JSON.stringify(['forum-v1', actor, ownerId, forum.channelId, text])).digest();
@@ -65,21 +73,27 @@ export function forumReader(config, transport) {
 
     const { topicId } = input;
     if (cursor && cursor.topicId !== topicId) return { state: 'forum_cursor_invalid' };
-    if (topicId === 1) return { state: 'forum_general' };
-    if (!await transport.hasTopic(topicId)) return { state: 'forum_unavailable' };
-    const result = await transport.posts(topicId, cursor?.offset ?? 0, forumPageSize);
-    const raw = result.messages;
+    const general = topicId === generalTopicId;
+    if (!general && !await transport.hasTopic(topicId)) return { state: 'forum_unavailable' };
+    const offset = cursor?.offset ?? 0;
+    const result = await transport.posts(topicId, offset, forumPageSize);
+    const raw = result?.messages;
     if (!Array.isArray(raw) || raw.length > forumPageSize ||
-        raw.some((message, index) => !forumId(message.id) || message.id < topicId ||
-          (message.id === topicId && message.className !== 'MessageService') ||
+        raw.some((message, index) => !forumId(message?.id) || message.id < topicId ||
+          (!general && message.id === topicId && message.className !== 'MessageService') ||
           (index ? message.id >= raw[index - 1].id : cursor && message.id >= cursor.offset))) return { state: 'forum_changed' };
     const posts = [];
     for (const message of raw) {
-      if (message.className === 'MessageService') continue;
-      if (message.className !== 'Message' || message.peerId?.channelId?.toString() !== channelId ||
-        (message.replyTo?.replyToTopId ?? message.replyTo?.replyToMsgId) !== topicId) return { state: 'forum_changed' };
+      if (message.className === 'MessageService' || (general && message.className === 'MessageEmpty')) continue;
+      if (message.className !== 'Message' || message.peerId?.channelId?.toString() !== channelId) {
+        return { state: 'forum_changed' };
+      }
+      const matchesTopic = general ? belongsToGeneral(message) :
+        (message.replyTo?.replyToTopId ?? message.replyTo?.replyToMsgId) === topicId;
+      if (!matchesTopic) return { state: 'forum_changed' };
       posts.push(forumPost(message, transport.protected));
     }
+    // Advance through the response even if the page contained only service posts.
     const lastId = raw.at(-1)?.id;
     const next = lastId > topicId ? signer.encode({ operation, topicId, offset: lastId }) : null;
     return { state: 'forum_page', forum: { channelId, topicId, next, posts } };
