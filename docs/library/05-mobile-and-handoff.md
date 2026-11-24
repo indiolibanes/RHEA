@@ -2,7 +2,7 @@
 
 ## Review now
 
-Open the supplied synthetic preview in a phone browser. Select **K** or **S**, expand a series, and check how seasons and episodes are grouped. Try a catalog correction, compare the strategies, and open **Revisar verificações e aprovações**. The demo resets on reload. At the default batch size it shows 355 posts for staging or 347 copies with 8 retained for suffix reflow. A Telegram account is unnecessary for review.
+Open **Ferramentas de teste** from the Telegram tab in a phone browser. Select **K** or **S** in the demonstration catalog, expand a series, and check the episode groups. Catalog corrections reset on reload. No Telegram account is needed for the demonstration. Use **Arquivos por tópico** and **Organizar arquivos deste tópico** for the active forum workflow.
 
 ## Prepare a disposable live test from a phone
 

@@ -29,7 +29,8 @@ function candidate(entry) {
 }
 
 function json(body, status = 200) {
-  return Response.json(body, { status, headers: { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } });
+  return Response.json(body, { status, headers: { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
+    ...(body.retryAfter ? { 'Retry-After': String(body.retryAfter) } : {}) } });
 }
 
 export async function animeMetadata({ request, data }, fetcher = fetch) {
@@ -49,14 +50,19 @@ export async function animeMetadata({ request, data }, fetcher = fetch) {
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ query, variables: { title } }),
     });
-    if (response.status === 429) return json({ state: 'rate_limited' }, 429);
-    if (!response.ok) return json({ state: 'unavailable' }, 503);
+    if (response.status === 429) {
+      const retryAfter = Number(response.headers.get('Retry-After'));
+      return json({ state: 'rate_limited',
+        ...(Number.isInteger(retryAfter) && retryAfter >= 1 && retryAfter <= 3600 ? { retryAfter } : {}) }, 429);
+    }
+    if (response.status === 403) return json({ state: 'provider_refused' }, 503);
+    if (!response.ok) return json({ state: 'provider_unavailable' }, 503);
     const payload = await boundedTelegramJson(response, 65_536);
     const entries = payload?.data?.Page?.media;
-    if (payload?.errors?.length || !Array.isArray(entries) || entries.length > 6) return json({ state: 'unavailable' }, 503);
+    if (payload?.errors?.length || !Array.isArray(entries) || entries.length > 6) return json({ state: 'provider_unavailable' }, 503);
     return json({ state: 'candidates', candidates: entries.map(candidate).filter(Boolean) });
   } catch {
-    return json({ state: 'unavailable' }, 503);
+    return json({ state: 'provider_unavailable' }, 503);
   }
 }
 

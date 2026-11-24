@@ -7,7 +7,7 @@
 .library-demo { margin-top: .75rem; }
 .library-hero { scroll-margin-top: 6rem; }
 .library-inventory h2, .library-inventory p { margin: 0; }
-.library-inventory dl, .library-run-status { display: flex; flex-wrap: wrap; gap: .75rem 2rem; margin-block: 0; }
+.library-inventory dl { display: flex; flex-wrap: wrap; gap: .75rem 2rem; margin-block: 0; }
 .library dt { font-size: .875rem; color: var(--color-text-muted); }
 .library dd { margin-inline-start: 0; }
 .library-inventory dd { font-family: var(--font-display, serif); font-size: 1.6rem; color: var(--color-text-heading); }
@@ -33,7 +33,8 @@
 .library-orders { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; align-items: start; margin-block: .9rem; }
 .library-order { max-height: 24rem; overflow: auto; padding-inline-start: 2rem; }
 .library-order li { padding-block: .3rem; overflow-wrap: anywhere; }
-.library-run-status { margin-top: 1rem; }
+.forum-next-actions { margin-block: .85rem; }
+.library [hidden] { display: none; }
 .library dialog { background: var(--color-surface); color: var(--color-text-primary); border: 1px solid var(--color-outline); border-radius: .75rem; padding: 1.2rem; width: min(34rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; }
 .library dialog::backdrop { background: rgba(0, 0, 0, .65); }
 .library :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }

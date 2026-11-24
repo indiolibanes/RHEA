@@ -1,4 +1,4 @@
-import { animeFormats as formats, lookupAnime, lookupErrors } from './anime-lookup.mjs';
+import { animeFormats as formats, lookupAnime, lookupMessage } from './anime-lookup.mjs';
 
 const root = document.querySelector('[data-rhea-telegram-library]');
 const form = root.querySelector('#anime-lookup-form');
@@ -53,13 +53,13 @@ form.addEventListener('submit', async event => {
     const result = await lookupAnime(endpoint, input.value, request.signal);
     if (request.signal.aborted) return;
     if (result.state !== 'candidates') {
-      status.textContent = lookupErrors[result.state];
+      status.textContent = lookupMessage(result);
       return;
     }
     results.replaceChildren(...result.candidates.map(show));
     status.textContent = result.candidates.length ? 'Confira a obra e a temporada entre os resultados.' : 'Nenhuma obra encontrada.';
   } catch {
-    if (!request.signal.aborted) status.textContent = 'A consulta está indisponível.';
+    if (!request.signal.aborted) status.textContent = lookupMessage({ state: 'network' });
   } finally {
     if (active === request) { active = undefined; submit.disabled = false; }
   }

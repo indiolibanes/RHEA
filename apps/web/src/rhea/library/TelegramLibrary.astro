@@ -29,7 +29,6 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
       </form>
       <button class="editorial-action" type="button" id="mtproto-cancel" hidden>Cancelar conexão</button>
       <button class="editorial-action" type="button" id="mtproto-inventory" hidden>Ler histórico</button>
-      <button class="editorial-action" type="button" id="mtproto-stagepreview" hidden>Preparar cópia de teste</button>
       <button class="editorial-action" type="button" id="mtproto-disconnect" hidden>Desconectar Telegram</button>
     </div>
   </section>
@@ -43,9 +42,9 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
       <button class="editorial-action relay-primary" type="button" id="mtproto-stage-confirm">Aprovar e copiar os três posts</button>
     </div>
   </dialog>
-  <details class="library-section" id="forum-inventory">
-    <summary><strong>Inventário do supergrupo por tópico</strong></summary>
-    <p>Consulte capas, legendas e lotes de arquivos. Você pode comparar os nomes com seu Markdown.</p>
+  <details class="library-section" id="forum-inventory" open>
+    <summary><strong>Arquivos por tópico</strong></summary>
+    <p>Carregue os tópicos, selecione Requests e escolha a obra que deseja organizar.</p>
     <div class="library-actions">
       <button class="editorial-action" id="forum-load" type="button">Ler tópicos</button>
       <button class="editorial-action" id="forum-more-topics" type="button" hidden>Carregar mais tópicos</button>
@@ -55,6 +54,10 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
       <label><span id="forum-topic-label">Tópico</span><select id="forum-topic" aria-labelledby="forum-topic-label" disabled><option value="">Escolha um tópico</option></select></label>
       <label>Buscar nos posts carregados<input id="forum-query" type="search" maxlength="120"></label>
       <label>Lista de nomes no Markdown<input id="forum-reference" type="file" accept=".md,.markdown,text/plain,text/markdown"></label>
+    </div>
+    <div class="library-actions forum-next-actions">
+      <button class="editorial-action rhea-primary" id="forum-organize" type="button" hidden>Organizar arquivos deste tópico</button>
+      <button class="editorial-action" id="forum-more-posts" type="button" hidden>Ler página anterior do tópico</button>
     </div>
     <p id="forum-reference-status" role="status"></p>
     <p id="forum-size-total" hidden></p>
@@ -66,135 +69,100 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
     <div id="forum-items" class="library-catalog"></div>
     <div class="library-actions">
       <button class="editorial-action" id="forum-more-results" type="button" hidden>Exibir mais itens carregados</button>
-      <button class="editorial-action" id="forum-more-posts" type="button" hidden>Ler página anterior do tópico</button>
-      <button class="editorial-action rhea-primary" id="forum-organize" type="button" hidden>Organizar arquivos deste tópico</button>
     </div>
   </details>
   <AnimeEnrichment />
-  <details class="library-section" id="mirror-panel">
-    <summary><strong>Espelhamento por tópico</strong></summary>
-    <p>Piloto entre supergrupos privados descartáveis. Revise a origem e o destino antes de aprovar a cópia.</p>
-    <p id="mirror-status" role="status"></p>
+  <details class="library-section" id="library-sandbox">
+    <summary><strong>Ferramentas de teste</strong></summary>
     <div class="library-actions">
-      <button class="editorial-action" id="mirror-check" type="button">Consultar progresso</button>
-      <button class="editorial-action" id="mirror-preview" type="button">Preparar prévia</button>
-      <button class="editorial-action rhea-primary" id="mirror-continue" type="button" hidden>Continuar cópia</button>
-      <button class="editorial-action" id="mirror-pause" type="button" hidden>Pausar após o lote atual</button>
+      <button class="editorial-action" type="button" id="mtproto-stagepreview" hidden>Preparar cópia de teste</button>
     </div>
-    <details id="mirror-receipts" hidden><summary>IDs conferidos</summary><ol id="mirror-mapping"></ol></details>
-  </details>
-  <dialog id="mirror-dialog" aria-labelledby="mirror-title">
-    <h2 id="mirror-title">Aprovar cópia do tópico de teste</h2>
-    <p>Origem · <strong id="mirror-source"></strong></p>
-    <p>Destino · <strong id="mirror-destination"></strong></p>
-    <ol id="mirror-posts" class="library-order"></ol>
-    <p>A aprovação vale por cinco minutos. Os posts no destino terão novos IDs e links.</p>
-    <div class="library-actions">
-      <form method="dialog"><button class="editorial-action" autofocus>Voltar</button></form>
-      <button class="editorial-action rhea-primary" id="mirror-approve" type="button">Aprovar cópia</button>
-    </div>
-  </dialog>
-  <details class="library-section" id="anime-metadata">
-    <summary><strong>Consultar dados de anime</strong></summary>
-    <p>Digite o título da obra ou temporada. A consulta envia ao AniList apenas o título digitado.</p>
-    <form class="library-form" id="anime-lookup-form" method="post">
-      <label>Título <input id="anime-title" type="search" minlength="2" maxlength="120" required></label>
-      <div class="library-actions"><button class="editorial-action rhea-primary" type="submit">Buscar no AniList</button></div>
-    </form>
-    <p id="anime-lookup-status" role="status"></p>
-    <div id="anime-lookup-results" class="library-catalog"></div>
-  </details>
-  <section class="library-inventory library-demo prism-surface" aria-labelledby="demo-title">
-    <div>
-      <h2 id="demo-title">Canal de demonstração</h2>
-      <p id="inventory-source">Dados fictícios para testar o catálogo e a reordenação.</p>
-    </div>
-    <dl>
-      <div><dt>Séries</dt><dd id="series-count">—</dd></div>
-      <div><dt>Mensagens</dt><dd id="message-count">—</dd></div>
-      <div><dt>Para revisar</dt><dd id="duplicate-count">—</dd></div>
-    </dl>
-  </section>
-
-  <section class="library-section" id="catalogo" aria-labelledby="catalog-title">
-    <div class="library-heading">
-      <h2 id="catalog-title">Catálogo A–Z</h2>
-      <label class="library-search">Buscar por título ou variante
-        <input id="library-query" type="search" maxlength="120" placeholder="Ex. Kiro Tōdai">
-      </label>
-    </div>
-    <nav class="library-alphabet" aria-label="Filtrar catálogo por inicial">
-      <button type="button" data-letter="" aria-pressed="true">Todas</button>
-      {letters.map(letter => <button type="button" data-letter={letter} aria-pressed="false">{letter}</button>)}
-    </nav>
-    <p class="meta" id="catalog-result" role="status">Carregando demonstração.</p>
-    <div id="catalog-items" class="library-catalog"></div>
-  </section>
-
-  <section class="library-section" id="duplicatas" aria-labelledby="duplicates-title">
-    <h2 id="duplicates-title">Possíveis duplicatas</h2>
-    <p>O catálogo preserva todos os posts até você conferir os registros.</p>
-    <ul id="duplicate-items" class="library-duplicates"></ul>
-  </section>
-
-  <section class="library-section" id="correcoes" aria-labelledby="correction-title">
-    <h2 id="correction-title">Corrigir metadados</h2>
-    <p>As correções valem para esta prévia. Os campos originais ficam visíveis no catálogo.</p>
-    <form id="correction-form" class="library-form">
-      <label>Post<select id="correction-id" required></select></label>
-      <label>Série<select id="correction-series" required></select></label>
-      <label>Temporada<input id="correction-season" type="number" min="0" max="99999"></label>
-      <label>Episódio<input id="correction-episode" type="number" min="0" max="99999" step="any"></label>
-      <label>Parte<input id="correction-part" type="number" min="1" max="99999"></label>
-      <label>Tipo<select id="correction-kind"></select></label>
-      <label>Nome de exibição<input id="correction-label" type="text" maxlength="160"></label>
+    <details class="library-section" id="mirror-panel">
+      <summary><strong>Espelhamento por tópico</strong></summary>
+      <p>Piloto entre supergrupos privados descartáveis. Revise a origem e o destino antes de aprovar a cópia.</p>
+      <p id="mirror-status" role="status"></p>
       <div class="library-actions">
-        <button class="editorial-action rhea-primary" type="submit">Aplicar à prévia</button>
-        <button class="editorial-action" id="correction-reset" type="button">Redefinir</button>
+        <button class="editorial-action" id="mirror-check" type="button">Consultar progresso</button>
+        <button class="editorial-action" id="mirror-preview" type="button">Preparar prévia</button>
+        <button class="editorial-action rhea-primary" id="mirror-continue" type="button" hidden>Continuar cópia</button>
+        <button class="editorial-action" id="mirror-pause" type="button" hidden>Pausar após o lote atual</button>
       </div>
-    </form>
-    <p class="meta" id="correction-feedback" role="status"></p>
-  </section>
-
-  <section class="library-section" id="reflow" aria-labelledby="reflow-title">
-    <h2 id="reflow-title">Prévia da reordenação</h2>
-    <div class="library-form">
-      <label>Estratégia
-        <select id="plan-strategy">
-          <option value="staging">Reconstruir em outro canal privado</option>
-          <option value="suffix">Republicar o sufixo no mesmo canal</option>
-        </select>
-      </label>
-      <label>Tamanho do lote<input id="plan-batch" type="number" min="1" max="100" value="10" required></label>
-      <label>Mostrar ordem por inicial<select id="plan-letter"><option value="">Todas</option><option value="K">K</option><option value="S">S</option></select></label>
-    </div>
-    <p id="plan-description"></p>
-    <p id="plan-estimates" role="status"></p>
-    <p id="plan-blockers" role="status" hidden></p>
-    <p>Posts republicados recebem novas datas e links. Reações, visualizações, pins e respostas podem se perder.</p>
-    <div class="library-orders">
-      <details><summary>Ordem atual</summary><ol id="original-order" class="library-order"></ol></details>
-      <details><summary>Ordem proposta</summary><ol id="target-order" class="library-order"></ol></details>
-    </div>
-    <button class="editorial-action" type="button" id="plan-review">Revisar verificações e aprovações</button>
-    <dialog id="plan-dialog" aria-labelledby="plan-dialog-title">
-      <h3 id="plan-dialog-title">Revisão da reordenação</h3>
-      <p id="plan-dialog-count"></p>
-      <ol>
-        <li>Conferir a revisão do canal e os posts esperados.</li>
-        <li>Aprovar a cópia no espaço protegido da RHEA.</li>
-        <li>Validar ordem, mídias, legendas, nomes de arquivos e álbuns.</li>
-        <li>Para limpar o sufixo original, verificar o backup acessível com as mídias e aprovar a exclusão separadamente.</li>
-      </ol>
-      <p>Após uma exclusão, a mídia pode ser republicada a partir do backup. IDs originais, links e reações não podem ser restaurados.</p>
-      <form method="dialog"><button class="editorial-action rhea-primary" autofocus>Voltar à prévia</button></form>
+      <details id="mirror-receipts" hidden><summary>IDs conferidos</summary><ol id="mirror-mapping"></ol></details>
+    </details>
+    <dialog id="mirror-dialog" aria-labelledby="mirror-title">
+      <h2 id="mirror-title">Aprovar cópia do tópico de teste</h2>
+      <p>Origem · <strong id="mirror-source"></strong></p>
+      <p>Destino · <strong id="mirror-destination"></strong></p>
+      <ol id="mirror-posts" class="library-order"></ol>
+      <p>A aprovação vale por cinco minutos. Os posts no destino terão novos IDs e links.</p>
+      <div class="library-actions">
+        <form method="dialog"><button class="editorial-action" autofocus>Voltar</button></form>
+        <button class="editorial-action rhea-primary" id="mirror-approve" type="button">Aprovar cópia</button>
+      </div>
     </dialog>
-    <dl class="library-run-status">
-      <div><dt>Execução</dt><dd>Apenas planejamento</dd></div>
-      <div><dt>Registro</dt><dd>Nenhuma operação no Telegram</dd></div>
-      <div><dt>Recuperação</dt><dd>Nenhuma pendência</dd></div>
-    </dl>
-  </section>
+    <details class="library-section" id="anime-metadata">
+      <summary><strong>Consultar dados de anime</strong></summary>
+      <p>Digite o título da obra ou temporada. A consulta envia ao AniList apenas o título digitado.</p>
+      <form class="library-form" id="anime-lookup-form" method="post">
+        <label>Título <input id="anime-title" type="search" minlength="2" maxlength="120" required></label>
+        <div class="library-actions"><button class="editorial-action rhea-primary" type="submit">Buscar no AniList</button></div>
+      </form>
+      <p id="anime-lookup-status" role="status"></p>
+      <div id="anime-lookup-results" class="library-catalog"></div>
+    </details>
+    <section class="library-inventory library-demo prism-surface" aria-labelledby="demo-title">
+      <div>
+        <h2 id="demo-title">Canal de demonstração</h2>
+        <p id="inventory-source">Dados fictícios para explorar o catálogo.</p>
+      </div>
+      <dl>
+        <div><dt>Séries</dt><dd id="series-count">—</dd></div>
+        <div><dt>Mensagens</dt><dd id="message-count">—</dd></div>
+        <div><dt>Para revisar</dt><dd id="duplicate-count">—</dd></div>
+      </dl>
+    </section>
+
+    <section class="library-section" id="catalogo" aria-labelledby="catalog-title">
+      <div class="library-heading">
+        <h2 id="catalog-title">Catálogo A–Z</h2>
+        <label class="library-search">Buscar por título ou variante
+          <input id="library-query" type="search" maxlength="120" placeholder="Ex. Kiro Tōdai">
+        </label>
+      </div>
+      <nav class="library-alphabet" aria-label="Filtrar catálogo por inicial">
+        <button type="button" data-letter="" aria-pressed="true">Todas</button>
+        {letters.map(letter => <button type="button" data-letter={letter} aria-pressed="false">{letter}</button>)}
+      </nav>
+      <p class="meta" id="catalog-result" role="status">Carregando demonstração.</p>
+      <div id="catalog-items" class="library-catalog"></div>
+    </section>
+
+    <section class="library-section" id="duplicatas" aria-labelledby="duplicates-title">
+      <h2 id="duplicates-title">Possíveis duplicatas</h2>
+      <p>O catálogo preserva todos os posts até você conferir os registros.</p>
+      <ul id="duplicate-items" class="library-duplicates"></ul>
+    </section>
+
+    <section class="library-section" id="correcoes" aria-labelledby="correction-title">
+      <h2 id="correction-title">Corrigir metadados</h2>
+      <p>As correções valem para o catálogo nesta sessão. Os campos originais ficam visíveis no catálogo.</p>
+      <form id="correction-form" class="library-form">
+        <label>Post<select id="correction-id" required></select></label>
+        <label>Série<select id="correction-series" required></select></label>
+        <label>Temporada<input id="correction-season" type="number" min="0" max="99999"></label>
+        <label>Episódio<input id="correction-episode" type="number" min="0" max="99999" step="any"></label>
+        <label>Parte<input id="correction-part" type="number" min="1" max="99999"></label>
+        <label>Tipo<select id="correction-kind"></select></label>
+        <label>Nome de exibição<input id="correction-label" type="text" maxlength="160"></label>
+        <div class="library-actions">
+          <button class="editorial-action rhea-primary" type="submit">Aplicar ao catálogo</button>
+          <button class="editorial-action" id="correction-reset" type="button">Redefinir</button>
+        </div>
+      </form>
+      <p class="meta" id="correction-feedback" role="status"></p>
+    </section>
+
+  </details>
 </div>
 <script>
   import './preview.mjs';

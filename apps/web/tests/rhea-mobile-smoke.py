@@ -22,6 +22,7 @@ mcp_granted = True
 requests = []
 mtproto_calls = []
 mirror_steps = 0
+anime_available = False
 reservations = {}
 files = []
 seen = set()
@@ -51,6 +52,26 @@ def mock(route):
                     {'sourceId': 11, 'destinationId': 31},
                 ]}})
             return
+        if operation == 'forumtopics':
+            backup = request.post_data_json.get('scope') == 'backup'
+            route.fulfill(json={'state': 'forum_topics', 'forum': {
+                'next': None, 'channelId': '11111' if backup else '22222',
+                'topics': [{'id': 8, 'title': 'Letter "T"'}] if backup else [
+                    {'id': 1, 'title': 'Requests'}, {'id': 12, 'title': 'Letter L'}, {'id': 9, 'title': 'Letter T'},
+                ],
+                **({'scope': 'backup'} if backup else {}),
+            }})
+            return
+        if operation == 'forumpage':
+            assert request.post_data_json == {'topicId': 1, 'cursor': None}
+            route.fulfill(json={'state': 'forum_page', 'forum': {
+                'next': None, 'topicId': 1, 'channelId': '22222',
+                'posts': [
+                    {'id': 37, 'kind': 'document', 'filename': '[Fixture]_Tari_Tari_01_[1280x720].mkv', 'sizeBytes': 100},
+                    {'id': 30, 'kind': 'document', 'filename': '[Fixture]_Tari_Tari_10_[1280x720].mkv', 'sizeBytes': 200},
+                ],
+            }})
+            return
         states = {'status': 'disconnected', 'start': 'code', 'code': 'password', 'password': 'connected',
                   'inventory': 'inventory', 'disconnect': 'disconnected'}
         if operation == 'code':
@@ -76,6 +97,14 @@ def mock(route):
         assert request.method in ('GET', 'POST') and request.post_data is None
         response = {'state': 'ready' if request.method == 'GET' else 'verified'}
     elif action == 'anime-metadata':
+        if request.post_data_json == {'title': 'Tari Tari'}:
+            if anime_available:
+                route.fulfill(json={'state': 'candidates', 'candidates': [{
+                    'titles': ['TARI TARI'], 'episodes': 13, 'year': 2012, 'format': 'TV', 'studios': ['P.A.WORKS'], 'genres': [],
+                }]})
+            else:
+                route.fulfill(status=503, json={'state': 'provider_refused'})
+            return
         assert request.post_data_json == {'title': 'Synthetic title'}
         response = {'state': 'candidates', 'candidates': [{
             'titles': ['Synthetic title', 'Test alternate'], 'url': 'https://anilist.co/anime/27',
@@ -237,10 +266,12 @@ with sync_playwright() as playwright:
     assert requests == drive_requests_before_library + ['telegram']
     page.get_by_role('button', name='Verificar conexão').click()
     expect(page.locator('#telegram-status')).to_contain_text('Bot e permissões verificados')
+    expect(page.get_by_role('heading', name='Canal de demonstração')).to_be_hidden()
+    page.locator('#library-sandbox > summary').click()
     expect(page.get_by_role('heading', name='Canal de demonstração')).to_be_visible()
     expect(page.get_by_role('link', name='Drive', exact=True)).to_have_attribute('href', '/rhea/arquivos')
     expect(page.locator('#message-count')).to_have_text('355')
-    expect(page.locator('#plan-estimates')).to_contain_text('355 mensagens para copiar')
+    expect(page.locator('#reflow, #plan-dialog')).to_have_count(0)
     page.get_by_role('button', name='K', exact=True).click()
     expect(page.locator('#catalog-result')).to_have_text('3 séries exibidas')
     kiro = page.locator('#catalog-items details').filter(has=page.locator('summary').filter(has_text='Kiro Lantern'))
@@ -250,23 +281,9 @@ with sync_playwright() as playwright:
     expect(page.locator('#catalog-result')).to_have_text('3 séries exibidas')
     page.locator('#library-query').fill('霧の駅')
     expect(page.locator('#catalog-result')).to_have_text('2 séries exibidas')
-    page.locator('#plan-strategy').select_option('suffix')
-    expect(page.locator('#plan-estimates')).to_contain_text('347 mensagens para copiar')
-    page.get_by_text('Ordem proposta', exact=True).click()
-    expect(page.locator('#target-order > li')).to_have_count(355)
-    page.locator('#plan-batch').fill('1')
-    page.locator('#plan-batch').press('Tab')
-    expect(page.locator('#plan-blockers')).to_contain_text('Um grupo é maior que o lote escolhido')
-    page.locator('#plan-batch').fill('10')
-    page.locator('#plan-batch').press('Tab')
-    expect(page.locator('#plan-blockers')).to_be_hidden()
-    page.locator('#plan-review').click()
-    expect(page.get_by_role('dialog', name='Revisão da reordenação')).to_be_visible()
-    page.keyboard.press('Escape')
-    expect(page.locator('#plan-dialog')).to_be_hidden()
     page.locator('#correction-label').fill('Nome de demonstração')
-    page.get_by_role('button', name='Aplicar à prévia').click()
-    expect(page.locator('#correction-feedback')).to_contain_text('Prévia atualizada')
+    page.get_by_role('button', name='Aplicar ao catálogo').click()
+    expect(page.locator('#correction-feedback')).to_contain_text('Catálogo atualizado')
     page.get_by_role('button', name='Redefinir').click()
     expect(page.locator('#correction-feedback')).to_contain_text('Correção removida')
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
@@ -283,10 +300,6 @@ with sync_playwright() as playwright:
     card = page.locator('#catalog-items summary').filter(has_text='Kestrel Flight')
     card.click()
     expect(page.get_by_role('link', name='Abrir no Telegram').first).to_have_attribute('href', 'https://t.me/c/9876543210/23')
-    page.locator('#plan-letter').select_option('K')
-    expect(page.locator('#target-order > li')).to_have_count(2)
-    expect(page.locator('#target-order > li').first).to_contain_text('#23')
-    expect(page.locator('#plan-blockers')).to_contain_text('A permissão de cópia precisa ser verificada')
     page.evaluate("""() => {
       const nativeFetch = window.fetch.bind(window);
       window.fetch = (url, options) => {
@@ -312,9 +325,29 @@ with sync_playwright() as playwright:
     page.get_by_role('button', name='Desconectar Telegram').click()
     expect(page.get_by_role('button', name='Enviar código')).to_be_visible()
     assert mtproto_calls == ['status', 'start', 'code', 'password', 'inventory', 'status', 'disconnect']
+    page.locator('#forum-load').click()
+    page.locator('#forum-topic').select_option('1')
+    expect(page.locator('#forum-status')).to_contain_text('2 arquivos disponíveis')
+    page.locator('#forum-organize').click()
+    expect(page.locator('#enrich-title')).to_be_focused()
+    expect(page.locator('#enrich-title')).to_have_value('Tari Tari')
+    page.locator('#enrich-search').click()
+    expect(page.locator('#enrich-status')).to_contain_text('O AniList recusou a consulta')
+    expect(page.locator('#enrich-provider-search')).to_be_visible()
+    page.locator('#enrich-use-title').click()
+    expect(page.locator('#enrich-match')).to_contain_text('sem metadados do AniList')
+    expect(page.locator('#enrich-sorted li').first).to_contain_text('E01')
+    page.locator('#enrich-check-destinations').click()
+    expect(page.locator('#enrich-destination-status')).to_contain_text('2 de 2 destinos encontrados')
+    expect(page.locator('#enrich-destinations a').first).to_have_attribute('href', 'https://t.me/c/22222/9')
+    expect(page.locator('#enrich-destinations a').last).to_have_attribute('href', 'https://t.me/c/11111/8')
+    anime_available = True
+    page.locator('#enrich-search').click()
+    page.get_by_role('button', name='Confirmar obra').click()
+    expect(page.locator('#enrich-match')).to_contain_text('P.A.WORKS')
     page.locator('#anime-metadata summary').click()
     page.locator('#anime-title').fill('Synthetic title')
-    page.get_by_role('button', name='Buscar no AniList').click()
+    page.locator('#anime-lookup-form button').click()
     expect(page.locator('#anime-lookup-results')).to_contain_text('Test Studio')
     page.locator('#mirror-panel > summary').click()
     page.locator('#mirror-preview').click()
@@ -331,7 +364,7 @@ with sync_playwright() as playwright:
     expect(page.locator('#mirror-mapping')).to_contain_text('#11 → #31')
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
-    assert requests == drive_requests_before_library + ['telegram', 'telegram', 'anime-metadata']
+    assert requests == drive_requests_before_library + ['telegram', 'telegram', 'anime-metadata', 'anime-metadata', 'anime-metadata']
     assert not errors, errors
     print(json.dumps({'viewport': '390x844 Chromium touch mobile', 'selected': 10, 'uploaded': 9,
                       'isolatedFailures': 1, 'indexedDBReload': 'passed', 'createFolder': 'passed',

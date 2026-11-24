@@ -9,7 +9,7 @@ Set both adapter runtime variables for an already joined disposable forum:
 | `RHEA_TELEGRAM_FORUM_ID` | Bare numeric supergroup ID from an authorized message link |
 | `RHEA_TELEGRAM_FORUM_INVITE` | Private invite for that exact forum |
 
-In **Inventário do supergrupo por tópico**, select **Ler tópicos**, then choose a topic. Load earlier pages as needed. The cursor is signed and scoped to the configured forum, verified operator and topic. The panel keeps completed pages and retry cursors during the current view. Reloading the browser or leaving the Telegram tab restarts the browser inventory. General uses its Telegram topic ID even when renamed.
+In **Arquivos por tópico**, select **Ler tópicos**, then choose a topic. Load earlier pages as needed. The cursor is signed and scoped to the configured forum, verified operator and topic. The panel keeps completed pages and retry cursors during the current view. Reloading the browser or leaving the Telegram tab restarts the browser inventory. General uses its Telegram topic ID even when renamed.
 
 The inventory records cover or image candidates, captions, bold title text, declared and actual sizes, Telegram filenames, and album IDs. Album rows show the members currently loaded. Review size labels and cover-to-season association with the original posts. The browser can search only the loaded pages.
 

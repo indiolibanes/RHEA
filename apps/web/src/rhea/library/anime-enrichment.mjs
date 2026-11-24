@@ -72,9 +72,12 @@ export function groupTopicDocuments(posts, reference) {
 
 export function alphabeticDestination(letter, topics, sourceTopicId) {
   if (!/^[A-Z]$/.test(letter)) return { state: 'unsupported' };
-  const topicNames = new Set([letter, 'Letter ' + letter, 'Letra ' + letter].map(title => titleKey(title)));
-  const candidates = topics.filter(topic => forumId(topic.id) && topic.id > 1 &&
-    !topic.closed && !topic.hidden && typeof topic.title === 'string' && topicNames.has(titleKey(topic.title)));
+  const candidates = topics.filter(topic => {
+    if (!forumId(topic.id) || topic.id === 1 || topic.closed || topic.hidden || typeof topic.title !== 'string') return false;
+    const label = titleKey(topic.title).replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+    const match = /^(?:(?:letter|letra) )?(?:([a-z])|"([a-z])"|'([a-z])')$/.exec(label);
+    return match && (match[1] ?? match[2] ?? match[3]).toUpperCase() === letter;
+  });
   if (candidates.length > 1) return { state: 'ambiguous' };
   const [topic] = candidates;
   if (!topic) return { state: 'missing' };
