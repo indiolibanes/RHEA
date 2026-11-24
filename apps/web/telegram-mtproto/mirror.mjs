@@ -3,7 +3,7 @@ import { open } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { forumId } from '../src/rhea/library/forum-contract.mjs';
 import { mirrorLimit } from '../src/rhea/library/mirror-contract.mjs';
-import { mirrorUnits } from './mirror-messages.mjs';
+import { MirrorPreflightError, mirrorUnits } from './mirror-messages.mjs';
 
 const approvalTtl = 5 * 60_000;
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -100,9 +100,12 @@ export function mirrorControl(config, now = Date.now) {
 
   async function inspect(client) {
     const transport = await client.mirror();
-    const posts = await transport?.readSource();
-    const units = posts && mirrorUnits(posts);
-    if (!units?.length) return null;
+    if (!transport) throw new MirrorPreflightError('account', 'account_unverified');
+    const posts = await transport.readSource();
+    if (!posts) throw new MirrorPreflightError('source', 'history_unverified');
+    if (!posts.length) throw new MirrorPreflightError('source', 'source_empty');
+    const units = mirrorUnits(posts);
+    if (!units) throw new MirrorPreflightError('source', 'album_or_reply');
     const evidence = digest([scope, transport.sourceTitle, transport.destinationTitle, fingerprint(posts)]);
     return { transport, posts, units, evidence };
   }
@@ -169,7 +172,7 @@ export function mirrorControl(config, now = Date.now) {
       if (operation === 'mirrornext') {
         if (!previous) return result;
         const plan = await inspect(client);
-        if (!plan || plan.evidence !== previous.evidence ||
+        if (plan.evidence !== previous.evidence ||
             digest(plan.units.map(idsOf)) !== digest(previous.units)) return { state: 'mirror_changed' };
         return await next(previous, plan);
       }
@@ -180,8 +183,9 @@ export function mirrorControl(config, now = Date.now) {
       if (operation === 'mirrorapprove' && (!approval || input.confirm !== true ||
           approval.approval !== input.approval || approval.expiresAt <= now())) return { state: 'mirror_changed' };
       const plan = await inspect(client);
-      const empty = plan && (await plan.transport.readDestination())?.length === 0;
-      if (!empty) return { state: operation === 'mirrorapprove' ? 'mirror_changed' : 'mirror_ineligible' };
+      const target = await plan.transport.readDestination({ requireEmpty: true });
+      if (!target) throw new MirrorPreflightError('destination', 'history_unverified');
+      if (target.length) throw new MirrorPreflightError('destination', 'destination_not_empty');
       if (operation === 'mirrorapprove') {
         return plan.evidence === approval.evidence && approval.expiresAt > now()
           ? await approve(approval, plan) : { state: 'mirror_changed' };
@@ -191,6 +195,9 @@ export function mirrorControl(config, now = Date.now) {
         total: plan.posts.length, source: plan.transport.sourceTitle, destination: plan.transport.destinationTitle,
         posts: plan.posts.map(({ id, contents, message }) => ({ id, kind: contents.kind,
           label: message.entities?.some(entity => entity.className === 'MessageEntitySpoiler') ? '' : contents.filename || contents.text })) } };
+    } catch (error) {
+      if (!(error instanceof MirrorPreflightError)) throw error;
+      return { state: operation === 'mirrorpreview' ? 'mirror_ineligible' : 'mirror_changed', issue: error.issue };
     } finally {
       active = false;
     }

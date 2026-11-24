@@ -1,5 +1,5 @@
 import { forumInput, forumResponse, isForumOperation } from './forum-contract.mjs';
-import { isMirrorOperation, mirrorInput, mirrorResponse } from './mirror-contract.mjs';
+import { isMirrorOperation, mirrorInput, mirrorIssue, mirrorResponse } from './mirror-contract.mjs';
 
 export const overviewLimit = 2 * 1024 * 1024;
 export const inventoryLimit = 500;
@@ -91,6 +91,10 @@ export function mtprotoResult(state, extra = {}) {
   if (state === 'forum_topics' || state === 'forum_page') {
     body.forum = forumResponse(state, extra.forum);
     if (!body.forum) return mtprotoResult('unavailable');
+  }
+  if (state === 'mirror_ineligible' || state === 'mirror_changed') {
+    const issue = mirrorIssue(extra.issue);
+    if (issue) body.issue = issue;
   }
   if (['mirror_preview', 'mirror_progress', 'mirror_done'].includes(state) ||
       (state === 'mirror_recovery' && extra.mirror)) {

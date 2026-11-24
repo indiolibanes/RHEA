@@ -3,6 +3,19 @@ import { forumId } from './forum-contract.mjs';
 export const mirrorLimit = 20;
 export const mirrorTestTopic = 'RHEA Mirror Test';
 const operations = new Set(['mirrorstatus', 'mirrorpreview', 'mirrorapprove', 'mirrornext']);
+const issueCodes = new Set(['account_unverified', 'group_unavailable', 'group_not_forum',
+  'group_not_owned', 'group_protected', 'topic_missing', 'topic_name', 'topic_closed',
+  'history_unverified', 'history_limit', 'unsupported_post', 'album_or_reply', 'source_empty', 'destination_not_empty']);
+
+export function mirrorIssue(issue) {
+  if (!issueCodes.has(issue?.code)) return undefined;
+  if (issue.code === 'account_unverified') return issue.side === 'account' ? { side: 'account', code: issue.code } : undefined;
+  if (!['source', 'destination'].includes(issue.side) ||
+      (issue.code === 'source_empty' && issue.side !== 'source') ||
+      (issue.code === 'destination_not_empty' && issue.side !== 'destination')) return undefined;
+  return { side: issue.side, code: issue.code };
+}
+
 const token = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
 
 export const isMirrorOperation = operation => operations.has(operation);
