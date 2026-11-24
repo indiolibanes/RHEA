@@ -11,6 +11,7 @@ import { openMirror, topicSnapshot } from './mirror-messages.mjs';
 import { configuration } from './server.mjs';
 
 const source = { channelId: '11111', inviteHash: 'fixtureSourceInvite', topicId: 10 };
+const organized = { ...source, topicId: 21 };
 const destination = { channelId: '22222', inviteHash: 'fixtureTargetInvite', topicId: 20 };
 const config = { actor: 'fixture-owner', ownerId: '777', key: 'x'.repeat(43), mirror: { source, destination } };
 const entity = new Api.MessageEntityBold({ offset: 0, length: 6 });
@@ -52,26 +53,36 @@ const readTopic = (scope, posts) => topicSnapshot(getReplies(scope, posts), scop
 async function harness(t, options = {}) {
   const cache = await mkdtemp(join(tmpdir(), 'rhea-mirror-'));
   t.after(() => rm(cache, { recursive: true, force: true }));
-  const settings = { ...config, file: join(cache, 'session.enc') };
+  const settings = { ...config, file: join(cache, 'session.enc'),
+    ...(options.dual && { mirror: { ...config.mirror, local: organized } }) };
   const posts = fixtures();
   const backup = [];
+  const organizedPosts = [];
   const calls = [];
+  function copyTo(scope, target, firstId) {
+    return async (unit, randomIds, parent) => {
+      calls.push({ ids: unit.map(item => item.id), randomIds, parent, ...(options.dual && { side: scope === organized ? 'local' : 'backup' }) });
+      const album = unit.length > 1 ? BigInt(target.length + 100) : undefined;
+      const ids = unit.map((item, i) => target.length + firstId + i);
+      target.push(...unit.map((item, i) => ({ ...item.message, id: ids[i], groupedId: album,
+        peerId: { channelId: BigInt(scope.channelId) },
+        replyTo: parent === null ? { replyToMsgId: scope.topicId } :
+          { replyToMsgId: parent, replyToTopId: scope.topicId } })));
+      if (options.loseReceipt || (options.loseBackupReceipt && scope === destination)) {
+        throw new Error('Synthetic network interruption after sending.');
+      }
+      return ids;
+    };
+  }
   const transport = {
     sourceTitle: 'Fixture origin / RHEA Mirror Test', destinationTitle: 'Fixture backup / RHEA Mirror Test',
     readSource: async () => readTopic(source, posts),
     readDestination: async () => readTopic(destination, backup),
-    async copy(unit, randomIds, parent) {
-      calls.push({ ids: unit.map(item => item.id), randomIds, parent });
-      const album = unit.length > 1 ? BigInt(backup.length + 100) : undefined;
-      const ids = unit.map((item, i) => backup.length + 31 + i);
-      backup.push(...unit.map((item, i) => ({ ...item.message, id: ids[i], groupedId: album,
-        peerId: { channelId: BigInt(destination.channelId) },
-        replyTo: parent === null ? { replyToMsgId: destination.topicId } :
-          { replyToMsgId: parent, replyToTopId: destination.topicId } })));
-      if (options.loseReceipt) throw new Error('Synthetic network interruption after sending.');
-      return ids;
-    },
+    copy: copyTo(destination, backup, 31),
+    ...(options.dual && { local: { title: 'Fixture origin / RHEA Organized Test',
+      read: async () => readTopic(organized, organizedPosts), copy: copyTo(organized, organizedPosts, 40) } }),
     verifyMedia: async list => {
+      assert.equal(Boolean(options.dual), false, 'Dual copies verify Telegram metadata without downloading media.');
       assert.ok(list.length >= 1 && list.length <= 10);
       return options.readable !== false;
     },
@@ -81,7 +92,7 @@ async function harness(t, options = {}) {
   const start = () => mirrorControl(settings, () => clock);
   let controller = start();
   const call = (op, input = {}) => controller.handle(op, input, client);
-  return { cache, settings, call, posts, backup, calls, client,
+  return { cache, settings, call, posts, backup, organizedPosts, calls, client,
     restart: () => { controller = start(); }, expire: () => { clock += 300001; },
     async approve() {
       const preview = await call('mirrorpreview');
@@ -278,6 +289,11 @@ test('mirror runtime refuses incomplete settings, shared targets and the General
     RHEA_TELEGRAM_MIRROR_DESTINATION_TOPIC_ID: String(destination.topicId) };
   assert.equal(configuration(env).mirror, undefined);
   assert.deepEqual(configuration({ ...env, ...mirror }).mirror, config.mirror);
+  const dual = { ...env, ...mirror, RHEA_TELEGRAM_MIRROR_MODE: 'synthetic-dual',
+    RHEA_TELEGRAM_MIRROR_LOCAL_TOPIC_ID: String(organized.topicId) };
+  assert.deepEqual(configuration(dual).mirror.local, organized);
+  assert.throws(() => configuration({ ...dual, RHEA_TELEGRAM_MIRROR_LOCAL_TOPIC_ID: String(source.topicId) }),
+    /Invalid MTProto mirror test configuration/);
   for (const patch of [{ RHEA_TELEGRAM_MIRROR_MODE: '' }, { RHEA_TELEGRAM_MIRROR_DESTINATION_TOPIC_ID: '1' },
     { RHEA_TELEGRAM_MIRROR_DESTINATION_ID: source.channelId }, { RHEA_TELEGRAM_MIRROR_DESTINATION_INVITE: '' }]) {
     assert.throws(() => configuration({ ...env, ...mirror, ...patch }), /Invalid MTProto mirror test configuration/);
@@ -322,4 +338,82 @@ test('previews a cover and a native video album and verifies the original video 
   assert.equal((await f.call('mirrornext')).state, 'mirror_done');
   assert.deepEqual(f.calls.map(call => call.ids), [[11], [12, 13, 14]]);
   assert.deepEqual(f.backup.slice(1).map(item => item.media.document.id.toString()), ['801', '802', '803']);
+});
+
+test('dual approval verifies separate destinations and resumes from the durable checkpoint', async t => {
+  const f = await harness(t, { dual: true });
+  f.organizedPosts.push(post(organized, 39, { message: 'External addition' }));
+  assert.deepEqual(await f.call('mirrorpreview'), {
+    state: 'mirror_ineligible', issue: { side: 'local', code: 'destination_not_empty' },
+  });
+  f.organizedPosts.length = 0;
+  const preview = await f.approve();
+  assert.match(preview.mirror.localDestination, /Organized/);
+  assert.equal(f.calls.length, 0);
+  for (let step = 0; step < 5; step++) assert.equal((await f.call('mirrornext')).state, 'mirror_progress');
+  f.restart();
+  const local = await f.call('mirrornext');
+  assert.equal(local.mirror.localCopies.length, 4);
+  assert.equal(local.mirror.copies.length, 0);
+  f.organizedPosts[0].message += ' edited';
+  assert.equal((await f.call('mirrornext')).state, 'mirror_changed');
+  assert.equal(f.backup.length, 0);
+  f.organizedPosts[0].message = f.posts[0].message;
+  for (let step = 0; step < 5; step++) assert.equal((await f.call('mirrornext')).state, 'mirror_progress');
+  assert.deepEqual((await f.call('mirrornext')).mirror, {
+    total: 4, localCopies: [40, 41, 42, 43].map((destinationId, i) => ({ sourceId: i + 11, destinationId })),
+    copies: [31, 32, 33, 34].map((destinationId, i) => ({ sourceId: i + 11, destinationId })),
+  });
+  assert.equal((await f.call('mirrorstatus')).state, 'mirror_done');
+  assert.deepEqual(f.calls.map(x => [x.side, x.ids, x.parent]), [
+    ['local', [11], null], ['local', [12], 40], ['local', [13, 14], null],
+    ['backup', [11], null], ['backup', [12], 31], ['backup', [13, 14], null],
+  ]);
+});
+
+test('an unknown backup receipt stops the dual run without replaying either destination', async t => {
+  const f = await harness(t, { dual: true, loseBackupReceipt: true });
+  await f.approve();
+  for (let step = 0; step < 6; step++) await f.call('mirrornext');
+  await assert.rejects(f.call('mirrornext'), /network interruption/);
+  f.restart();
+  const status = await f.call('mirrornext');
+  assert.equal(status.state, 'mirror_recovery');
+  assert.equal(status.mirror.localCopies.length, 4);
+  assert.equal(status.mirror.copies.length, 0);
+  assert.equal(f.calls.length, 4);
+});
+
+test('dual transport serializes 4 GiB file references for both topics without downloading', async () => {
+  const channels = [source, destination].map(scope => ({ id: BigInt(scope.channelId), accessHash: 100n,
+    title: scope.channelId, creator: true, forum: true, megagroup: true }));
+  const scope = { ...config.mirror, local: organized };
+  const titles = new Map([[source.topicId, 'RHEA Mirror Test'], [organized.topicId, 'RHEA Organized Test'],
+    [destination.topicId, 'RHEA Backup Test']]);
+  const media = document(701);
+  media.document.size = 4n * 1024n ** 3n;
+  const attachment = post(source, 11, { media });
+  const targets = [];
+  const transport = await openMirror(scope,
+    value => channels.find(channel => channel.id.toString() === value.channelId),
+    channel => new Api.InputPeerChannel({ channelId: channel.id, accessHash: channel.accessHash }),
+    async rpc => {
+      if (rpc instanceof Api.messages.GetForumTopicsByID) {
+        const id = rpc.topics[0];
+        return { topics: [{ className: 'ForumTopic', id, title: titles.get(id) }] };
+      }
+      if (rpc instanceof Api.messages.GetReplies) return getReplies(source, [attachment]);
+      assert.ok(rpc instanceof Api.messages.SendMedia);
+      assert.ok(rpc.getBytes().length < 2048);
+      assert.equal(rpc.media.id.id.toString(), '701');
+      targets.push([rpc.peer.channelId.toString(), rpc.replyTo.replyToMsgId]);
+      return { updates: [{ className: 'UpdateMessageID', randomId: rpc.randomId, id: 45 }] };
+    }, () => assert.fail('The adapter must not download this document.'));
+  const posts = await transport.readSource();
+  assert.equal(posts[0].contents.size, Number(media.document.size));
+  await transport.local.copy(posts, [1n], null);
+  await transport.copy(posts, [2n], null);
+  assert.deepEqual(targets, [[source.channelId, organized.topicId], [destination.channelId, destination.topicId]]);
+  media.document.size += 1n;
+  await assert.rejects(transport.readSource(), { issue: { side: 'source', code: 'unsupported_post', postId: 11, detail: 'large_file_size' } });
 });

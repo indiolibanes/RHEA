@@ -10,7 +10,7 @@ const digest = value => createHash('sha256').update(JSON.stringify(value)).diges
 const idsOf = unit => unit.map(post => post.id);
 const fingerprint = posts => posts.map(({ id, parent, album, contents }) => [id, parent, album, contents]);
 
-function readLog(lines, scope) {
+function readLog(lines, scope, dual) {
   const [header, ...events] = lines;
   if (header?.type !== 'approved' || header.scope !== scope ||
       !/^[0-9a-f]{64}$/.test(header.evidence ?? '') || !Array.isArray(header.units) ||
@@ -18,13 +18,16 @@ function readLog(lines, scope) {
   const ids = header.units.flat();
   if (!ids.length || ids.length > mirrorLimit || ids.some((id, i) => !forumId(id) || (i && ids[i - 1] >= id))) return null;
   const copies = [];
+  const localCopies = [];
   let step = 0;
   let intent;
   let receipt;
   for (const event of events) {
-    const unit = header.units[step];
+    const local = dual && step < header.units.length;
+    const unit = header.units[dual && !local ? step - header.units.length : step];
     if (!unit || event?.step !== step) return null;
-    const last = copies.at(-1)?.destinationId ?? 0;
+    const targetCopies = local ? localCopies : copies;
+    const last = targetCopies.at(-1)?.destinationId ?? 0;
     if (event.type === 'intent' && !intent && Array.isArray(event.ids) && event.ids.length === unit.length &&
         new Set(event.ids).size === unit.length && event.ids.every(id => typeof id === 'string' && /^[1-9][0-9]{0,18}$/.test(id))) {
       intent = event;
@@ -32,14 +35,14 @@ function readLog(lines, scope) {
         event.ids.every((id, i) => forumId(id) && id > (i ? event.ids[i - 1] : last))) {
       receipt = event;
     } else if (event.type === 'verified' && receipt) {
-      copies.push(...receipt.ids.map((id, i) => ({ sourceId: unit[i], destinationId: id })));
+      targetCopies.push(...receipt.ids.map((id, i) => ({ sourceId: unit[i], destinationId: id })));
       step++;
       intent = receipt = undefined;
     } else {
       return null;
     }
   }
-  return { ...header, total: ids.length, step, copies, intent, receipt };
+  return { ...header, total: ids.length, step, copies, localCopies, intent, receipt };
 }
 
 async function append(handle, event) {
@@ -67,9 +70,9 @@ function verifyDestination(source, destination, mappings) {
 
 export function mirrorControl(config, now = Date.now) {
   if (!config.mirror) return { handle: async () => ({ state: 'mirror_disabled' }), reset() {} };
-  const { source, destination } = config.mirror;
+  const { source, destination, local } = config.mirror;
   const target = digest([destination.channelId, destination.topicId]);
-  const scope = digest([config.actor, config.ownerId, source.channelId, source.topicId, target]);
+  const scope = digest([config.actor, config.ownerId, source.channelId, source.topicId, target, ...(local ? [local.topicId] : [])]);
   const journal = join(dirname(config.file), 'mirror-' + target + '.jsonl');
   let pending;
   let active = false;
@@ -82,7 +85,7 @@ export function mirrorControl(config, now = Date.now) {
       if (size < 1 || size > 16384) return false;
       const contents = await file.readFile('utf8');
       if (!contents.endsWith('\n')) return false;
-      return readLog(contents.trimEnd().split('\n').map(line => JSON.parse(line)), scope) ?? false;
+      return readLog(contents.trimEnd().split('\n').map(line => JSON.parse(line)), scope, Boolean(local)) ?? false;
     } catch (error) {
       return error.code === 'ENOENT' ? null : false;
     } finally {
@@ -95,7 +98,11 @@ export function mirrorControl(config, now = Date.now) {
     if (!log) return { state: 'mirror_recovery' };
     const state = log.copies.length === log.total ? 'mirror_done' :
       log.intent && !log.receipt ? 'mirror_recovery' : 'mirror_progress';
-    return { state, mirror: { total: log.total, copies: log.copies } };
+    return progress(state, log);
+  }
+
+  function progress(state, log) {
+    return { state, mirror: { total: log.total, copies: log.copies, ...(local && { localCopies: log.localCopies }) } };
   }
 
   async function inspect(client) {
@@ -106,7 +113,9 @@ export function mirrorControl(config, now = Date.now) {
     if (!posts.length) throw new MirrorPreflightError('source', 'source_empty');
     const units = mirrorUnits(posts);
     if (!units) throw new MirrorPreflightError('source', 'album_or_reply');
-    const evidence = digest([scope, transport.sourceTitle, transport.destinationTitle, fingerprint(posts)]);
+    if (Boolean(transport.local) !== Boolean(local)) throw new MirrorPreflightError('local', 'history_unverified');
+    const evidence = digest([scope, transport.sourceTitle, transport.destinationTitle,
+      ...(local ? [transport.local.title] : []), fingerprint(posts)]);
     return { transport, posts, units, evidence };
   }
 
@@ -118,7 +127,7 @@ export function mirrorControl(config, now = Date.now) {
         approval: digest(preview.approval) });
       const directory = await open(dirname(journal), 'r');
       try { await directory.sync(); } finally { await directory.close(); }
-      return { state: 'mirror_progress', mirror: { total: plan.posts.length, copies: [] } };
+      return progress('mirror_progress', { total: plan.posts.length, copies: [], localCopies: [] });
     } catch {
       return { state: 'mirror_recovery' };
     } finally {
@@ -129,31 +138,40 @@ export function mirrorControl(config, now = Date.now) {
   async function next(log, plan) {
     const { transport, posts, units } = plan;
     const step = log.step;
-    const unit = units[step];
-    const current = await transport.readDestination();
+    const onLocal = local && step < units.length;
+    const unit = units[local && !onLocal ? step - units.length : step];
+    const read = onLocal ? transport.local.read : transport.readDestination;
+    const copy = onLocal ? transport.local.copy : transport.copy;
+    const verified = onLocal ? log.localCopies : log.copies;
     const received = log.receipt?.ids.map((id, i) => ({ sourceId: unit[i].id, destinationId: id }));
-    const mappings = received ? [...log.copies, ...received] : log.copies;
-    if (!verifyDestination(posts, current, mappings)) return { state: 'mirror_changed' };
+    const mappings = received ? [...verified, ...received] : verified;
+    const otherMatches = async () => {
+      if (!local) return true;
+      const other = onLocal ? await transport.readDestination() : await transport.local.read();
+      return verifyDestination(posts, other, onLocal ? log.copies : log.localCopies);
+    };
+    const current = await read();
+    if (!verifyDestination(posts, current, mappings) || !await otherMatches()) return { state: 'mirror_changed' };
 
     const file = await open(journal, 'a');
     try {
       if (received) {
-        if (!await transport.verifyMedia(current.slice(log.copies.length)) ||
-            !verifyDestination(posts, await transport.readDestination(), mappings)) return { state: 'mirror_changed' };
+        if ((!local && !await transport.verifyMedia(current.slice(verified.length))) ||
+            !verifyDestination(posts, await read(), mappings) || !await otherMatches()) return { state: 'mirror_changed' };
         const latest = await transport.readSource();
         if (!latest || digest(fingerprint(latest)) !== digest(fingerprint(posts))) return { state: 'mirror_changed' };
         await append(file, { type: 'verified', step });
-        return status({ total: log.total, copies: mappings });
+        return status({ ...log, intent: undefined, receipt: undefined, ...(onLocal ? { localCopies: mappings } : { copies: mappings }) });
       }
-      const targetParent = unit[0].parent === null ? null : log.copies.find(copy => copy.sourceId === unit[0].parent)?.destinationId;
+      const targetParent = unit[0].parent === null ? null : verified.find(item => item.sourceId === unit[0].parent)?.destinationId;
       if (targetParent === undefined) return { state: 'mirror_changed' };
       const ids = unit.map(() => (randomBytes(8).readBigUInt64BE() >> 1n) || 1n);
       await append(file, { type: 'intent', step, ids: ids.map(String) });
-      const receipt = await transport.copy(unit, ids, targetParent);
-      const last = log.copies.at(-1)?.destinationId ?? 0;
+      const receipt = await copy(unit, ids, targetParent);
+      const last = verified.at(-1)?.destinationId ?? 0;
       if (!Array.isArray(receipt) || receipt.length !== unit.length ||
           receipt.some((id, i) => !forumId(id) || id <= (i ? receipt[i - 1] : last))) {
-        return { state: 'mirror_recovery', mirror: { total: log.total, copies: log.copies } };
+        return progress('mirror_recovery', log);
       }
       await append(file, { type: 'receipt', step, ids: receipt });
       return status(log);
@@ -186,6 +204,11 @@ export function mirrorControl(config, now = Date.now) {
       const target = await plan.transport.readDestination({ requireEmpty: true });
       if (!target) throw new MirrorPreflightError('destination', 'history_unverified');
       if (target.length) throw new MirrorPreflightError('destination', 'destination_not_empty');
+      if (local) {
+        const organized = await plan.transport.local.read({ requireEmpty: true });
+        if (!organized) throw new MirrorPreflightError('local', 'history_unverified');
+        if (organized.length) throw new MirrorPreflightError('local', 'destination_not_empty');
+      }
       if (operation === 'mirrorapprove') {
         return plan.evidence === approval.evidence && approval.expiresAt > now()
           ? await approve(approval, plan) : { state: 'mirror_changed' };
@@ -193,6 +216,7 @@ export function mirrorControl(config, now = Date.now) {
       pending = { approval: randomBytes(32).toString('base64url'), expiresAt: now() + approvalTtl, evidence: plan.evidence };
       return { state: 'mirror_preview', mirror: { approval: pending.approval, expiresAt: pending.expiresAt,
         total: plan.posts.length, source: plan.transport.sourceTitle, destination: plan.transport.destinationTitle,
+        ...(local && { localDestination: plan.transport.local.title }),
         posts: plan.posts.map(({ id, contents, message }) => ({ id, kind: contents.kind,
           label: message.entities?.some(entity => entity.className === 'MessageEntitySpoiler') ? '' : contents.filename || contents.text })) } };
     } catch (error) {

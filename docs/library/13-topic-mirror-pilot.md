@@ -40,3 +40,37 @@ A private journal next to the encrypted session retains the approved fingerprint
 The scale-out decision comes after the live disposable test. Qualify bounded pagination on both sides, one persistent job per destination, durable resume across larger catalogs, new-publication detection and cross-topic scheduling before enabling any real mirror. Maintain retained versions in the reserve group. Replication does not grant cleanup permissions or provide an off-Telegram copy of the media.
 
 References: [Telegram media reuse](https://core.telegram.org/api/files#resending-existing-files), [Telegram reply placement](https://core.telegram.org/constructor/inputReplyToMessage), [AniList authentication](https://docs.anilist.co/guide/auth/), [AniList terms](https://docs.anilist.co/guide/terms-of-use).
+
+## Two-destination pilot with existing large files
+
+Keep the existing `RHEA_TELEGRAM_MIRROR_SOURCE_*` variables for the disposable source. Use the existing
+`RHEA_TELEGRAM_MIRROR_DESTINATION_*` variables for the private backup supergroup and its empty topic.
+The second topic in the source group shares the source group ID and invite, so it needs only its topic ID.
+
+| Variable | Value for the two-destination pilot |
+| --- | --- |
+| `RHEA_TELEGRAM_MIRROR_MODE` | `synthetic-dual` |
+| `RHEA_TELEGRAM_MIRROR_LOCAL_TOPIC_ID` | ID of the empty `RHEA Organized Test` topic in the source supergroup |
+| `RHEA_TELEGRAM_MIRROR_DESTINATION_TOPIC_ID` | ID of the empty `RHEA Backup Test` topic in the separate backup supergroup |
+
+The source topic remains `RHEA Mirror Test`. Use fresh destination topics, including a fresh backup topic if
+a previous single-destination pilot already used it. The original `synthetic` mode still supports the old
+one-destination pilot. Install the matching protected web bridge before the adapter.
+
+Review both topic names and the original publication order in the preview. The owner approves once for both
+destinations and separately starts copying. The adapter publishes in the organized topic and verifies each
+mapping before it starts the backup topic. Both sets of receipts are visible separately. Recovery stops a run
+with an unknown send receipt and prevents a blind resend. The test remains capped at 20 source posts and
+requires both destinations to be empty at approval. The original posts remain accessible.
+
+The dual adapter passes the existing Telegram photo and file references to `sendMedia` or `sendMultiMedia`.
+The file limit is 4 GiB (4,294,967,296 bytes). A compressed archive is copied as one file. Railway, or another
+trusted MTProto host, submits API requests and stores the checkpoint. The browser and adapter do not upload,
+download, decompress or recompress media in this mode. Verification compares destination message IDs,
+order, replies, album membership, captions and media metadata, including the identity and reported byte size
+of each document. A result in the protected panel represents Telegram-side verification. Open a large
+authorized synthetic file in the Telegram app from both destinations before treating the real-size test as passed.
+
+The dual run republishes the existing sequence into two new topics. Supported metadata and files are
+preserved. A broad rollout with chosen titles, new ordering across many topics, live synchronization, or
+an independent media backup is a separate phase.
