@@ -23,6 +23,7 @@ requests = []
 mtproto_calls = []
 mirror_steps = 0
 anime_available = False
+organization_steps = []
 reservations = {}
 files = []
 seen = set()
@@ -35,6 +36,26 @@ def mock(route):
     if action == 'telegram-mtproto':
         operation = request.url.split('?op=', 1)[1]
         mtproto_calls.append(operation)
+        if operation.startswith('organize'):
+            organization_steps.append(operation)
+            data = request.post_data_json
+            assert {key: data[key] for key in ['sourceTopicId', 'localTopicId', 'backupTopicId', 'letter', 'ids']} == {
+                'sourceTopicId': 1, 'localTopicId': 9, 'backupTopicId': 8, 'letter': 'T', 'ids': [37, 30],
+            }
+            if operation == 'organizepreview':
+                route.fulfill(json={'state': 'mirror_preview', 'mirror': {
+                    'approval': 'a' * 43, 'localDestination': 'Fixture group / Letter T',
+                    'destination': 'Fixture backup / Letter T',
+                    'posts': [{'id': 37, 'label': 'Fixture E01'}, {'id': 30, 'label': 'Fixture E10'}],
+                }})
+            elif operation == 'organizeapprove':
+                assert data['confirm'] is True and data['approval'] == 'a' * 43
+                route.fulfill(json={'state': 'mirror_progress', 'mirror': {'total': 2, 'localCopies': [], 'copies': []}})
+            else:
+                assert operation == 'organizenext'
+                copies = [{'sourceId': 37, 'destinationId': 48}, {'sourceId': 30, 'destinationId': 49}]
+                route.fulfill(json={'state': 'mirror_done', 'mirror': {'total': 2, 'localCopies': copies, 'copies': copies}})
+            return
         if operation.startswith('mirror'):
             if operation == 'mirrorpreview':
                 route.fulfill(json={'state': 'mirror_preview', 'mirror': {
@@ -345,6 +366,17 @@ with sync_playwright() as playwright:
     page.locator('#enrich-search').click()
     page.get_by_role('button', name='Confirmar obra').click()
     expect(page.locator('#enrich-match')).to_contain_text('P.A.WORKS')
+    page.locator('#enrich-check-destinations').click()
+    page.locator('#enrich-publish-review').click()
+    expect(page.locator('#enrich-publish-dialog')).to_be_visible()
+    expect(page.locator('#enrich-publish-files li').first).to_contain_text('#37')
+    assert organization_steps == ['organizepreview']
+    page.locator('#enrich-publish-approve').click()
+    expect(page.locator('#enrich-publish-run')).to_be_visible()
+    assert organization_steps == ['organizepreview', 'organizeapprove']
+    page.locator('#enrich-publish-run').click()
+    expect(page.locator('#enrich-publish-status')).to_contain_text('Cópia concluída.')
+    assert organization_steps == ['organizepreview', 'organizeapprove', 'organizenext']
     page.locator('#anime-metadata summary').click()
     page.locator('#anime-title').fill('Synthetic title')
     page.locator('#anime-lookup-form button').click()

@@ -72,6 +72,7 @@ export function configuration(env) {
     ownerId: env.RHEA_TELEGRAM_OWNER_ID, phone: env.RHEA_TELEGRAM_PHONE, inviteHash, actor: env.RHEA_TELEGRAM_ACCESS_SUB,
     key: env.RHEA_TELEGRAM_MTPROTO_KEY, encryptionKey: Buffer.from(env.RHEA_TELEGRAM_SESSION_KEY, 'base64url'),
     file: env.RHEA_TELEGRAM_SESSION_FILE, port, bindHost, mirror, invalidMirror, backupForum,
+    organizationEnabled: Boolean(backupForum && env.RHEA_TELEGRAM_ORGANIZE_MODE === 'approved-pilot'),
     staging: stagingId ? { channelId: stagingId, inviteHash: invite(stagingInvite) } : undefined,
     forum: forumId ? { channelId: forumId, inviteHash: invite(forumInvite) } : undefined,
   };

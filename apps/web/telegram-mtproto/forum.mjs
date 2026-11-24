@@ -3,7 +3,7 @@ import { forumId, forumPageSize } from '../src/rhea/library/forum-contract.mjs';
 
 const generalTopicId = 1;
 
-function belongsToGeneral(message) {
+export function belongsToGeneral(message) {
   const reply = message.replyTo;
   // Non-General posts have a forum reply header, even when they reply directly to the topic root.
   return !reply || (!reply.forumTopic && (reply.replyToTopId == null || reply.replyToTopId === generalTopicId));

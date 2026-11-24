@@ -5,7 +5,7 @@ export const mirrorTestTopic = 'RHEA Mirror Test';
 const operations = new Set(['mirrorstatus', 'mirrorpreview', 'mirrorapprove', 'mirrornext']);
 const issueCodes = new Set(['account_unverified', 'group_unavailable', 'group_not_forum',
   'group_not_owned', 'group_protected', 'topic_missing', 'topic_name', 'dual_topic_name', 'topic_closed',
-  'history_unverified', 'history_limit', 'unsupported_post', 'album_or_reply', 'source_empty', 'destination_not_empty']);
+  'history_unverified', 'history_limit', 'unsupported_post', 'album_or_reply', 'source_empty', 'destination_not_empty', 'selection_changed']);
 
 const postDetails = new Set(['service_event', 'reply', 'protected_or_temporary', 'forwarded_or_bot',
   'text_format', 'media_type', 'media_reference', 'filename', 'file_size', 'large_file_size']);
@@ -41,7 +41,8 @@ export function mirrorResponse(state, value) {
         typeof value.source !== 'string' || typeof value.destination !== 'string' ||
         (value.localDestination !== undefined && typeof value.localDestination !== 'string') ||
         !Array.isArray(value.posts) || value.posts.length !== value.total ||
-        value.posts.some((post, i) => !forumId(post?.id) || (i && post.id <= value.posts[i - 1].id) ||
+        new Set(value.posts.map(post => post?.id)).size !== value.total ||
+        value.posts.some(post => !forumId(post?.id) ||
           !['photo', 'document', 'video', 'text'].includes(post.kind) || typeof post.label !== 'string')) return null;
     return { total: value.total, approval: value.approval, expiresAt: value.expiresAt,
       source: value.source.slice(0, 256), destination: value.destination.slice(0, 256),
@@ -49,8 +50,9 @@ export function mirrorResponse(state, value) {
       posts: value.posts.map(({ id, kind, label }) => ({ id, kind, label: label.slice(0, 380) })) };
   }
   const validCopies = copies => Array.isArray(copies) && copies.length <= value.total &&
+    new Set(copies.map(copy => copy?.sourceId)).size === copies.length &&
     copies.every((copy, i) => forumId(copy?.sourceId) && forumId(copy?.destinationId) &&
-      (!i || (copy.sourceId > copies[i - 1].sourceId && copy.destinationId > copies[i - 1].destinationId)));
+      (!i || copy.destinationId > copies[i - 1].destinationId));
   const mapped = copies => copies.map(({ sourceId, destinationId }) => ({ sourceId, destinationId }));
   if (!validCopies(value.copies) || (state === 'mirror_done' && value.copies.length !== value.total)) return null;
   const result = { total: value.total, copies: mapped(value.copies) };

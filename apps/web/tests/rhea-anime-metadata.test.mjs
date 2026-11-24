@@ -3,9 +3,10 @@ import { test } from 'node:test';
 import { animeMetadata } from '../functions/api/rhea/anime-metadata.js';
 
 const url = 'https://workspace.example';
-function call(body, fetcher, { origin = url, authorized = true } = {}) {
+function call(body, fetcher, { origin = url, authorized = true, site } = {}) {
   const request = new Request(url + '/api/rhea/anime-metadata', { method: 'POST',
-    headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    headers: { ...(origin && { Origin: origin }), ...(site && { 'Sec-Fetch-Site': site }),
+      'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   return animeMetadata({ request, data: authorized ? { cloudflareAccess: { JWT: { payload: { sub: 'operator' } } } } : {} }, fetcher);
 }
 
@@ -33,6 +34,16 @@ test('anime lookup sends only the typed public title and sanitizes candidates an
       format: 'OVA', year: 2003, episodes: 2, genres: ['Drama'], studios: ['Test Studio'] },
     { id: 28, titles: ['Other Test'], url: 'https://anilist.co/anime/28', genres: [], studios: [] },
   ] });
+});
+
+test('accepts a suppressed Origin only with same-origin browser metadata and an Access session', async () => {
+  const reply = () => Response.json({ data: { Page: { media: [] } } });
+  const input = { title: 'Synthetic title' };
+  assert.equal((await call(input, reply, { origin: 'null', site: 'same-origin' })).status, 200);
+  assert.equal((await call(input, reply, { origin: '', site: 'same-origin' })).status, 200);
+  assert.equal((await call(input, reply, { origin: 'null', site: 'same-site' })).status, 403);
+  assert.equal((await call(input, reply, { origin: 'https://other.invalid', site: 'same-origin' })).status, 403);
+  assert.equal((await call(input, reply, { origin: 'null', site: 'same-origin', authorized: false })).status, 401);
 });
 
 test('prevents cross-origin requests, extra private fields and oversized results', async () => {

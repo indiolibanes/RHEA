@@ -25,12 +25,30 @@
     </div>
     <p id="enrich-destination-status" role="status"></p>
     <ul id="enrich-destinations" hidden></ul>
+    <div id="enrich-publish" hidden>
+      <div class="library-actions">
+        <button class="editorial-action rhea-primary" id="enrich-publish-review" type="button">Revisar publicação</button>
+        <button class="editorial-action rhea-primary" id="enrich-publish-run" type="button" hidden>Executar cópia</button>
+        <button class="editorial-action" id="enrich-publish-pause" type="button" hidden>Pausar após este lote</button>
+      </div>
+      <p id="enrich-publish-status" role="status"></p>
+    </div>
     <div id="enrich-order" class="library-orders">
       <details><summary>Ordem na origem</summary><ol id="enrich-original" class="library-order"></ol></details>
       <details open><summary>Ordem por episódio</summary><ol id="enrich-sorted" class="library-order"></ol></details>
     </div>
   </div>
 </details>
+<dialog id="enrich-publish-dialog" aria-labelledby="enrich-publish-title">
+  <h3 id="enrich-publish-title">Aprovar cópia para os dois tópicos</h3>
+  <p id="enrich-publish-targets"></p>
+  <ol id="enrich-publish-files" class="library-order"></ol>
+  <p>As cópias terão novos links. Os arquivos permanecerão no tópico de origem. Você tem cinco minutos para aprovar esta prévia.</p>
+  <div class="library-actions">
+    <form method="dialog"><button class="editorial-action" autofocus>Voltar</button></form>
+    <button class="editorial-action rhea-primary" type="button" id="enrich-publish-approve">Aprovar cópia</button>
+  </div>
+</dialog>
 <script>
   import './anime-enrichment-panel.mjs';
 </script>

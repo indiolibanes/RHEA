@@ -10,13 +10,14 @@ const digest = value => createHash('sha256').update(JSON.stringify(value)).diges
 const idsOf = unit => unit.map(post => post.id);
 const fingerprint = posts => posts.map(({ id, parent, album, contents }) => [id, parent, album, contents]);
 
-function readLog(lines, scope, dual) {
+function readLog(lines, scope, dual, ordered) {
   const [header, ...events] = lines;
   if (header?.type !== 'approved' || header.scope !== scope ||
       !/^[0-9a-f]{64}$/.test(header.evidence ?? '') || !Array.isArray(header.units) ||
       header.units.some(unit => !Array.isArray(unit) || !unit.length || unit.length > 10)) return null;
   const ids = header.units.flat();
-  if (!ids.length || ids.length > mirrorLimit || ids.some((id, i) => !forumId(id) || (i && ids[i - 1] >= id))) return null;
+  if (!ids.length || ids.length > mirrorLimit || new Set(ids).size !== ids.length ||
+      ids.some((id, i) => !forumId(id) || (!ordered && i && ids[i - 1] >= id))) return null;
   const copies = [];
   const localCopies = [];
   let step = 0;
@@ -71,9 +72,11 @@ function verifyDestination(source, destination, mappings) {
 export function mirrorControl(config, now = Date.now) {
   if (!config.mirror) return { handle: async () => ({ state: 'mirror_disabled' }), reset() {} };
   const { source, destination, local } = config.mirror;
+  const ordered = config.mirror.organization;
   const target = digest([destination.channelId, destination.topicId]);
-  const scope = digest([config.actor, config.ownerId, source.channelId, source.topicId, target, ...(local ? [local.topicId] : [])]);
-  const journal = join(dirname(config.file), 'mirror-' + target + '.jsonl');
+  const scope = digest([config.actor, config.ownerId, source.channelId, source.topicId, target, ...(local ? [local.topicId] : []),
+    ...(ordered ? [ordered.letter, ordered.ids] : [])]);
+  const journal = join(dirname(config.file), ordered ? 'organization-pilot.jsonl' : 'mirror-' + target + '.jsonl');
   let pending;
   let active = false;
 
@@ -85,7 +88,7 @@ export function mirrorControl(config, now = Date.now) {
       if (size < 1 || size > 16384) return false;
       const contents = await file.readFile('utf8');
       if (!contents.endsWith('\n')) return false;
-      return readLog(contents.trimEnd().split('\n').map(line => JSON.parse(line)), scope, Boolean(local)) ?? false;
+      return readLog(contents.trimEnd().split('\n').map(line => JSON.parse(line)), scope, Boolean(local), Boolean(ordered)) ?? false;
     } catch (error) {
       return error.code === 'ENOENT' ? null : false;
     } finally {
@@ -106,7 +109,7 @@ export function mirrorControl(config, now = Date.now) {
   }
 
   async function inspect(client) {
-    const transport = await client.mirror();
+    const transport = ordered ? await client.organize(config.mirror) : await client.mirror();
     if (!transport) throw new MirrorPreflightError('account', 'account_unverified');
     const posts = await transport.readSource();
     if (!posts) throw new MirrorPreflightError('source', 'history_unverified');
@@ -114,9 +117,10 @@ export function mirrorControl(config, now = Date.now) {
     const units = mirrorUnits(posts);
     if (!units) throw new MirrorPreflightError('source', 'album_or_reply');
     if (Boolean(transport.local) !== Boolean(local)) throw new MirrorPreflightError('local', 'history_unverified');
+    const revision = transport.sourceRevision;
     const evidence = digest([scope, transport.sourceTitle, transport.destinationTitle,
-      ...(local ? [transport.local.title] : []), fingerprint(posts)]);
-    return { transport, posts, units, evidence };
+      ...(local ? [transport.local.title] : []), fingerprint(posts), ...(ordered ? [revision] : [])]);
+    return { transport, posts, units, evidence, revision };
   }
 
   async function approve(preview, plan) {
@@ -159,7 +163,8 @@ export function mirrorControl(config, now = Date.now) {
         if ((!local && !await transport.verifyMedia(current.slice(verified.length))) ||
             !verifyDestination(posts, await read(), mappings) || !await otherMatches()) return { state: 'mirror_changed' };
         const latest = await transport.readSource();
-        if (!latest || digest(fingerprint(latest)) !== digest(fingerprint(posts))) return { state: 'mirror_changed' };
+        if (!latest || digest(fingerprint(latest)) !== digest(fingerprint(posts)) ||
+            (ordered && digest(transport.sourceRevision) !== digest(plan.revision))) return { state: 'mirror_changed' };
         await append(file, { type: 'verified', step });
         return status({ ...log, intent: undefined, receipt: undefined, ...(onLocal ? { localCopies: mappings } : { copies: mappings }) });
       }

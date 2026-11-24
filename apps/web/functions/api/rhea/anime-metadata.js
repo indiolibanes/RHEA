@@ -36,7 +36,11 @@ function json(body, status = 200) {
 export async function animeMetadata({ request, data }, fetcher = fetch) {
   const origin = new URL(request.url).origin;
   if (!data.cloudflareAccess?.JWT?.payload?.sub) return json({ state: 'access_required' }, 401);
-  if (request.method !== 'POST' || request.headers.get('Origin') !== origin) return json({ state: 'not_allowed' }, 403);
+  const suppliedOrigin = request.headers.get('Origin');
+  // The workspace uses no-referrer, which can suppress Origin even for same-origin POSTs.
+  const sameOrigin = suppliedOrigin === origin ||
+    ((!suppliedOrigin || suppliedOrigin === 'null') && request.headers.get('Sec-Fetch-Site') === 'same-origin');
+  if (request.method !== 'POST' || !sameOrigin) return json({ state: 'not_allowed' }, 403);
   if (!/^application\/json(?:[; ]|$)/i.test(request.headers.get('Content-Type') ?? '')) return json({ state: 'invalid_title' }, 400);
   let title;
   try {

@@ -1,12 +1,15 @@
 import { alphabeticDestination, episodeLabel, groupTopicDocuments, proposeAnimePreview } from './anime-enrichment.mjs';
 import { animeFormats, lookupAnime, lookupMessage } from './anime-lookup.mjs';
 import { forumEnrichmentSnapshot } from './forum-panel.mjs';
+import { organizationPublication } from './organization-panel.mjs';
+import { mirrorLimit } from './mirror-contract.mjs';
 
 const root = document.querySelector('[data-rhea-telegram-library]');
 const get = id => root.querySelector('#enrich-' + id);
 const select = get('group');
 const title = get('title');
 const status = get('status');
+const publication = organizationPublication(get, root.dataset.telegramEndpoint);
 let source;
 let groups = [];
 let active;
@@ -18,6 +21,7 @@ const list = posts => posts.map(p => node('li', episodeLabel(p) + ' · ' + (p.fi
 const group = () => groups.find(item => item.key === select.value);
 
 function clearChoice() {
+  publication.clear();
   active?.abort();
   active = undefined;
   destinationRead?.abort();
@@ -67,6 +71,7 @@ function providerLink(text, url) {
 }
 
 function show(candidate, manual = false) {
+  publication.clear();
   destinationRead?.abort();
   destinationRead = undefined;
   get('destination-status').textContent = '';
@@ -177,6 +182,7 @@ get('check-destinations').addEventListener('click', async () => {
   results.hidden = true;
   feedback.textContent = 'Conferindo tópicos dos dois grupos…';
   const { letter } = preview;
+  publication.clear();
   const lookup = scope => checkForum(letter, scope, request.signal).catch(() => ({ state: 'unavailable' }));
   try {
     const local = await lookup(undefined);
@@ -186,8 +192,21 @@ get('check-destinations').addEventListener('click', async () => {
     results.replaceChildren(destinationLine('No mesmo grupo', local, letter), destinationLine('No backup', backup, letter));
     results.hidden = false;
     const found = Number(local.state === 'found') + Number(backup.state === 'found');
-    feedback.textContent = found === 2 ? '2 de 2 destinos encontrados. Nenhum arquivo foi publicado.' :
+    feedback.textContent = found === 2 ? '2 de 2 destinos encontrados.' :
       found + ' de 2 destinos encontrados. Veja o que falta abaixo.';
+    if (found === 2) {
+      const choice = group();
+      const blocker = !source.complete ? 'Carregue as páginas anteriores do tópico antes de publicar.' :
+        preview.sorted.length > mirrorLimit ? 'O piloto permite até ' + mirrorLimit + ' arquivos por obra.' :
+        choice.posts.some(post => post.protected) ? 'O Telegram protege um ou mais arquivos contra cópia.' :
+        choice.duplicate || choice.missingEpisode || choice.albumReview || preview.countMismatch || preview.editionReview ?
+          'Confira a edição, os episódios e os álbuns antes de publicar.' : '';
+      if (blocker) feedback.textContent += ' ' + blocker;
+      else publication.prepare({
+        sourceTopicId: source.topicId, localTopicId: local.topic.id, backupTopicId: backup.topic.id,
+        letter, ids: preview.sorted.map(post => post.id),
+      });
+    }
   } finally {
     if (destinationRead === request) {
       destinationRead = undefined;
