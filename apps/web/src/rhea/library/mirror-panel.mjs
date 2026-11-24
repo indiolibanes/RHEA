@@ -17,6 +17,28 @@ const errors = {
   rate_limited: 'O Telegram pediu uma pausa. Consulte o progresso mais tarde.',
   busy: 'Uma operação ainda está em andamento. Consulte o progresso em instantes.',
 };
+const issueMessages = {
+  account_unverified: 'A conta conectada não corresponde à conta de teste. Confira a conexão na seção Histórico do Telegram.',
+  group_unavailable: 'O convite e o ID no Railway precisam apontar para o mesmo supergrupo privado, já acessível pela conta de teste.',
+  group_not_forum: 'Ative Tópicos nas configurações do supergrupo de teste.',
+  group_not_owned: 'A conta conectada precisa ser proprietária deste supergrupo de teste.',
+  group_protected: 'Este supergrupo tem proteção de conteúdo. Use um supergrupo descartável com mídias de teste que possam ser copiadas.',
+  topic_missing: 'Não encontrei o tópico nesse supergrupo. Confira o ID do tópico no Railway.',
+  topic_name: 'O nome do tópico deve ser exatamente RHEA Mirror Test.',
+  topic_closed: 'Abra o tópico de teste antes de preparar a prévia.',
+  history_unverified: 'O Telegram não devolveu um histórico completo e verificável para o tópico. Tente novamente.',
+  history_limit: 'O tópico ultrapassou o limite de 20 publicações do piloto.',
+  unsupported_post: 'Há uma publicação fora do formato do piloto. Use foto, texto ou documento de até 25 MiB, enviados diretamente no tópico.',
+  album_or_reply: 'Confira se o álbum tem de 2 a 10 itens do mesmo tipo e se as respostas apontam para posts anteriores do próprio tópico.',
+  source_empty: 'Publique o material de teste dentro do tópico da origem.',
+  destination_not_empty: 'Use um tópico de destino vazio para a primeira execução.',
+};
+function issueMessage(issue) {
+  if (!issue || !Object.hasOwn(issueMessages, issue.code)) return '';
+  const side = issue.side === 'source' ? 'Origem · ' : issue.side === 'destination' ? 'Destino · ' : '';
+  return side + issueMessages[issue.code];
+}
+
 const node = (tag, value) => Object.assign(document.createElement(tag), { textContent: value });
 let active;
 let running = false;
@@ -51,14 +73,14 @@ async function request(operation, input) {
 
 function render(result) {
   if (!result) return;
-  const { state, mirror } = result;
+  const { state, mirror, issue } = result;
   canContinue = state === 'mirror_progress';
   const copies = mirror?.copies ?? [];
   const count = mirror ? copies.length + ' de ' + mirror.total + ' posts verificados.' : '';
   if (state === 'mirror_idle') status.textContent = 'Nenhuma cópia aprovada.';
   else if (state === 'mirror_progress') status.textContent = count;
   else if (state === 'mirror_done') status.textContent = 'Cópia de teste concluída. ' + count;
-  else status.textContent = [errors[state] ?? 'Não foi possível consultar o espelho.', count].filter(Boolean).join(' ');
+  else status.textContent = [issueMessage(issue) || errors[state] || 'Não foi possível consultar o espelho.', count].filter(Boolean).join(' ');
   get('receipts').hidden = !copies.length;
   get('mapping').replaceChildren(...copies.map(copy => node('li', '#' + copy.sourceId + ' → #' + copy.destinationId)));
   buttons();

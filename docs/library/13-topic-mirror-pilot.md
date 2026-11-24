@@ -27,6 +27,7 @@ Leave the settings absent to disable the pilot. Both routes use the existing Clo
 ## Mobile acceptance
 
 1. Open **Telegram → Espelhamento por tópico → Preparar prévia**. Compare the pinned source and destination and review the post IDs in chronological order.
+   If preflight fails, the panel identifies the source or destination and reports a fixed reason for the failed check. The mirror uses the separate `RHEA_TELEGRAM_MIRROR_*` settings. The original broadcast settings still serve the earlier inventory and staging pilot.
 2. Tap **Aprovar cópia**, then **Continuar cópia**. Only the second action requests publication. Wait for all posts to be verified. **Pausar após o lote atual** stops the browser loop after the pending request.
 3. In Telegram, compare the bold caption, spoiler reply target, album order, filenames and displayed file sizes. Open each document in the destination topic. The adapter checks media identity, name, size, MIME type, caption entities, order, album membership and reply mapping. It samples up to one 4 KiB chunk of each destination attachment. This is an accessibility check, not a full media backup audit.
 4. For an interruption trial, start with a new destination group and test topic, complete at least one verified unit, pause and reload. Select **Consultar progresso** and **Continuar cópia**. Confirm that no verified unit is republished. During another synthetic run, add an unexpected post to the destination before continuing and confirm the changed snapshot blocks further writes.

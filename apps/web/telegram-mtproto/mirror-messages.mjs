@@ -2,6 +2,14 @@ import { Api } from 'teleproto';
 import { forumId } from '../src/rhea/library/forum-contract.mjs';
 import { mirrorLimit, mirrorTestTopic } from '../src/rhea/library/mirror-contract.mjs';
 
+export class MirrorPreflightError extends Error {
+  constructor(side, code) {
+    super('Mirror preflight could not be verified.');
+    this.issue = { side, code };
+  }
+}
+
+const unavailablePeer = new Set(['CHANNEL_PRIVATE', 'CHANNEL_INVALID', 'INVITE_HASH_INVALID', 'INVITE_HASH_EXPIRED']);
 const fixtureBytes = 25 * 1024 ** 2;
 const attachmentId = media => /^-?[0-9]{1,20}$/.test(media?.id?.toString() ?? '');
 const safeEntities = new Set(['MessageEntityBold', 'MessageEntityItalic', 'MessageEntityUnderline',
@@ -10,7 +18,7 @@ const safeEntities = new Set(['MessageEntityBold', 'MessageEntityItalic', 'Messa
 
 function describe(message, topicId) {
   const reply = message.replyTo;
-  const parent = reply?.replyToMsgId;
+  const parent = reply?.replyToMsgId ?? (reply?.forumTopic && reply.replyToTopId === topicId ? topicId : undefined);
   if ((reply?.replyToTopId ?? parent) !== topicId || !forumId(parent) || reply.replyToPeerId ||
       reply.replyFrom || reply.replyMedia || reply.quoteText || reply.quoteEntities?.length || reply.quote ||
       message.noforwards || message.ttlPeriod || message.viaBotId || message.fwdFrom ||
@@ -46,23 +54,28 @@ function describe(message, topicId) {
   return { id: message.id, parent: parent === topicId ? null : parent, album, contents, message };
 }
 
-export function topicSnapshot(result, channelId, topicId) {
-  if (result?.inexact || !Array.isArray(result?.messages) || result.messages.length > mirrorLimit + 1 ||
-      !Number.isInteger(result.count) || result.count > mirrorLimit + 1 ||
-      result.count > result.messages.length + 1) return null;
+export function topicSnapshot(result, channelId, topicId, reject = () => null) {
+  if (result?.inexact || result?.offsetIdOffset > 0 || !Array.isArray(result?.messages)) return reject('history_unverified');
+  // The unpaged MTProto constructor carries all messages and has no count.
+  const count = result.className === 'messages.Messages' ? result.messages.length : result.count;
+  if (!Number.isInteger(count) || count < 0) return reject('history_unverified');
+  if (result.messages.length > mirrorLimit + 1 || count > mirrorLimit + 1) return reject('history_limit');
+  if (count > result.messages.length + 1) return reject('history_unverified');
   const posts = [];
   let previous = Infinity;
   for (const message of result.messages) {
     const { id } = message;
-    if (!forumId(id) || id >= previous || id < topicId || message.peerId?.channelId?.toString() !== channelId) return null;
+    if (!forumId(id) || id >= previous || id < topicId || message.peerId?.channelId?.toString() !== channelId) {
+      return reject('history_unverified');
+    }
     previous = id;
     if (id === topicId && message.className === 'MessageService') continue;
-    if (id === topicId || message.className !== 'Message') return null;
+    if (id === topicId || message.className !== 'Message') return reject('unsupported_post');
     const post = describe(message, topicId);
-    if (!post) return null;
+    if (!post) return reject('unsupported_post');
     posts.push(post);
   }
-  if (posts.length > mirrorLimit) return null;
+  if (posts.length > mirrorLimit) return reject('history_limit');
   return posts.reverse();
 }
 
@@ -100,35 +113,56 @@ function inputMedia(post) {
 }
 
 export async function openMirror(config, privateChat, peerFor, invoke, download) {
-  const source = await privateChat(config.source);
-  const destination = await privateChat(config.destination);
-  if ([source, destination].some(chat =>
-    !chat?.megagroup || !chat.forum || chat.broadcast || chat.noforwards || !chat.creator)) return null;
+  async function topic(side) {
+    const scope = config[side];
+    const reject = code => { throw new MirrorPreflightError(side, code); };
+    let chat;
+    try {
+      chat = await privateChat(scope);
+    } catch (error) {
+      if (unavailablePeer.has(error?.errorMessage)) reject('group_unavailable');
+      throw error;
+    }
+    if (!chat) reject('group_unavailable');
+    if (!chat.megagroup || !chat.forum || chat.broadcast) reject('group_not_forum');
+    if (!chat.creator) reject('group_not_owned');
+    if (chat.noforwards) reject('group_protected');
 
-  function topic(chat, scope) {
     const peer = peerFor(chat);
     const topicId = scope.topicId;
+    async function resolve(query, errorCode) {
+      try {
+        return await invoke(query);
+      } catch (error) {
+        if (unavailablePeer.has(error?.errorMessage) ||
+            ['TOPIC_ID_INVALID', 'MSG_ID_INVALID', 'MESSAGE_ID_INVALID', 'TOPIC_DELETED'].includes(error?.errorMessage)) {
+          reject(errorCode);
+        }
+        throw error;
+      }
+    }
+    const topics = await resolve(new Api.messages.GetForumTopicsByID({ peer, topics: [topicId] }), 'topic_missing');
+    const entry = topics.topics?.find(item => item.className === 'ForumTopic' && item.id === topicId);
+    if (!entry) reject('topic_missing');
+    if (entry.title !== mirrorTestTopic) reject('topic_name');
+    if (entry.closed || entry.hidden) reject('topic_closed');
     return {
-      peer, topicId,
-      async title() {
-        const result = await invoke(new Api.messages.GetForumTopicsByID({ peer, topics: [topicId] }));
-        const topic = result.topics?.find(item => item.className === 'ForumTopic' && item.id === topicId);
-        return topic && !topic.closed && !topic.hidden && topic.title === mirrorTestTopic ? chat.title + ' / ' + topic.title : null;
-      },
-      async read() {
-        const result = await invoke(new Api.messages.GetReplies({
+      peer, topicId, title: chat.title + ' / ' + entry.title,
+      async read({ requireEmpty = false } = {}) {
+        const result = await resolve(new Api.messages.GetReplies({
           peer, msgId: topicId, offsetId: 0, limit: mirrorLimit + 2, offsetDate: 0, addOffset: 0, maxId: 0, minId: 0, hash: 0,
-        }));
-        return topicSnapshot(result, scope.channelId, topicId);
+        }), 'history_unverified');
+        if (requireEmpty && Array.isArray(result.messages) &&
+            result.messages.some(message => message.id !== topicId)) reject('destination_not_empty');
+        return topicSnapshot(result, scope.channelId, topicId, reject);
       },
     };
   }
 
-  const from = topic(source, config.source);
-  const to = topic(destination, config.destination);
-  const sourceTitle = await from.title();
-  const destinationTitle = await to.title();
-  if (!sourceTitle || !destinationTitle) return null;
+  const from = await topic('source');
+  const to = await topic('destination');
+  const sourceTitle = from.title;
+  const destinationTitle = to.title;
   return {
     sourceTitle, destinationTitle,
     readSource: from.read, readDestination: to.read,

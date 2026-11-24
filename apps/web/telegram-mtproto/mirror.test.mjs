@@ -119,7 +119,9 @@ test('denies edited previews, expired approval, external posts and protected con
   assert.equal((await f.call('mirrorpreview')).state, 'mirror_ineligible');
   f.posts[1].noforwards = false;
   f.backup.push(post(destination, 30, { message: 'External addition' }));
-  assert.equal((await f.call('mirrorpreview')).state, 'mirror_ineligible');
+  assert.deepEqual(await f.call('mirrorpreview'), {
+    state: 'mirror_ineligible', issue: { side: 'destination', code: 'destination_not_empty' },
+  });
   f.backup.length = 0;
   await f.approve();
   f.backup.push(post(destination, 30, { message: 'External addition' }));
@@ -201,7 +203,14 @@ test('Teleproto RPCs target the pinned forum topic and reuse native files', asyn
   assert.deepEqual(seen[2].multiMedia.map(item => item.media.id.id.toString()), ['701', '702']);
   assert.equal(await mirror.verifyMedia(inventory), true);
   channels[0].noforwards = true;
-  assert.equal(await openMirror(config.mirror, privateChat, peerFor, invoke), null);
+  await assert.rejects(openMirror(config.mirror, privateChat, peerFor, invoke), {
+    issue: { side: 'source', code: 'group_protected' },
+  });
+  channels[0].noforwards = false;
+  channels[1].creator = false;
+  await assert.rejects(openMirror(config.mirror, privateChat, peerFor, invoke), {
+    issue: { side: 'destination', code: 'group_not_owned' },
+  });
 });
 
 test('new operations enforce Access identity, same origin, and explicit approval input', async t => {
@@ -249,4 +258,28 @@ test('mirror runtime refuses incomplete settings, shared targets and the General
     { RHEA_TELEGRAM_MIRROR_DESTINATION_ID: source.channelId }, { RHEA_TELEGRAM_MIRROR_DESTINATION_INVITE: '' }]) {
     assert.throws(() => configuration({ ...env, ...mirror, ...patch }), /Invalid MTProto mirror test configuration/);
   }
+});
+
+test('reads the unpaged messages constructor safely and accepts a pinned top-only topic reply', () => {
+  const empty = new Api.messages.Messages({ messages: [], topics: [], chats: [], users: [] });
+  assert.deepEqual(topicSnapshot(empty, destination.channelId, destination.topicId), []);
+  const note = post(source, 11, { message: 'Fixture',
+    replyTo: { className: 'MessageReplyHeader', forumTopic: true, replyToTopId: source.topicId } });
+  assert.equal(topicSnapshot({ className: 'messages.Messages', messages: [note] }, source.channelId, source.topicId)[0].parent, null);
+  assert.equal(topicSnapshot({ className: 'messages.Messages', messages: [note] }, source.channelId, source.topicId + 1), null);
+  assert.equal(topicSnapshot({ className: 'messages.MessagesSlice', messages: [] }, destination.channelId, destination.topicId), null);
+  assert.equal(topicSnapshot({ className: 'messages.ChannelMessages', count: 0, inexact: true, messages: [] },
+    destination.channelId, destination.topicId), null);
+});
+
+test('preflight responds with allowlisted side and issue codes only', async t => {
+  const f = await harness(t);
+  const adapter = mtprotoControl(f.settings, { read: async () => 'fixture-session' }, async (_, invoke) => invoke(f.client));
+  const request = () => new Request('https://adapter.example/v1/mirrorpreview', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + config.key, 'X-Rhea-Access-Subject': config.actor },
+  });
+  f.posts.length = 0;
+  const response = await adapter(request());
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { state: 'mirror_ineligible', issue: { side: 'source', code: 'source_empty' } });
 });
