@@ -1,12 +1,14 @@
 import { forumInput, forumResponse, isForumOperation } from './forum-contract.mjs';
 import { isMirrorOperation, mirrorInput, mirrorIssue, mirrorResponse } from './mirror-contract.mjs';
+import { isOrganizationOperation, organizationInput } from './organization-contract.mjs';
 
 export const overviewLimit = 2 * 1024 * 1024;
 export const inventoryLimit = 500;
 const routes = { status: 'GET', start: 'POST', code: 'POST', password: 'POST', cancel: 'POST',
   inventory: 'POST', disconnect: 'POST', stagepreview: 'POST', stagecopy: 'POST',
   forumtopics: 'POST', forumpage: 'POST',
-  mirrorstatus: 'POST', mirrorpreview: 'POST', mirrorapprove: 'POST', mirrornext: 'POST' };
+  mirrorstatus: 'POST', mirrorpreview: 'POST', mirrorapprove: 'POST', mirrornext: 'POST',
+  organizepreview: 'POST', organizeapprove: 'POST', organizenext: 'POST', organizestatus: 'POST' };
 const statusCodes = {
   unconfigured: 200, disconnected: 200, code: 200, password: 200, connected: 200, inventory: 200,
   access_required: 401, not_allowed: 403, invalid_request: 400, invalid_code: 409, invalid_password: 409,
@@ -24,7 +26,8 @@ export function operationAllowed(operation, method) {
 }
 
 export function acceptsInput(operation) {
-  return isForumOperation(operation) || ['code', 'password', 'stagecopy', 'mirrorapprove'].includes(operation);
+  return isForumOperation(operation) || isOrganizationOperation(operation) ||
+    ['code', 'password', 'stagecopy', 'mirrorapprove'].includes(operation);
 }
 
 const approvalToken = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
@@ -32,6 +35,7 @@ const approvalToken = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$
 export function inputFor(operation, value) {
   if (isForumOperation(operation)) return forumInput(operation, value);
   if (isMirrorOperation(operation)) return mirrorInput(operation, value);
+  if (isOrganizationOperation(operation)) return organizationInput(operation, value);
   if (operation === 'stagecopy') {
     if (!value || Object.keys(value).length !== 2 || value.confirm !== true || !approvalToken(value.approval)) return null;
     return { approval: value.approval, confirm: true };

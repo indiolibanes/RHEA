@@ -82,3 +82,34 @@ Open **Telegram → Arquivos por tópico**, load an authorized topic, and choose
 Review the title field before requesting candidates. Only that title goes to the existing AniList endpoint. Choose the exact work or edition to see a suggested alphabetical topic, numerical episode order, and sample caption. Duplicate episode slots, conflicting albums, and incompatible episode counts are flagged for review. The suggestion preserves original filenames and does not persist provider data, modify Telegram, or enter the copy approval flow.
 
 If the AniList search is refused, unavailable, or rate limited, the panel shows the reason and offers **Usar título sem metadados**. This keeps episode ordering, byte totals, and destination checks available without treating a manually entered title as provider metadata. The forum resolver accepts **Letter T**, **Letter "T"**, and **Letra T** as labels for T.
+
+## Approved organization pilot
+
+Use only disposable forums with synthetic files to qualify this path. Set
+`RHEA_TELEGRAM_ORGANIZE_MODE=approved-pilot` on the Node adapter with the existing
+`RHEA_TELEGRAM_FORUM_ID`, `RHEA_TELEGRAM_FORUM_INVITE`,
+`RHEA_TELEGRAM_BACKUP_FORUM_ID` and `RHEA_TELEGRAM_BACKUP_FORUM_INVITE`. The account must
+own both groups. This setting is independent of the fixed-topic mirror variables. The default
+leaves organization writes disabled.
+
+From an authorized source topic, load its complete inventory and confirm one work or title.
+Choose **Conferir destinos → Revisar publicação → Aprovar cópia**. The review shows both topic
+names and the exact source IDs in publication order. **Executar cópia** is the only step that
+sends files. This pilot accepts up to 20 selected documents in a source topic with at most 60
+recent entries. Both destinations must be empty. A partial album, unsupported reply, protected
+file or changed source blocks the operation. The backup uses the approved episode order.
+
+The adapter reuses Telegram file references up to 4 GiB per document, preserves filenames and
+original captions, and verifies the receipts and media metadata in both destinations. AniList
+metadata informs the review. The adapter neither writes that metadata into the posts nor
+changes or deletes the source. Destinations receive new Telegram message IDs.
+
+The persistent session volume also holds one protected organization journal for the pilot.
+After an interruption, reopen the same work and destinations to resume known receipts. If a
+send happened without a trustworthy receipt, inspect Telegram and retain the journal for recovery.
+The one-run journal deliberately prevents another pilot from starting against the same deployment
+until the operator has reviewed the outcome and a subsequent rollout defines archival and replay.
+
+AniList public lookup does not require an API key. The protected Pages endpoint accepts a
+suppressed Origin only for an authenticated request with the same-origin browser Fetch Metadata
+header. An upstream refusal remains visible and the confirmed-title workflow stays available.

@@ -114,6 +114,10 @@ export function telegramClient(config, makeClient = (session, options) =>
             if (!config.mirror || !await isOwner()) return null;
             return openMirror(config.mirror, privateChat, peerFor, invoke, (media, options) => client.iterDownload(media, options));
           },
+          async organize(scope) {
+            if (!config.organizationEnabled || !await isOwner()) return null;
+            return openMirror(scope, privateChat, peerFor, invoke);
+          },
           async staging() {
             if (!config.staging || !await isOwner()) return null;
             const source = await privateChannel(config);

@@ -5,6 +5,7 @@ import { stagingControl } from './staging.mjs';
 import { isForumOperation } from '../src/rhea/library/forum-contract.mjs';
 import { isMirrorOperation } from '../src/rhea/library/mirror-contract.mjs';
 import { mirrorControl } from './mirror.mjs';
+import { isOrganizationOperation, organizationOperations } from '../src/rhea/library/organization-contract.mjs';
 
 const enrollmentTtl = 5 * 60_000;
 const startCooldown = 60_000;
@@ -20,6 +21,7 @@ function matchesSecret(header, key) {
 export function mtprotoControl(config, store, withClient, now = Date.now) {
   const staging = stagingControl(config, now);
   const mirror = mirrorControl(config, now);
+  let organization;
   let pending;
   let busy = false;
   let throttledUntil = 0;
@@ -99,12 +101,14 @@ export function mtprotoControl(config, store, withClient, now = Date.now) {
       clearEnrollment();
       staging.reset();
       mirror.reset();
+      organization = undefined;
       return { state: saved ? 'connected' : 'disconnected' };
     }
     if (operation === 'disconnect') {
       clearEnrollment();
       staging.reset();
       mirror.reset();
+      organization = undefined;
       await store.clear();
       if (saved) {
         try {
@@ -129,6 +133,25 @@ export function mtprotoControl(config, store, withClient, now = Date.now) {
       if (!saved) return { state: 'disconnected' };
       if (!config.mirror || operation === 'mirrorstatus') return mirror.handle(operation, input);
       return withClient(saved, client => mirror.handle(operation, input, client));
+    }
+    if (isOrganizationOperation(operation)) {
+      if (!saved) return { state: 'disconnected' };
+      if (!config.organizationEnabled) return { state: 'mirror_disabled' };
+      const { sourceTopicId, localTopicId, backupTopicId, letter, ids } = input;
+      const key = JSON.stringify([sourceTopicId, localTopicId, backupTopicId, letter, ids]);
+      if (organization?.key !== key) {
+        const scope = {
+          source: { ...config.forum, topicId: sourceTopicId },
+          local: { ...config.forum, topicId: localTopicId },
+          destination: { ...config.backupForum, topicId: backupTopicId },
+          organization: { letter, ids },
+        };
+        organization = { key, controller: mirrorControl({ ...config, mirror: scope }, now) };
+      }
+      const action = organizationOperations[operation];
+      const controller = organization.controller;
+      return action === 'mirrorstatus' ? controller.handle(action, input) :
+        withClient(saved, client => controller.handle(action, input, client));
     }
     if (operation === 'stagepreview' || operation === 'stagecopy') {
       if (!saved) return { state: 'disconnected' };
