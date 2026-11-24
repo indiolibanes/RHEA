@@ -7,7 +7,7 @@ const status = get('status');
 const previewButton = get('preview');
 const continueButton = get('continue');
 const pauseButton = get('pause');
-const labels = { photo: 'Imagem', document: 'Arquivo', text: 'Texto' };
+const labels = { photo: 'Imagem', document: 'Arquivo', video: 'Vídeo', text: 'Texto' };
 const errors = {
   disconnected: 'Conecte a conta de teste para consultar o espelho.',
   mirror_disabled: 'O espelhamento ainda precisa ser habilitado no adaptador de teste.',
@@ -28,14 +28,28 @@ const issueMessages = {
   topic_closed: 'Abra o tópico de teste antes de preparar a prévia.',
   history_unverified: 'O Telegram não devolveu um histórico completo e verificável para o tópico. Tente novamente.',
   history_limit: 'O tópico ultrapassou o limite de 20 publicações do piloto.',
-  unsupported_post: 'Há uma publicação fora do formato do piloto. Use foto, texto ou documento de até 25 MiB, enviados diretamente no tópico.',
+  unsupported_post: 'Há uma publicação fora do formato do piloto. Use foto, texto, vídeo ou documento enviado diretamente no tópico. Vídeos e documentos têm limite de 25 MiB cada.',
   album_or_reply: 'Confira se o álbum tem de 2 a 10 itens do mesmo tipo e se as respostas apontam para posts anteriores do próprio tópico.',
   source_empty: 'Publique o material de teste dentro do tópico da origem.',
   destination_not_empty: 'Use um tópico de destino vazio para a primeira execução.',
 };
+const postDetails = {
+  service_event: 'É um evento do Telegram, fora do formato do piloto.',
+  reply: 'A resposta precisa apontar para uma publicação anterior do próprio tópico, sem citação parcial.',
+  protected_or_temporary: 'O conteúdo está protegido ou é temporário.',
+  forwarded_or_bot: 'O piloto usa publicações enviadas diretamente, sem encaminhamento ou bot.',
+  text_format: 'O texto ou a legenda tem uma formatação que o piloto ainda não preserva.',
+  media_type: 'O formato dessa mídia está fora do piloto.',
+  media_reference: 'O Telegram não devolveu uma referência reutilizável para essa mídia ou capa de vídeo.',
+  filename: 'O documento precisa ter um nome de arquivo válido no Telegram.',
+  file_size: 'O Telegram informou um tamanho inválido ou acima de 25 MiB para este arquivo.',
+};
 function issueMessage(issue) {
   if (!issue || !Object.hasOwn(issueMessages, issue.code)) return '';
   const side = issue.side === 'source' ? 'Origem · ' : issue.side === 'destination' ? 'Destino · ' : '';
+  if (issue.code === 'unsupported_post' && issue.postId && Object.hasOwn(postDetails, issue.detail)) {
+    return side + 'Publicação #' + issue.postId + ' · ' + postDetails[issue.detail];
+  }
   return side + issueMessages[issue.code];
 }
 

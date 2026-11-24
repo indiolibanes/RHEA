@@ -3,54 +3,70 @@ import { forumId } from '../src/rhea/library/forum-contract.mjs';
 import { mirrorLimit, mirrorTestTopic } from '../src/rhea/library/mirror-contract.mjs';
 
 export class MirrorPreflightError extends Error {
-  constructor(side, code) {
+  constructor(side, code, postId, detail) {
     super('Mirror preflight could not be verified.');
-    this.issue = { side, code };
+    this.issue = postId === undefined ? { side, code } : { side, code, postId, detail };
   }
 }
 
 const unavailablePeer = new Set(['CHANNEL_PRIVATE', 'CHANNEL_INVALID', 'INVITE_HASH_INVALID', 'INVITE_HASH_EXPIRED']);
 const fixtureBytes = 25 * 1024 ** 2;
-const attachmentId = media => /^-?[0-9]{1,20}$/.test(media?.id?.toString() ?? '');
+const reusable = media => /^-?[0-9]{1,20}$/.test(media?.id?.toString() ?? '') &&
+  media.fileReference?.length > 0 && Boolean(media.accessHash);
 const safeEntities = new Set(['MessageEntityBold', 'MessageEntityItalic', 'MessageEntityUnderline',
   'MessageEntityStrike', 'MessageEntitySpoiler', 'MessageEntityCode', 'MessageEntityPre',
   'MessageEntityUrl', 'MessageEntityTextUrl', 'MessageEntityBlockquote']);
 
-function describe(message, topicId) {
+function describeDocument(media, reject) {
+  const { document } = media;
+  if (media.voice || media.round || document?.className !== 'Document') return reject('media_type');
+  if (!reusable(document)) return reject('media_reference');
+  const { mimeType } = document;
+  if (typeof mimeType !== 'string') return reject('media_type');
+  const video = media.video === true || (mimeType.startsWith('video/') &&
+    document.attributes?.some(attribute => attribute.className === 'DocumentAttributeVideo' && !attribute.roundMessage));
+  if (!video && (media.altDocuments?.length || media.videoCover || media.videoTimestamp != null)) return reject('media_type');
+  const filename = document.attributes?.find(attribute => attribute.className === 'DocumentAttributeFilename')?.fileName;
+  if ((!video || filename != null) && (typeof filename !== 'string' || !filename || filename.length > 512)) return reject('filename');
+  const size = Number(document.size);
+  if (!Number.isSafeInteger(size) || size < 1 || size > fixtureBytes) return reject('file_size');
+  const cover = media.videoCover;
+  if (cover && (cover.className !== 'Photo' || !reusable(cover))) return reject('media_reference');
+  const timestamp = media.videoTimestamp ?? 0;
+  if (!Number.isInteger(timestamp) || timestamp < 0 || timestamp > 2_147_483_647) return reject('media_type');
+  return { kind: video ? 'video' : 'document', mediaId: document.id.toString(), filename, size, mimeType,
+    spoiler: Boolean(media.spoiler), ...(cover && { videoCoverId: cover.id.toString() }),
+    ...(timestamp && { videoTimestamp: timestamp }) };
+}
+
+function describe(message, topicId, reject) {
   const reply = message.replyTo;
   const parent = reply?.replyToMsgId ?? (reply?.forumTopic && reply.replyToTopId === topicId ? topicId : undefined);
   if ((reply?.replyToTopId ?? parent) !== topicId || !forumId(parent) || reply.replyToPeerId ||
-      reply.replyFrom || reply.replyMedia || reply.quoteText || reply.quoteEntities?.length || reply.quote ||
-      message.noforwards || message.ttlPeriod || message.viaBotId || message.fwdFrom ||
-      message.replyMarkup || typeof message.message !== 'string' || message.message.length > 4096) return null;
+      reply.replyFrom || reply.replyMedia || reply.quoteText || reply.quoteEntities?.length || reply.quote) return reject('reply');
+  if (message.noforwards || message.ttlPeriod || message.media?.ttlSeconds) return reject('protected_or_temporary');
+  if (message.viaBotId || message.fwdFrom || message.replyMarkup) return reject('forwarded_or_bot');
+  if (typeof message.message !== 'string' || message.message.length > 4096) return reject('text_format');
   const rawEntities = message.entities ?? [];
-  if (rawEntities.some(entity => !safeEntities.has(entity.className))) return null;
+  if (rawEntities.some(entity => !safeEntities.has(entity.className))) return reject('text_format');
   const contents = { text: message.message, entities: rawEntities.map(entity => Buffer.from(entity.getBytes()).toString('hex')),
     kind: 'text' };
   const media = message.media;
   if (media && media.className !== 'MessageMediaEmpty') {
-    if (media.ttlSeconds || media.videoCover || media.videoTimestamp) return null;
-    const document = media.document;
-    const photo = media.photo;
-    if (media.className === 'MessageMediaDocument' && document?.className === 'Document' &&
-        attachmentId(document) && document.fileReference?.length && document.accessHash &&
-        !media.voice && !media.round && !media.altDocuments?.length) {
-      const filename = document.attributes?.find(a => a.className === 'DocumentAttributeFilename')?.fileName;
-      const size = Number(document.size);
-      if (typeof filename !== 'string' || !filename || filename.length > 512 ||
-          !Number.isSafeInteger(size) || size < 1 || size > fixtureBytes || typeof document.mimeType !== 'string') return null;
-      Object.assign(contents, { kind: 'document', mediaId: document.id.toString(), filename, size,
-        mimeType: document.mimeType, spoiler: Boolean(media.spoiler) });
-    } else if (media.className === 'MessageMediaPhoto' && photo?.className === 'Photo' &&
-        attachmentId(photo) && photo.fileReference?.length && photo.accessHash) {
-      Object.assign(contents, { kind: 'photo', mediaId: photo.id.toString(), spoiler: Boolean(media.spoiler) });
+    if (media.className === 'MessageMediaDocument') {
+      const document = describeDocument(media, reject);
+      if (!document) return null;
+      Object.assign(contents, document);
+    } else if (media.className === 'MessageMediaPhoto' && media.photo?.className === 'Photo') {
+      if (!reusable(media.photo)) return reject('media_reference');
+      Object.assign(contents, { kind: 'photo', mediaId: media.photo.id.toString(), spoiler: Boolean(media.spoiler) });
     } else {
-      return null;
+      return reject('media_type');
     }
   }
-  if (contents.kind === 'text' && !contents.text.trim()) return null;
+  if (contents.kind === 'text' && !contents.text.trim()) return reject('text_format');
   const album = message.groupedId?.toString() ?? null;
-  if (album !== null && !/^-?[0-9]{1,20}$/.test(album)) return null;
+  if (album !== null && !/^-?[0-9]{1,20}$/.test(album)) return reject('media_type');
   return { id: message.id, parent: parent === topicId ? null : parent, album, contents, message };
 }
 
@@ -70,9 +86,9 @@ export function topicSnapshot(result, channelId, topicId, reject = () => null) {
     }
     previous = id;
     if (id === topicId && message.className === 'MessageService') continue;
-    if (id === topicId || message.className !== 'Message') return reject('unsupported_post');
-    const post = describe(message, topicId);
-    if (!post) return reject('unsupported_post');
+    if (id === topicId || message.className !== 'Message') return reject('unsupported_post', id, 'service_event');
+    const post = describe(message, topicId, detail => reject('unsupported_post', id, detail));
+    if (!post) return null;
     posts.push(post);
   }
   if (posts.length > mirrorLimit) return reject('history_limit');
@@ -101,21 +117,25 @@ export function mirrorUnits(posts) {
   return units.some(unit => unit[0].album !== null && unit.length < 2) ? null : units;
 }
 
+function inputPhoto({ id, accessHash, fileReference }) {
+  return new Api.InputPhoto({ id, accessHash, fileReference });
+}
+
 function inputMedia(post) {
-  const { document, photo } = post.message.media;
-  const { spoiler } = post.contents;
+  const { document, photo, videoCover } = post.message.media;
+  const { spoiler, videoTimestamp } = post.contents;
   if (document) {
     const { id, accessHash, fileReference } = document;
-    return new Api.InputMediaDocument({ spoiler, id: new Api.InputDocument({ id, accessHash, fileReference }) });
+    return new Api.InputMediaDocument({ spoiler, id: new Api.InputDocument({ id, accessHash, fileReference }),
+      videoTimestamp, ...(videoCover && { videoCover: inputPhoto(videoCover) }) });
   }
-  const { id, accessHash, fileReference } = photo;
-  return new Api.InputMediaPhoto({ spoiler, id: new Api.InputPhoto({ id, accessHash, fileReference }) });
+  return new Api.InputMediaPhoto({ spoiler, id: inputPhoto(photo) });
 }
 
 export async function openMirror(config, privateChat, peerFor, invoke, download) {
   async function topic(side) {
     const scope = config[side];
-    const reject = code => { throw new MirrorPreflightError(side, code); };
+    const reject = (code, postId, detail) => { throw new MirrorPreflightError(side, code, postId, detail); };
     let chat;
     try {
       chat = await privateChat(scope);
