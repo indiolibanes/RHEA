@@ -1,5 +1,6 @@
 ---
 import './library.css';
+import AnimeEnrichment from './AnimeEnrichment.astro';
 
 interface Props {
   endpoint?: '/api/rhea/telegram-mtproto' | '/api/relay/telegram-mtproto';
@@ -68,6 +69,7 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
       <button class="editorial-action" id="forum-more-posts" type="button" hidden>Ler página anterior do tópico</button>
     </div>
   </details>
+  <AnimeEnrichment />
   <details class="library-section" id="mirror-panel">
     <summary><strong>Espelhamento por tópico</strong></summary>
     <p>Piloto entre supergrupos privados descartáveis. Revise a origem e o destino antes de aprovar a cópia.</p>

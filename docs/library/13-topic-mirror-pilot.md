@@ -74,3 +74,9 @@ authorized synthetic file in the Telegram app from both destinations before trea
 The dual run republishes the existing sequence into two new topics. Supported metadata and files are
 preserved. A broad rollout with chosen titles, new ordering across many topics, live synchronization, or
 an independent media backup is a separate phase.
+
+## Read-only organization preview
+
+Open **Telegram → Organizar com metadados**. **Abrir exemplo** uses a local fixture and makes no provider requests. For a real preview, read an authorized forum topic and choose **Usar tópico carregado**. The browser groups loaded documents by title and season using exact Markdown matches, explicit series headings, or filename episode markers. Unassigned files and partial snapshots remain visible as review counts. Without an explicit episode marker, the preview leaves the episode number unconfirmed.
+
+Review the title field before requesting candidates. Only that title goes to the existing AniList endpoint. Choose the exact work or edition to see a suggested alphabetical topic, numerical episode order, and sample caption. Duplicate episode slots, conflicting albums, and incompatible episode counts are flagged for review. The suggestion preserves original filenames and does not persist provider data, modify Telegram, or enter the copy approval flow.
