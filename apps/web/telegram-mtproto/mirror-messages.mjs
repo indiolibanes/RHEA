@@ -65,6 +65,7 @@ function describe(message, topicId, reject, byteLimit) {
       return reject('media_type');
     }
   }
+  if (message.invertMedia && contents.kind !== 'text') contents.invertMedia = true;
   if (contents.kind === 'text' && !contents.text.trim()) return reject('text_format');
   const album = message.groupedId?.toString() ?? null;
   if (album !== null && !/^-?[0-9]{1,20}$/.test(album)) return reject('media_type');
@@ -107,6 +108,7 @@ export function mirrorUnits(posts) {
     if (post.album !== null && previous?.[0].album === post.album) {
       if (previous.length === 10 || previous[0].parent !== post.parent ||
           previous[0].contents.kind !== post.contents.kind ||
+          Boolean(previous[0].contents.invertMedia) !== Boolean(post.contents.invertMedia) ||
           previous.some(item => item.id === post.parent)) return null;
       previous.push(post);
     } else {
@@ -200,11 +202,11 @@ export async function openMirror(config, privateChat, peerFor, invoke, download)
       const content = post => ({ message: post.contents.text, entities: post.message.entities });
       let request;
       if (unit.length > 1) {
-        request = new Api.messages.SendMultiMedia({ ...options, multiMedia: unit.map((post, i) =>
+        request = new Api.messages.SendMultiMedia({ ...options, ...(unit[0].contents.invertMedia && { invertMedia: true }), multiMedia: unit.map((post, i) =>
           new Api.InputSingleMedia({ ...content(post), media: inputMedia(post), randomId: randomIds[i] })) });
       } else {
         const [post] = unit;
-        const single = { ...options, ...content(post), randomId: randomIds[0] };
+        const single = { ...options, ...content(post), randomId: randomIds[0], ...(post.contents.invertMedia && { invertMedia: true }) };
         request = post.contents.kind === 'text' ? new Api.messages.SendMessage({ ...single, noWebpage: true }) :
           new Api.messages.SendMedia({ ...single, media: inputMedia(post) });
       }

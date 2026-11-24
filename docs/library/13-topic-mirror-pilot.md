@@ -35,7 +35,9 @@ Leave the settings absent to disable the pilot. Both routes use the existing Clo
 
 ## Recovery and later rollout
 
-A private journal next to the encrypted session retains the approved fingerprint, intent, server receipt and verified progress. It excludes source text, filenames, credentials, invite links and media. Keep the persistent volume. A known receipt can be reverified after restart. An attempt with a missing receipt locks the destination run for manual inspection. Retain the journal and both topics. Do not clear the journal and rerun against that target. Only use a fresh disposable destination topic for a new pilot.
+A private journal next to the encrypted session retains the approved fingerprint, intent, server receipt and verified progress. It excludes source text, filenames, credentials, invite links and media. Keep the persistent volume. A known receipt can be reverified after restart. An attempt with a missing receipt locks the destination run for manual inspection.
+
+When Telegram answers a send with a definitive refusal (a flood wait, an expired file reference, a closed topic or similar), nothing was published. The adapter records a `retract` event, keeps the run in progress and reports the refusal, so the owner can continue later. The next attempt still requires the destination to match the verified prefix exactly, so a unit that did reach Telegram is reported as changed instead of being sent twice. A timeout, a dropped connection or any error without a Telegram code keeps the intent open and locks the run. After 20 refusals the run also stops for manual inspection. Retain the journal and both topics. Do not clear the journal and rerun against that target. Only use a fresh disposable destination topic for a new pilot.
 
 The scale-out decision comes after the live disposable test. Qualify bounded pagination on both sides, one persistent job per destination, durable resume across larger catalogs, new-publication detection and cross-topic scheduling before enabling any real mirror. Maintain retained versions in the reserve group. Replication does not grant cleanup permissions or provide an off-Telegram copy of the media.
 
@@ -74,3 +76,21 @@ authorized synthetic file in the Telegram app from both destinations before trea
 The dual run republishes the existing sequence into two new topics. Supported metadata and files are
 preserved. A broad rollout with chosen titles, new ordering across many topics, live synchronization, or
 an independent media backup is a separate phase.
+
+## Reservations, compatibility and rollback
+
+The backup topic owns the run journal. In the two-destination pilot the organized topic also owns a small reservation file (`mirror-local-<hash>.lock`) in the same private directory. A run with a different backup configuration cannot approve against an organized topic that another run has reserved, even before that run has written its first post. The preview reports `destination_in_use` for the organized topic. Reservations are not released automatically. To reuse a topic after an abandoned pilot, create a fresh topic and update `RHEA_TELEGRAM_MIRROR_LOCAL_TOPIC_ID`. Runs approved by an adapter that predates reservations have no lock file, so they are not protected until their journals are retired.
+
+Captions shown above the media (`invert_media`) are preserved. They are part of the fingerprint only when set, so existing journals keep their fingerprints. An album must use the same layout for every item.
+
+Deploy order for this change:
+
+1. Deploy the protected web bridge and panel (Pages for RHEA, the matching route in Private). They accept the new `destination_in_use` issue and render two receipt lists.
+2. Restart the adapter on the same persistent volume. The journal and the session stay in place.
+3. Run the disposable trial with fresh topics.
+
+Pilot variables do not change for a single-destination run. For a two-destination run keep `RHEA_TELEGRAM_MIRROR_MODE=synthetic-dual`, `RHEA_TELEGRAM_MIRROR_LOCAL_TOPIC_ID` and the existing source and destination variables.
+
+Compatibility: an older bridge drops the unknown issue code but still reports `mirror_ineligible`, so it fails closed. An older adapter reading a journal that contains `retract` events treats it as unreadable and reports `mirror_recovery`. It never resends. Rolling back therefore preserves the journal, the lock file and all existing Telegram posts, and the owner decides how to continue after reviewing both topics. Do not delete the journal or the reservation to force a rerun.
+
+Verification limits: the comparison covers message IDs, order, replies, album membership, caption text and entities, caption layout, file and photo identity, filename, reported byte size, MIME type, spoiler flag, cover and start offset. It does not compare video duration or dimensions, thumbnails or bytes. The 4 GiB test with a real authorized file is a separate live acceptance and has not been run.

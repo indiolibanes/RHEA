@@ -14,8 +14,13 @@ const errors = {
   mirror_ineligible: 'Confira se os tópicos de teste foram autorizados, se o destino está vazio e se a origem atende aos limites do piloto.',
   mirror_changed: 'A origem, o destino ou a aprovação divergiu da prévia. Confira os tópicos antes de prosseguir.',
   mirror_recovery: 'A cópia precisa de conferência manual. Abra os tópicos de teste antes de tentar outra execução.',
-  rate_limited: 'O Telegram pediu uma pausa. Consulte o progresso mais tarde.',
+  rate_limited: 'O Telegram pediu uma pausa. Nada foi perdido: aguarde e use Continuar cópia.',
   busy: 'Uma operação ainda está em andamento. Consulte o progresso em instantes.',
+  unavailable: 'O adaptador não respondeu. Consulte o progresso antes de tentar de novo; nenhuma cópia começa sozinha.',
+  unconfigured: 'A ponte protegida ainda não está configurada neste ambiente.',
+  access_required: 'A sessão protegida expirou. Entre novamente pelo Cloudflare Access.',
+  not_allowed: 'A sessão protegida não foi aceita. Entre novamente pelo Cloudflare Access.',
+  invalid_request: 'O pedido foi recusado. Atualize a página e prepare uma nova prévia.',
 };
 const issueMessages = {
   account_unverified: 'A conta conectada não corresponde à conta de teste. Confira a conexão na seção Histórico do Telegram.',
@@ -29,10 +34,11 @@ const issueMessages = {
   topic_closed: 'Abra o tópico de teste antes de preparar a prévia.',
   history_unverified: 'O Telegram não devolveu um histórico completo e verificável para o tópico. Tente novamente.',
   history_limit: 'O tópico ultrapassou o limite de 20 publicações do piloto.',
-  unsupported_post: 'Há uma publicação fora do formato do piloto. Use foto, texto, vídeo ou documento enviado diretamente no tópico. Vídeos e documentos têm limite de 25 MiB cada.',
+  unsupported_post: 'Há uma publicação fora do formato do piloto. Use foto, texto, vídeo ou documento enviado diretamente no tópico. Vídeos e documentos têm limite de 25 MiB cada, ou 4 GiB com dois destinos.',
   album_or_reply: 'Confira se o álbum tem de 2 a 10 itens do mesmo tipo e se as respostas apontam para posts anteriores do próprio tópico.',
   source_empty: 'Publique o material de teste dentro do tópico da origem.',
   destination_not_empty: 'Use um tópico de destino vazio para a primeira execução.',
+  destination_in_use: 'Este tópico já está reservado por outra execução do espelho. Resolva essa execução antes de reutilizá-lo.',
 };
 const postDetails = {
   service_event: 'É um evento do Telegram, fora do formato do piloto.',
@@ -56,6 +62,7 @@ function issueMessage(issue) {
 }
 
 const node = (tag, value) => Object.assign(document.createElement(tag), { textContent: value });
+const rows = (items, prefix = '') => items.map(copy => node('li', prefix + '#' + copy.sourceId + ' → #' + copy.destinationId));
 let active;
 let running = false;
 let expected;
@@ -89,7 +96,8 @@ async function request(operation, input) {
 
 function render(result) {
   if (!result) return;
-  const { state, mirror, issue } = result;
+  const { state, mirror, retryAfter } = result;
+  const issue = state === 'mirror_ineligible' || state === 'mirror_changed' ? result.issue : undefined;
   canContinue = state === 'mirror_progress';
   const copies = mirror?.copies ?? [];
   const localCopies = mirror?.localCopies;
@@ -99,10 +107,18 @@ function render(result) {
   if (state === 'mirror_idle') status.textContent = 'Nenhuma cópia aprovada.';
   else if (state === 'mirror_progress') status.textContent = count;
   else if (state === 'mirror_done') status.textContent = 'Cópia de teste concluída. ' + count;
-  else status.textContent = [issueMessage(issue) || errors[state] || 'Não foi possível consultar o espelho.', count].filter(Boolean).join(' ');
-  get('receipts').hidden = !copies.length && !localCopies?.length;
-  const rows = (items, prefix) => items.map(copy => node('li', prefix + '#' + copy.sourceId + ' → #' + copy.destinationId));
-  get('mapping').replaceChildren(...rows(localCopies ?? [], 'Organizado · '), ...rows(copies, localCopies ? 'Backup · ' : ''));
+  else {
+    const wait = state === 'rate_limited' && Number.isInteger(retryAfter) && retryAfter > 0 ? 'Aguarde cerca de ' + retryAfter + ' s.' : '';
+    status.textContent = [issueMessage(issue) || errors[state] || 'Não foi possível consultar o espelho.', wait, count].filter(Boolean).join(' ');
+  }
+  // A failure without progress data must not erase receipts that were already shown.
+  if (mirror || state === 'mirror_idle') {
+    const dual = Array.isArray(localCopies);
+    get('receipts').hidden = !copies.length && !localCopies?.length;
+    get('local-heading').hidden = get('local-mapping').hidden = get('backup-heading').hidden = !dual;
+    get('local-mapping').replaceChildren(...rows(localCopies ?? []));
+    get('mapping').replaceChildren(...rows(copies));
+  }
   buttons();
 }
 
@@ -112,8 +128,11 @@ async function preview() {
   if (result?.state !== 'mirror_preview') return render(result);
   expected = result.mirror.approval;
   get('source').textContent = result.mirror.source;
-  get('destination').textContent = result.mirror.localDestination ?
-    'Organizado · ' + result.mirror.localDestination + ' | Backup · ' + result.mirror.destination : result.mirror.destination;
+  const dual = result.mirror.localDestination !== undefined;
+  get('local-row').hidden = !dual;
+  get('local').textContent = dual ? result.mirror.localDestination : '';
+  get('destination-label').textContent = dual ? 'Backup' : 'Destino';
+  get('destination').textContent = result.mirror.destination;
   get('posts').replaceChildren(...result.mirror.posts.map(post =>
     node('li', ['#' + post.id, labels[post.kind], post.label].filter(Boolean).join(' · '))));
   dialog.showModal();
@@ -137,9 +156,11 @@ function reset() {
   active = expected = undefined;
   if (dialog.open) dialog.close();
   status.textContent = 'Consulte o progresso quando o adaptador estiver configurado para o piloto.';
-  get('source').textContent = get('destination').textContent = '';
+  get('source').textContent = get('local').textContent = get('destination').textContent = '';
+  get('local-row').hidden = true;
   get('posts').replaceChildren();
   get('receipts').hidden = true;
+  get('local-mapping').replaceChildren();
   get('mapping').replaceChildren();
   buttons();
 }

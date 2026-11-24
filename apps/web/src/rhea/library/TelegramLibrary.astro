@@ -78,14 +78,21 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
       <button class="editorial-action rhea-primary" id="mirror-continue" type="button" hidden>Continuar cópia</button>
       <button class="editorial-action" id="mirror-pause" type="button" hidden>Pausar após o lote atual</button>
     </div>
-    <details id="mirror-receipts" hidden><summary>IDs conferidos</summary><ol id="mirror-mapping"></ol></details>
+    <details id="mirror-receipts" hidden>
+      <summary>IDs conferidos</summary>
+      <h3 id="mirror-local-heading" hidden>Tópico organizado</h3>
+      <ol id="mirror-local-mapping" hidden></ol>
+      <h3 id="mirror-backup-heading" hidden>Backup</h3>
+      <ol id="mirror-mapping"></ol>
+    </details>
   </details>
   <dialog id="mirror-dialog" aria-labelledby="mirror-title">
     <h2 id="mirror-title">Aprovar cópia do tópico de teste</h2>
     <p>Origem · <strong id="mirror-source"></strong></p>
-    <p>Destino · <strong id="mirror-destination"></strong></p>
+    <p id="mirror-local-row" hidden>Organizado · <strong id="mirror-local"></strong></p>
+    <p><span id="mirror-destination-label">Destino</span> · <strong id="mirror-destination"></strong></p>
     <ol id="mirror-posts" class="library-order"></ol>
-    <p>A aprovação vale por cinco minutos. Os posts no destino terão novos IDs e links.</p>
+    <p>A aprovação vale por cinco minutos e só autoriza a cópia: nada é publicado até você tocar em Continuar cópia. Os posts nos destinos terão novos IDs e links.</p>
     <div class="library-actions">
       <form method="dialog"><button class="editorial-action" autofocus>Voltar</button></form>
       <button class="editorial-action rhea-primary" id="mirror-approve" type="button">Aprovar cópia</button>
