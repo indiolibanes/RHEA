@@ -41,7 +41,7 @@ export function forumEnrichmentSnapshot() {
   const selected = current();
   if (!selected) return undefined;
   const topic = topics.get(Number(topicSelect.value));
-  return { title: topic?.title ?? 'Tópico carregado', posts: [...selected.posts.values()],
+  return { title: topic?.title ?? 'Tópico carregado', topicId: topic?.id, channelId, posts: [...selected.posts.values()],
     topics: [...topics.values()], complete: selected.next === null, reference };
 }
 
@@ -58,6 +58,8 @@ function refreshButtons() {
   get('more-posts').hidden = !topicSelect.value || selected?.next === null;
   get('more-posts').disabled = Boolean(active);
   get('more-posts').textContent = selected ? 'Ler página anterior do tópico' : 'Ler tópico';
+  get('organize').hidden = !selected || ![...selected.posts.values()].some(post => post.kind === 'document');
+  get('organize').disabled = Boolean(active);
 }
 
 async function read(operation, input) {

@@ -196,3 +196,34 @@ test('General issues a bounded read request scoped to topic 1 of the pinned supe
   assert.deepEqual(page.forum.posts.map(post => post.id), [100]);
   assert.deepEqual(calls, ['users.GetUsers', 'messages.CheckChatInvite', 'messages.GetReplies']);
 });
+
+test('backup scope lists only topics with a distinct signed cursor and never accepts message history', async () => {
+  const backupForum = { channelId: '2234567890', inviteHash: 'fixture-backup-invite' };
+  const client = () => ({
+    connect: async () => {}, destroy: async () => {}, updateManager: { stop() {} },
+    async invoke({ query }) {
+      if (query instanceof Api.users.GetUsers) return [{ id: BigInt(config.ownerId) }];
+      if (query instanceof Api.messages.CheckChatInvite) {
+        const scope = query.hash === config.forum.inviteHash ? config.forum : backupForum;
+        return { className: 'ChatInviteAlready', chat: { className: 'Channel',
+          id: BigInt(scope.channelId), accessHash: 1n, megagroup: true, forum: true } };
+      }
+      assert.ok(query instanceof Api.messages.GetForumTopics);
+      assert.equal(query.peer.channelId.toString(), backupForum.channelId);
+      return { topics: [{ className: 'ForumTopic', id: 12, title: 'Letra T', date: 95, topMessage: 80 }],
+        count: 2, orderByCreateDate: true };
+    },
+  });
+  const run = telegramClient({ ...config, backupForum }, client);
+  const read = (operation, input) => run(null, c => c.forumInventory(operation, input));
+  const backup = await read('forumtopics', inputFor('forumtopics', { cursor: null, scope: 'backup' }));
+  assert.equal(backup.forum.channelId, backupForum.channelId);
+  assert.equal(backup.forum.scope, 'backup');
+  assert.equal(backup.forum.topics[0].title, 'Letra T');
+  assert.equal((await mtprotoResult(backup.state, backup).json()).forum.scope, 'backup');
+  assert.equal((await read('forumtopics', { cursor: backup.forum.next })).state, 'forum_cursor_invalid');
+  assert.equal(inputFor('forumpage', { cursor: null, topicId: 12, scope: 'backup' }), null);
+  assert.equal(inputFor('forumtopics', { cursor: null, scope: 'arbitrary' }), null);
+  const disabled = await telegramClient(config, client)(null, c => c.forumInventory('forumtopics', { cursor: null, scope: 'backup' }));
+  assert.equal(disabled.state, 'forum_disabled');
+});

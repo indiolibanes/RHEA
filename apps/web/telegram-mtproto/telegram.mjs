@@ -86,11 +86,14 @@ export function telegramClient(config, makeClient = (session, options) =>
             });
           },
           async forumInventory(operation, input) {
-            if (!config.forum || !await isOwner()) return { state: 'forum_unavailable' };
-            const channel = await privateChat(config.forum);
+            const backup = operation === 'forumtopics' && input.scope === 'backup';
+            const forum = backup ? config.backupForum : config.forum;
+            if (!forum) return { state: 'forum_disabled' };
+            if (!await isOwner()) return { state: 'forum_unavailable' };
+            const channel = await privateChat(forum);
             if (!channel?.megagroup || !channel.forum || channel.broadcast) return { state: 'forum_unavailable' };
             const peer = peerFor(channel);
-            const read = forumReader(config, {
+            const read = forumReader({ ...config, forum }, {
               protected: channel.noforwards,
               topics: (offset, limit) => invoke(new Api.messages.GetForumTopics({
                 peer, offsetDate: offset.date, offsetId: offset.id, offsetTopic: offset.topic, limit,
@@ -103,7 +106,9 @@ export function telegramClient(config, makeClient = (session, options) =>
                 peer, msgId, offsetId, limit, offsetDate: 0, addOffset: 0, maxId: 0, minId: 0, hash: 0,
               })),
             });
-            return read(operation, input);
+            const result = await read(operation, input);
+            if (backup && result.state === 'forum_topics') result.forum.scope = 'backup';
+            return result;
           },
           async mirror() {
             if (!config.mirror || !await isOwner()) return null;

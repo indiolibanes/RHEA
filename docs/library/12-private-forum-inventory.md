@@ -24,3 +24,22 @@ Select the displayed name of topic ID 1 (for example, Requests). The adapter use
 reply header or can reply to another General post. The adapter rejects messages marked as belonging
 to another topic or supergroup. A page of service events can be empty while an older page is available.
 The copy pilot still requires disposable topics with other IDs. No additional Railway variable is needed.
+## Review alphabetical destinations
+
+From the loaded inventory, select **Organizar arquivos deste tópico**, review the detected title,
+and choose **Buscar no AniList**. The public lookup receives only the reviewed title. Select the
+matching work to preview episode order, the reported document size total, and a possible caption.
+Numbered fansub filenames can supply an episode without asserting a season.
+
+To enable **Conferir destinos** for a second private supergroup, set these optional secrets on the Node
+adapter. An absent or invalid pair leaves the primary inventory available.
+
+| Variable | Value |
+| --- | --- |
+| `RHEA_TELEGRAM_BACKUP_FORUM_ID` | Bare numeric ID of the distinct private backup supergroup |
+| `RHEA_TELEGRAM_BACKUP_FORUM_INVITE` | Private invite for that exact supergroup, already joined by the enrolled account |
+
+The protected interface lists topic names in both groups using bounded, separately scoped cursors.
+Create missing topics such as **Letra T** in Telegram and check again. Each group must have a unique
+open match for the confirmed title's initial. The backup scope lists topics only. This review does
+not publish or delete messages, copy media, create topics, or enable the separate synthetic mirror pilot.
