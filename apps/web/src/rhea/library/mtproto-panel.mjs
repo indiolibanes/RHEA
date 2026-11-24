@@ -15,7 +15,7 @@ const notification = {
   code: 'Abra o app do Telegram, veja o código e digite-o aqui.',
   password: 'Digite sua senha de verificação em duas etapas do Telegram.',
   connected: 'Conta de teste conectada. Você já pode ler o histórico do canal autorizado.',
-  inventory: 'Inventário atualizado. A reordenação é apenas uma prévia.',
+  inventory: 'Histórico do canal de teste atualizado.',
   access_required: 'Entre no ambiente de teste da RHEA para conectar o Telegram.',
   not_allowed: 'Esta conta da RHEA não tem acesso ao leitor de teste.',
   invalid_code: 'O Telegram recusou o código. Confira no app e tente novamente.',
@@ -25,7 +25,7 @@ const notification = {
   account_mismatch: 'A conta confirmada pelo Telegram difere da conta de teste configurada.',
   unsupported_delivery: 'O Telegram pediu outro método de login. A conexão de teste aceita código recebido no app.',
   revoke_in_telegram: 'Sessão removida da RHEA. Encerre o dispositivo RHEA em Telegram → Configurações → Dispositivos.',
-  stale_inventory: 'O histórico mudou durante a leitura. Leia novamente para gerar uma nova prévia.',
+  stale_inventory: 'O histórico mudou durante a leitura. Leia novamente para atualizar o catálogo.',
   rate_limited: 'Aguarde o intervalo solicitado antes de tentar novamente.',
   busy: 'Uma verificação já está em andamento.',
   unavailable: 'O leitor de teste está indisponível.',
@@ -89,6 +89,7 @@ function display(result, operation) {
 }
 
 function toggleButtons(disabled) {
+  get('stagepreview').disabled = disabled;
   for (const button of get('controls').querySelectorAll('button')) {
     if (button.id !== 'mtproto-cancel' && button.id !== 'mtproto-disconnect') button.disabled = disabled;
   }
@@ -161,8 +162,6 @@ function clearView() {
   toggleButtons(false);
   setCatalogSnapshot();
   get('status').textContent = 'Verificando se o leitor está disponível.';
-  const dialog = root.querySelector('#plan-dialog');
-  if (dialog.open) dialog.close();
 }
 
 root.addEventListener('rhea:telegram-show', () => {

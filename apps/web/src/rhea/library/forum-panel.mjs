@@ -67,7 +67,7 @@ async function read(operation, input) {
   const request = new AbortController();
   active = request;
   refreshButtons();
-  status.textContent = 'Lendo metadados no Telegram…';
+  status.textContent = operation === 'forumtopics' ? 'Buscando tópicos no Telegram…' : 'Carregando publicações do tópico…';
   try {
     const response = await fetch(endpoint + '?op=' + operation, { method: 'POST', credentials: 'same-origin',
       redirect: 'error', cache: 'no-store', signal: request.signal, headers: { 'Content-Type': 'application/json' },
@@ -115,7 +115,7 @@ async function readTopics(next) {
   for (const topic of data.topics) topics.set(topic.id, topic);
   cursor = data.next;
   topicChoices();
-  status.textContent = topics.size + ' tópicos carregados.';
+  status.textContent = topics.size + ' tópicos carregados. Selecione um para ver os arquivos.';
   refreshButtons();
 }
 
@@ -134,12 +134,17 @@ async function readPosts() {
   selected.next = data.next;
   inventories.set(topicId, selected);
   notifyInventoryChanged();
-  status.textContent = topicId === 1 && !data.posts.length && data.next ?
-    'Nenhuma publicação deste tópico nesta página. Continue para ler a página anterior.' :
-    selected.posts.size + ' publicações lidas' +
-      (data.next ? '. Há páginas anteriores para conferir.' : '. Fim do tópico.');
+  describeTopic(selected);
   refreshButtons();
   render();
+}
+
+function describeTopic(selected) {
+  const name = topics.get(Number(topicSelect.value)).title;
+  const fileCount = [...selected.posts.values()].filter(post => post.kind === 'document').length;
+  const count = fileCount === 0 ? 'Nenhum arquivo encontrado nas publicações carregadas.' :
+    (fileCount === 1 ? '1 arquivo disponível para organizar.' : fileCount + ' arquivos disponíveis para organizar.');
+  status.textContent = name + ' · ' + count + (selected.next ? ' Há páginas anteriores para carregar.' : ' Fim do tópico.');
 }
 
 function postLine(post, referenceMatch, topicId) {
@@ -221,7 +226,7 @@ function reset() {
   visible = 80;
   get('reference').value = get('query').value = '';
   get('reference-status').textContent = '';
-  status.textContent = 'Escolha o tópico para ler os metadados.';
+  status.textContent = 'Toque em Ler tópicos para começar.';
   topicChoices();
   refreshButtons();
   render();
@@ -237,7 +242,8 @@ topicSelect.addEventListener('change', () => {
   render();
   refreshButtons();
   if (topicSelect.value && !current()) void readPosts();
-  else if (current()) status.textContent = current().posts.size + ' publicações lidas neste tópico.';
+  else if (current()) describeTopic(current());
+  else status.textContent = 'Selecione um tópico para ver os arquivos.';
 });
 get('query').addEventListener('input', () => { visible = 80; render(); });
 get('reference').addEventListener('change', async event => {

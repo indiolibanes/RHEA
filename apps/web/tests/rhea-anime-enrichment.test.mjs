@@ -105,3 +105,12 @@ test('resolves one open topic per group and refuses a destination matching the i
   assert.equal(alphabeticDestination('T', [local, { ...backup, id: 80 }]).state, 'ambiguous');
   assert.equal(alphabeticDestination('T', [{ ...local, closed: true }, { id: 1, title: 'T' }]).state, 'missing');
 });
+
+test('uses the suffix in Letter T and supports literal quotes without matching other topics', () => {
+  const topics = [{ id: 12, title: 'Letter L' }, { id: 13, title: 'Letter T' },
+    { id: 14, title: 'Letter TX' }, { id: 15, title: 'Letter "T' }];
+  assert.equal(alphabeticDestination('T', topics).topic.id, 13);
+  assert.equal(alphabeticDestination('L', topics).topic.id, 12);
+  assert.equal(alphabeticDestination('T', [{ id: 13, title: '  LETTER   “T”  ' }]).topic.id, 13);
+  assert.equal(alphabeticDestination('R', [{ id: 14, title: 'Letter "R"' }]).topic.id, 14);
+});

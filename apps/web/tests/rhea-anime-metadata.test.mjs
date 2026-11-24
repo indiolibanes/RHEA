@@ -46,3 +46,14 @@ test('prevents cross-origin requests, extra private fields and oversized results
   const flooded = await call({ title: 'Aurora' }, () => new Response('Provider error', { status: 429 }));
   assert.deepEqual(await flooded.json(), { state: 'rate_limited' });
 });
+
+test('distinguishes an AniList refusal, rate limit and unavailable upstream without exposing the response body', async () => {
+  const refused = await call({ title: 'Aurora' }, () => new Response('<p>Provider challenge</p>', { status: 403 }));
+  assert.equal(refused.status, 503);
+  assert.deepEqual(await refused.json(), { state: 'provider_refused' });
+  const throttled = await call({ title: 'Aurora' }, () => new Response(null, { status: 429, headers: { 'Retry-After': '30' } }));
+  assert.equal(throttled.headers.get('Retry-After'), '30');
+  assert.deepEqual(await throttled.json(), { state: 'rate_limited', retryAfter: 30 });
+  const down = await call({ title: 'Aurora' }, () => new Response(null, { status: 502 }));
+  assert.deepEqual(await down.json(), { state: 'provider_unavailable' });
+});

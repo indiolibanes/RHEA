@@ -77,6 +77,8 @@ an independent media backup is a separate phase.
 
 ## Read-only organization preview
 
-Open **Telegram → Organizar com metadados**. **Abrir exemplo** uses a local fixture and makes no provider requests. For a real preview, read an authorized forum topic and choose **Usar tópico carregado**. The browser groups loaded documents by title and season using exact Markdown matches, explicit series headings, or filename episode markers. Unassigned files and partial snapshots remain visible as review counts. Without an explicit episode marker, the preview leaves the episode number unconfirmed.
+Open **Telegram → Arquivos por tópico**, load an authorized topic, and choose **Organizar arquivos deste tópico**. The browser groups loaded documents by title and season using exact Markdown matches, explicit series headings, or filename episode markers. Unassigned files and partial snapshots remain visible as review counts. Without an explicit episode marker, the preview leaves the episode number unconfirmed.
 
 Review the title field before requesting candidates. Only that title goes to the existing AniList endpoint. Choose the exact work or edition to see a suggested alphabetical topic, numerical episode order, and sample caption. Duplicate episode slots, conflicting albums, and incompatible episode counts are flagged for review. The suggestion preserves original filenames and does not persist provider data, modify Telegram, or enter the copy approval flow.
+
+If the AniList search is refused, unavailable, or rate limited, the panel shows the reason and offers **Usar título sem metadados**. This keeps episode ordering, byte totals, and destination checks available without treating a manually entered title as provider metadata. The forum resolver accepts **Letter T**, **Letter "T"**, and **Letra T** as labels for T.

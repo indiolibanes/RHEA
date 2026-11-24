@@ -1,6 +1,5 @@
-import { alphabeticDestination, episodeLabel, groupTopicDocuments, proposeAnimePreview, sortAnimeEpisodes } from './anime-enrichment.mjs';
-import { exampleCandidates, examplePosts, exampleTopics } from './anime-enrichment-demo.mjs';
-import { animeFormats, lookupAnime, lookupErrors } from './anime-lookup.mjs';
+import { alphabeticDestination, episodeLabel, groupTopicDocuments, proposeAnimePreview } from './anime-enrichment.mjs';
+import { animeFormats, lookupAnime, lookupMessage } from './anime-lookup.mjs';
 import { forumEnrichmentSnapshot } from './forum-panel.mjs';
 
 const root = document.querySelector('[data-rhea-telegram-library]');
@@ -26,6 +25,7 @@ function clearChoice() {
   preview = undefined;
   get('search').disabled = false;
   status.textContent = '';
+  get('provider-search').hidden = true;
   get('result').hidden = true;
   for (const id of ['match', 'destination', 'volume', 'review', 'caption', 'links', 'destination-status', 'destinations']) {
     get(id).replaceChildren();
@@ -40,10 +40,8 @@ function selectGroup() {
   clearChoice();
   const item = group();
   title.value = item?.title.slice(0, 120) ?? '';
-  get('order').hidden = !item;
   get('original').replaceChildren(...list(item?.posts ?? []));
-  get('sorted').replaceChildren(...list(item ? sortAnimeEpisodes(item.posts) : []));
-  if (!source?.demo && item) status.textContent = 'Confira o título que será enviado ao AniList. A consulta envia só esse campo.';
+  if (item) status.textContent = 'Confira o título da obra. A busca envia só esse título ao AniList.';
 }
 
 function load(input) {
@@ -54,11 +52,12 @@ function load(input) {
     (item.season !== undefined ? ' · Temporada ' + item.season : ' · Temporada a conferir')), { value: item.key })));
   get('form').hidden = !groups.length;
   get('source').textContent = input ? [
-    input.demo ? 'Exemplo fictício' : input.title,
-    groups.length + (groups.length === 1 ? ' bloco detectado' : ' blocos detectados'),
+    input.title,
+    groups.length ? groups.length + (groups.length === 1 ? ' obra ou temporada detectada' : ' obras ou temporadas detectadas')
+      : 'Nenhuma obra identificada. Confira os nomes dos arquivos ou carregue sua lista Markdown.',
     result.unassigned ? result.unassigned + (result.unassigned === 1 ? ' arquivo sem obra' : ' arquivos sem obra') : '',
     input.complete ? '' : 'Inventário parcial',
-  ].filter(Boolean).join(' · ') : '';
+  ].filter(Boolean).join(' · ') : 'Escolha um tópico em Arquivos por tópico e toque em Organizar arquivos deste tópico.';
   selectGroup();
 }
 
@@ -67,7 +66,7 @@ function providerLink(text, url) {
   return Object.assign(link, { href: url, target: '_blank', rel: 'noopener noreferrer' });
 }
 
-function show(candidate) {
+function show(candidate, manual = false) {
   destinationRead?.abort();
   destinationRead = undefined;
   get('destination-status').textContent = '';
@@ -77,16 +76,19 @@ function show(candidate) {
   const plan = proposeAnimePreview(choice, candidate, source.topics);
   preview = plan;
   const fmt = animeFormats[candidate.format];
-  get('match').textContent = [plan.title, fmt, candidate.year, candidate.studios[0], candidate.genres.join(', ')].filter(Boolean).join(' · ');
-  const destination = plan.destination || (plan.letter === '#' ? 'Escolha uma letra ou um tópico' : 'Tópico da letra ' + plan.letter);
-  get('destination').textContent = 'Origem · ' + source.title + ' → ' + destination;
+  get('provider-search').hidden = true;
+  get('match').textContent = [plan.title, manual ? 'Título informado, sem metadados do AniList' : fmt,
+    candidate.year, candidate.episodes && candidate.episodes + ' episódios', candidate.studios[0],
+    candidate.genres.join(', ')].filter(Boolean).join(' · ');
+  get('destination').textContent = plan.letter === '#' ?
+    'O título precisa começar com uma letra A–Z para sugerir um tópico.' :
+    'Origem · ' + source.title + ' · Letra sugerida · ' + plan.letter;
   get('volume').textContent = plan.sizedCount ?
     new Intl.NumberFormat('pt-BR').format(plan.totalBytes) + ' bytes em ' + plan.sizedCount + ' de ' +
       plan.sorted.length + ' arquivos.' : 'Tamanho dos arquivos pendente de conferência.';
   const warnings = [];
-  if (plan.topicAmbiguous) warnings.push('Há vários tópicos para essa letra.');
   if (plan.countMismatch) warnings.push('A entrada tem menos episódios que a numeração dos arquivos. Confira a edição.');
-  if (plan.editionReview) warnings.push('O formato escolhido precisa de conferência para esta temporada.');
+  if (!manual && plan.editionReview) warnings.push('Confira se o formato escolhido corresponde a esta temporada.');
   if (choice.duplicate) warnings.push('Há episódios com a mesma numeração.');
   if (choice.missingEpisode) warnings.push('Há arquivos sem número de episódio.');
   if (choice.albumReview) warnings.push('Confira a associação e a ordem dos álbuns antes de usá-los.');
@@ -101,8 +103,9 @@ function show(candidate) {
   if (candidate.cover) links.push(providerLink('Abrir capa sugerida', candidate.cover));
   get('links').replaceChildren(...links);
   get('check-destinations').disabled = false;
-  get('check-destinations').hidden = source.demo || plan.letter === '#';
+  get('check-destinations').hidden = plan.letter === '#';
   get('result').hidden = false;
+  get('review-title').focus();
 }
 
 async function checkForum(letter, scope, signal) {
@@ -118,6 +121,11 @@ async function checkForum(letter, scope, signal) {
     });
     const data = await response.json();
     if (data.state === 'forum_disabled' && scope) return { state: 'unconfigured' };
+    if (data.state === 'rate_limited' || data.state === 'busy' || data.state === 'disconnected' ||
+        data.state === 'access_required' || data.state === 'not_allowed' || data.state === 'forum_unavailable') {
+      return { state: data.state };
+    }
+    if (scope && data.state === 'invalid_request') return { state: 'adapter_update' };
     if (!response.ok || data.state !== 'forum_topics' || data.forum?.scope !== scope) return { state: 'unavailable' };
     const forum = data.forum;
     if ((!scope && forum.channelId !== source.channelId) || (scope && forum.channelId === source.channelId) ||
@@ -136,18 +144,25 @@ async function checkForum(letter, scope, signal) {
 
 function destinationLine(label, target, letter) {
   const messages = {
-    missing: 'Crie ou abra o tópico Letra ' + letter + ' e confira novamente.',
+    missing: 'Crie ou reabra o tópico Letter ' + letter + ' e confira novamente.',
     ambiguous: 'Há mais de um tópico ativo com essa letra.',
     source: 'O tópico encontrado é a origem. Use outro tópico.',
     unconfigured: 'O grupo de backup ainda precisa ser autorizado no Railway.',
+    adapter_update: 'A consulta ao backup precisa da versão atual da RHEA no Railway e no Private.',
     unavailable: 'Não foi possível conferir o supergrupo.',
+    forum_unavailable: 'O Telegram não confirmou o grupo privado. Confira o convite e a participação da conta conectada.',
+    busy: 'O leitor está ocupado. Aguarde e confira novamente.',
+    rate_limited: 'O Telegram pediu uma pausa. Confira novamente mais tarde.',
+    disconnected: 'Conecte o Telegram na seção acima e confira novamente.',
+    access_required: 'Sua sessão expirou. Entre no Private novamente.',
+    not_allowed: 'O Private não autorizou a leitura. Confira a conta conectada.',
     changed: 'A lista de tópicos mudou durante a consulta. Confira novamente.',
     incomplete: 'A lista excede o limite de conferência.',
   };
   const line = node('li', label + ' · ');
   line.append(target.state === 'found' ?
     providerLink(target.topic.title, 'https://t.me/c/' + target.channelId + '/' + target.topic.id) :
-    document.createTextNode(messages[target.state]));
+    document.createTextNode(messages[target.state] ?? messages.unavailable));
   return line;
 }
 
@@ -170,8 +185,9 @@ get('check-destinations').addEventListener('click', async () => {
     if (request.signal.aborted) return;
     results.replaceChildren(destinationLine('No mesmo grupo', local, letter), destinationLine('No backup', backup, letter));
     results.hidden = false;
-    feedback.textContent = local.state === 'found' && backup.state === 'found' ?
-      'Os dois tópicos foram encontrados. A prévia está pronta para conferência.' : 'Confira as pendências dos destinos.';
+    const found = Number(local.state === 'found') + Number(backup.state === 'found');
+    feedback.textContent = found === 2 ? '2 de 2 destinos encontrados. Nenhum arquivo foi publicado.' :
+      found + ' de 2 destinos encontrados. Veja o que falta abaixo.';
   } finally {
     if (destinationRead === request) {
       destinationRead = undefined;
@@ -185,7 +201,7 @@ function candidateChoices(items) {
     const card = document.createElement('article');
     const description = [animeFormats[candidate.format], candidate.year, candidate.episodes && candidate.episodes + ' episódios',
       ...candidate.studios, ...candidate.genres].filter(Boolean).join(' · ');
-    const choose = Object.assign(node('button', 'Usar na prévia'), { type: 'button', className: 'editorial-action' });
+    const choose = Object.assign(node('button', 'Confirmar obra'), { type: 'button', className: 'editorial-action' });
     choose.setAttribute('aria-pressed', 'false');
     choose.addEventListener('click', () => {
       for (const button of get('candidates').querySelectorAll('button')) button.setAttribute('aria-pressed', 'false');
@@ -197,18 +213,16 @@ function candidateChoices(items) {
   });
 }
 
-get('demo').addEventListener('click', () => load({
-  demo: true, title: 'Entrada', posts: examplePosts, topics: exampleTopics, complete: true,
-}));
-get('topic').addEventListener('click', () => {
-  const input = forumEnrichmentSnapshot();
-  load(input);
-  if (!input) get('source').textContent = 'Carregue primeiro as publicações de um tópico no inventário acima.';
-});
 root.querySelector('#forum-organize').addEventListener('click', () => {
   root.querySelector('#anime-enrichment').open = true;
   load(forumEnrichmentSnapshot());
-  (group() ? select : get('topic')).focus();
+  (groups.length > 1 ? select : group() ? title : get('source')).focus();
+});
+
+get('use-title').addEventListener('click', () => {
+  if (!group() || !title.value.trim() || !title.reportValidity()) return;
+  clearChoice();
+  show({ titles: [title.value.trim()], studios: [], genres: [] }, true);
 });
 select.addEventListener('change', selectGroup);
 title.addEventListener('input', clearChoice);
@@ -222,17 +236,18 @@ get('form').addEventListener('submit', async event => {
   get('search').disabled = true;
   status.textContent = 'Buscando candidatos…';
   try {
-    const result = source.demo ? { state: 'candidates', candidates: exampleCandidates(title.value.trim()) } :
-      await lookupAnime(root.dataset.animeMetadataEndpoint, title.value, request.signal);
+    const result = await lookupAnime(root.dataset.animeMetadataEndpoint, title.value, request.signal);
     if (request.signal.aborted) return;
     if (result.state !== 'candidates') {
-      status.textContent = lookupErrors[result.state];
+      status.textContent = lookupMessage(result);
+      get('provider-search').hidden = !['provider_refused', 'provider_unavailable', 'rate_limited'].includes(result.state);
       return;
     }
     get('candidates').replaceChildren(...candidateChoices(result.candidates));
-    status.textContent = result.candidates.length ? 'Confirme a obra e a temporada para montar a prévia.' : 'Nenhum candidato encontrado.';
+    status.textContent = result.candidates.length ? 'Escolha o resultado que corresponde à edição dos seus arquivos.' :
+      'Nenhuma obra encontrada. Tente um título alternativo ou use o título sem metadados.';
   } catch {
-    if (!request.signal.aborted) status.textContent = lookupErrors.unavailable;
+    if (!request.signal.aborted) status.textContent = lookupMessage({ state: 'network' });
   } finally {
     if (active === request) {
       active = undefined;
@@ -244,5 +259,6 @@ get('form').addEventListener('submit', async event => {
 const reset = () => load(undefined);
 root.addEventListener('rhea:telegram-hide', reset);
 root.addEventListener('rhea:forum-clear', reset);
-root.addEventListener('rhea:forum-inventory-change', () => { if (source && !source.demo) reset(); });
+root.addEventListener('rhea:forum-inventory-change', () => { if (source) reset(); });
 window.addEventListener('pagehide', reset);
+reset();

@@ -1,6 +1,5 @@
 import { buildCatalog, duplicateCandidates, editionTypes, findSeries, letterFor } from './catalog.mjs';
 import { syntheticSnapshot } from './fixtures.mjs';
-import { planReflow } from './planner.mjs';
 
 const get = id => document.getElementById(id);
 function element(tag, text) {
@@ -14,7 +13,6 @@ let snapshot;
 let catalog;
 let messages;
 let selected = '';
-let planVersion = 0;
 
 const alphabet = [...document.querySelectorAll('[data-letter]')];
 function renderCatalog() {
@@ -94,60 +92,6 @@ function renderDuplicates() {
     element('li', cluster.ids.map(id => '#' + id).join(' e ') + ' · ' + cluster.labels.join(' · '))));
 }
 
-function renderOrder(target, ids) {
-  const series = new Map(snapshot.series.map(item => [item.id, item.title]));
-  const letter = get('plan-letter').value;
-  const filtered = ids.filter(id => !letter || letterFor(series.get(messages.get(id).seriesId) ?? '') === letter);
-  target.replaceChildren(...filtered.map(id => {
-    const row = messages.get(id);
-    return element('li', [series.get(row.seriesId) ?? 'Sem série definida',
-      row.season == null ? null : 'T' + row.season, episodeLabel(row), '#' + id].filter(Boolean).join(' · '));
-  }));
-}
-
-async function renderPlan() {
-  const version = ++planVersion;
-  get('plan-review').disabled = true;
-  const batch = get('plan-batch');
-  if (!batch.validity.valid) {
-    get('plan-estimates').textContent = 'Escolha um tamanho de lote entre 1 e 100.';
-    get('plan-description').textContent = '';
-    get('plan-blockers').hidden = true;
-    get('original-order').replaceChildren();
-    get('target-order').replaceChildren();
-    get('plan-review').disabled = true;
-    return;
-  }
-  const strategy = get('plan-strategy').value;
-  const plan = await planReflow(snapshot, { strategy, batchSize: batch.valueAsNumber });
-  if (version !== planVersion) return;
-  get('plan-review').disabled = false;
-  get('plan-description').textContent = strategy === 'staging'
-    ? 'A reconstrução publica o catálogo inteiro em outro canal privado. O canal de origem fica disponível para consulta.'
-    : 'O início que já está em ordem permanece no canal. A partir da primeira divergência, todo o sufixo entra no plano, inclusive as letras seguintes.';
-  const copyRequests = plan.estimates.copyRequests == null ? 'chamadas pendentes de revisão' : count.format(plan.estimates.copyRequests) + ' chamadas estimadas';
-  const summary = count.format(plan.estimates.copiedMessages) + ' mensagens para copiar · ' + copyRequests +
-    ' · ' + count.format(plan.originalIdsForSeparateCleanup.length) + ' originais sujeitos à aprovação de limpeza';
-  get('plan-estimates').textContent = summary + (get('plan-letter').value ? ' · filtro aplicado só às listas abaixo' : '');
-  get('plan-dialog-count').textContent = summary;
-  const explanations = {
-    group_exceeds_batch_limit: 'Um grupo é maior que o lote escolhido.',
-    group_requires_separate_transport: 'Um grupo exige outro método para preservar a ordem.',
-    unassigned_messages: 'Há posts sem série confirmada.',
-    incomplete_snapshot: 'O inventário está incompleto.',
-    copy_permission_unverified: 'A permissão de cópia precisa ser verificada.',
-    album_order_conflict: 'A ordem de um álbum diverge dos metadados.',
-    atomic_group_order_conflict: 'Um grupo impede a ordem de episódios proposta.',
-    multipart_metadata_conflict: 'As partes de um grupo têm metadados conflitantes.',
-    conflicting_group_identity: 'Um grupo contém séries conflitantes.',
-    noncontiguous_album: 'Há um álbum incompleto ou fora de sequência.',
-  };
-  get('plan-blockers').hidden = !plan.blockers.length;
-  get('plan-blockers').textContent = plan.blockers.map(code => explanations[code] ?? code).join(' ');
-  renderOrder(get('original-order'), plan.originalIds);
-  renderOrder(get('target-order'), plan.targetIds);
-}
-
 function populateCorrection() {
   const row = messages.get(Number(get('correction-id').value));
   for (const name of ['season', 'episode', 'part', 'kind', 'label']) get('correction-' + name).value = row?.[name] ?? '';
@@ -161,7 +105,6 @@ function refresh() {
   renderCatalog();
   renderDuplicates();
   populateCorrection();
-  return renderPlan();
 }
 
 function chooseLetter(letter) {
@@ -172,24 +115,21 @@ function chooseLetter(letter) {
 export function setCatalogSnapshot(current = syntheticSnapshot()) {
   snapshot = { ...current, overrides: {} };
   get('demo-title').textContent = snapshot.sourceId === 'demo' ? 'Canal de demonstração' : 'Canal de teste autorizado';
-  get('inventory-source').textContent = snapshot.sourceId === 'demo' ? 'Dados fictícios para testar o catálogo e a reordenação.' :
+  get('inventory-source').textContent = snapshot.sourceId === 'demo' ? 'Dados fictícios para explorar o catálogo.' :
     snapshot.complete ? 'Histórico consultado no Telegram. As correções valem nesta sessão.' :
-      'Inventário parcial do Telegram. A prévia cobre somente os posts lidos.';
+      'Inventário parcial do Telegram. O catálogo mostra os posts lidos.';
   get('correction-id').replaceChildren(...snapshot.correctionIds.map(id => new Option('Post #' + id, String(id))));
   get('correction-series').replaceChildren(new Option('Sem série definida', ''),
     ...snapshot.series.map(item => new Option(item.title, item.id)));
   for (const button of get('correction-form').querySelectorAll('button')) button.disabled = !snapshot.messages.length || !snapshot.series.length;
   get('message-count').textContent = count.format(snapshot.messages.length);
-  refresh().catch(planError);
+  refresh();
 }
 for (const kind of editionTypes) get('correction-kind').append(new Option(kindLabels[kind], kind));
 for (const button of alphabet) button.addEventListener('click', () => chooseLetter(button.dataset.letter));
 get('library-query').addEventListener('input', renderCatalog);
-const planError = () => { get('plan-estimates').textContent = 'A prévia não pôde ser calculada neste navegador.'; };
-for (const control of ['plan-strategy', 'plan-batch', 'plan-letter']) get(control).addEventListener('change', () => renderPlan().catch(planError));
-get('plan-review').addEventListener('click', () => get('plan-dialog').showModal());
 get('correction-id').addEventListener('change', populateCorrection);
-get('correction-form').addEventListener('submit', async event => {
+get('correction-form').addEventListener('submit', event => {
   event.preventDefault();
   const id = get('correction-id').value;
   snapshot.overrides[id] = {
@@ -197,13 +137,13 @@ get('correction-form').addEventListener('submit', async event => {
     label: get('correction-label').value.trim(),
     ...Object.fromEntries(['season', 'episode', 'part'].map(name => [name, get('correction-' + name).value === '' ? null : get('correction-' + name).valueAsNumber])),
   };
-  await refresh();
-  get('correction-feedback').textContent = 'Prévia atualizada para o post #' + id + '.';
+  refresh();
+  get('correction-feedback').textContent = 'Catálogo atualizado para o post #' + id + '.';
 });
-get('correction-reset').addEventListener('click', async () => {
+get('correction-reset').addEventListener('click', () => {
   delete snapshot.overrides[get('correction-id').value];
-  await refresh();
-  get('correction-feedback').textContent = 'Correção removida da prévia.';
+  refresh();
+  get('correction-feedback').textContent = 'Correção removida do catálogo.';
 });
 selected = /^[A-Z]$/.test(location.hash.slice(1)) ? location.hash.slice(1) : '';
 setCatalogSnapshot();
