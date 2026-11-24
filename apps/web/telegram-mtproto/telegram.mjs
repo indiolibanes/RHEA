@@ -115,7 +115,7 @@ export function telegramClient(config, makeClient = (session, options) =>
             return openMirror(config.mirror, privateChat, peerFor, invoke, (media, options) => client.iterDownload(media, options));
           },
           async organize(scope) {
-            if (!config.organizationEnabled || !await isOwner()) return null;
+            if (!(scope.rebuild ? config.rebuildEnabled : config.organizationEnabled) || !await isOwner()) return null;
             return openMirror(scope, privateChat, peerFor, invoke);
           },
           async staging() {

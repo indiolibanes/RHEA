@@ -43,6 +43,21 @@ test('requires a configured MAL ID and rejects private fields and arbitrary prov
   assert.equal((await call({ ...input, provider: 'https://untrusted.invalid' }, noFetch)).status, 400);
 });
 
+test('sends the session MAL Client ID only in the MyAnimeList header', async () => {
+  const clientId = 'a'.repeat(32);
+  const stored = 'b'.repeat(32);
+  const reply = await call({ title: 'Synthetic T', provider: 'mal', malClientId: clientId }, (endpoint, init) => {
+    assert.equal(new URL(endpoint).host, 'api.myanimelist.net');
+    assert.equal(new Headers(init.headers).get('X-MAL-Client-ID'), clientId);
+    assert.ok(!endpoint.includes(clientId));
+    return Response.json({ data: [] });
+  }, { env: { RHEA_MAL_CLIENT_ID: stored } });
+  assert.deepEqual(await reply.json(), { state: 'candidates', candidates: [] });
+  const noFetch = () => assert.fail('A credential outside its provider must not be sent.');
+  assert.equal((await call({ title: 'Synthetic T', malClientId: clientId }, noFetch)).status, 400);
+  assert.equal((await call({ title: 'Synthetic T', provider: 'mal', malClientId: 'invalid' }, noFetch)).status, 400);
+});
+
 test('anime lookup sends only the typed public title and sanitizes candidates and links', async () => {
   const result = await call({ title: '  Te\u0301st Title  ' }, (target, init) => {
     assert.equal(target, 'https://graphql.anilist.co');

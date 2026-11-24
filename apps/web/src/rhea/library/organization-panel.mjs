@@ -11,6 +11,7 @@ export function organizationPublication(get, endpoint) {
     backup: { bar: get('progress-backup'), text: get('progress-backup-text') },
   };
   let selection;
+  let reconstructionIds;
   let approval;
   let active;
   let paused;
@@ -32,7 +33,7 @@ export function organizationPublication(get, endpoint) {
 
   function clear() {
     active?.abort();
-    active = selection = approval = undefined;
+    active = selection = approval = reconstructionIds = undefined;
     approved = false;
     paused = true;
     if (dialog.open) dialog.close();
@@ -42,14 +43,19 @@ export function organizationPublication(get, endpoint) {
     status.textContent = '';
   }
 
-  function prepare(value) {
+  function prepare(value, rebuildIds) {
     clear();
     selection = value;
+    reconstructionIds = rebuildIds;
+    rows.backup.bar.closest('li').hidden = Boolean(rebuildIds);
+    rows.local.bar.closest('li').querySelector('span').textContent = rebuildIds ? 'Tópico [NEW]' : 'Mesmo grupo';
+    get('publish-title').textContent = rebuildIds ? 'Aprovar reconstrução da letra' : 'Aprovar cópia para os dois tópicos';
+    review.textContent = rebuildIds ? 'Revisar reconstrução' : 'Revisar publicação';
     container.hidden = false;
   }
 
   async function request(operation, signal, confirmation) {
-    const response = await fetch(endpoint + '?op=organize' + operation, { method: 'POST', credentials: 'same-origin',
+    const response = await fetch(endpoint + '?op=' + (reconstructionIds ? 'rebuild' : 'organize') + operation, { method: 'POST', credentials: 'same-origin',
       redirect: 'error', cache: 'no-store', signal, headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...selection, ...confirmation }),
     });
@@ -58,12 +64,14 @@ export function organizationPublication(get, endpoint) {
 
   function display(result) {
     const details = result.mirror;
-    const side = { local: 'No mesmo grupo', destination: 'No backup', source: 'Na origem' }[result.issue?.side];
+    const side = { local: 'No mesmo grupo', destination: reconstructionIds ? 'No tópico [NEW]' : 'No backup',
+      source: 'Na origem' }[result.issue?.side];
     const reason = {
       destination_not_empty: 'o tópico precisa estar vazio para o piloto.',
       group_protected: 'o Telegram impede a cópia de conteúdo protegido.',
       group_not_owned: 'a conta conectada precisa ser proprietária do grupo.',
-      history_limit: 'o tópico de origem precisa ter até 60 publicações neste piloto.',
+      history_limit: reconstructionIds ? 'a leitura ultrapassou o limite do piloto: até 60 publicações em Requests e 240 na cópia combinada.' :
+        'o tópico de origem precisa ter até 60 publicações neste piloto.',
       selection_changed: 'um arquivo aprovado mudou ou saiu do tópico.',
       topic_name: 'o tópico deixou de corresponder à letra esperada.',
       album_or_reply: 'a seleção dividiria um álbum ou uma resposta.',
@@ -71,29 +79,32 @@ export function organizationPublication(get, endpoint) {
     }[result.issue?.code];
     run.hidden = result.state !== 'mirror_progress';
     if (result.state === 'mirror_progress' || result.state === 'mirror_done') {
-      if (!details?.localCopies || !details.copies) {
+      if (!details?.copies || (!reconstructionIds && !details.localCopies)) {
         run.hidden = true;
         status.textContent = 'Não foi possível validar as confirmações dos dois destinos.';
         return;
       }
       progress.hidden = false;
-      showProgress(details.localCopies.length, details.copies.length, details.total,
+      const local = (reconstructionIds ? details.copies : details.localCopies).length;
+      const backup = reconstructionIds ? 0 : details.copies.length;
+      showProgress(local, backup, details.total,
         result.state === 'mirror_done' ? 'done' : paused ? 'paused' : 'running');
-      const counts = 'Mesmo grupo: ' + details.localCopies.length + ' de ' + details.total +
-        ' verificadas. Backup: ' + details.copies.length + ' de ' + details.total + ' verificadas.';
+      const counts = (reconstructionIds ? 'Tópico [NEW]: ' : 'Mesmo grupo: ') + local + ' de ' + details.total +
+        ' verificadas.' + (reconstructionIds ? '' : ' Backup: ' + backup + ' de ' + details.total + ' verificadas.');
       status.textContent = result.state === 'mirror_done' ? 'Cópia concluída. ' + counts : counts;
       return;
     }
     const messages = {
       mirror_disabled: 'A publicação piloto precisa ser habilitada no Railway.',
       mirror_recovery: 'A execução precisa de conferência manual. Confira os tópicos antes de qualquer nova cópia.',
-      mirror_changed: 'O plano ou o conteúdo mudou. Confira a origem e ambos os destinos.',
+      mirror_changed: 'O plano ou o conteúdo mudou. Confira as origens e os destinos da revisão.',
       mirror_ineligible: 'A seleção ainda não atende às condições da cópia.',
       rate_limited: 'O Telegram pediu uma pausa. Aguarde antes de retomar.',
     };
-    if (result.state === 'mirror_recovery' && details?.localCopies && details.copies) {
+    if (result.state === 'mirror_recovery' && details?.copies && (reconstructionIds || details.localCopies)) {
       progress.hidden = false;
-      showProgress(details.localCopies.length, details.copies.length, details.total, 'recovery');
+      showProgress(reconstructionIds ? details.copies.length : details.localCopies.length,
+        reconstructionIds ? 0 : details.copies.length, details.total, 'recovery');
     }
     status.textContent = reason && side ? side + ', ' + reason + (result.issue.postId ? ' Post #' + result.issue.postId + '.' : '') :
       messages[result.state] ?? 'Não foi possível confirmar a operação. Revise o progresso antes de retomar.';
@@ -110,7 +121,7 @@ export function organizationPublication(get, endpoint) {
       if (action === 'next') {
         pause.hidden = false;
         paused = false;
-        let remaining = 4 * selection.ids.length;
+        let remaining = reconstructionIds ? 2 * reconstructionIds.length : 4 * selection.ids.length;
         let result;
         do {
           result = await request('next', signal);
@@ -120,22 +131,25 @@ export function organizationPublication(get, endpoint) {
         if (paused && result.state === 'mirror_progress') {
           status.textContent += ' Cópia pausada.';
           const d = result.mirror;
-          if (d?.localCopies && d.copies) showProgress(d.localCopies.length, d.copies.length, d.total, 'paused');
+          if (d?.copies && (reconstructionIds || d.localCopies)) showProgress(
+            reconstructionIds ? d.copies.length : d.localCopies.length, reconstructionIds ? 0 : d.copies.length, d.total, 'paused');
         }
       } else {
-        status.textContent = action === 'preview' ? 'Validando os arquivos e os dois tópicos…' : 'Registrando sua aprovação…';
+        status.textContent = action === 'preview' ? 'Validando as publicações e os tópicos…' : 'Registrando sua aprovação…';
         const result = await request(action, signal, action === 'approve' ? { approval, confirm: true } : undefined);
         if (signal.aborted) return;
         if (action === 'preview' && result.state === 'mirror_preview') {
           const preview = result.mirror;
-          if (!preview?.localDestination || !preview.destination ||
-              preview.posts?.length !== selection.ids.length ||
-              preview.posts.some((post, index) => post.id !== selection.ids[index])) {
+          const ids = reconstructionIds ?? selection.ids;
+          if (!preview?.destination || (reconstructionIds ? !preview.source : !preview.localDestination) ||
+              preview.posts?.length !== ids.length ||
+              preview.posts.some((post, index) => post.id !== ids[index])) {
             display({ state: 'mirror_changed' });
             return;
           }
           approval = preview.approval;
-          get('publish-targets').textContent = preview.localDestination + ' · ' + preview.destination;
+          get('publish-targets').textContent = reconstructionIds ? preview.source + ' → ' + preview.destination :
+            preview.localDestination + ' · ' + preview.destination;
           get('publish-files').replaceChildren(...preview.posts.map(post =>
             Object.assign(document.createElement('li'), { textContent: '#' + post.id + ' · ' + post.label })));
           status.textContent = 'Confira a ordem e confirme a cópia no diálogo.';

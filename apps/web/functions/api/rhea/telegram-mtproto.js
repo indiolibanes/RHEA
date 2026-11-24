@@ -77,9 +77,9 @@ export async function mtprotoPage({ request, data, env }, fetcher = fetch) {
       return mtprotoResult('unavailable');
     }
     if ((typeof payload?.state === 'string' && payload.state.startsWith('mirror_') && !mirror && !organize) ||
-        (payload?.state === 'mirror_preview' && !['mirrorpreview', 'organizepreview'].includes(operation))) return mtprotoResult('unavailable');
+        (payload?.state === 'mirror_preview' && !['mirrorpreview', 'organizepreview', 'rebuildpreview'].includes(operation))) return mtprotoResult('unavailable');
     if (payload?.state === 'inventory' && operation !== 'inventory') return mtprotoResult('unavailable');
-    const safe = mtprotoResult(payload?.state, payload ?? {});
+    const safe = mtprotoResult(payload?.state, payload ?? {}, operation);
     return safe.status === result.status ? safe : mtprotoResult('unavailable');
   } catch {
     return mtprotoResult('unavailable');

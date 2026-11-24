@@ -136,3 +136,88 @@ test('requires a protected same-origin approval and validates selected topics an
   assert.equal((await check('preview', { Origin: origin }, { ...selection, localTopicId: 1 })).status, 400);
   assert.equal((await check('preview', { Origin: origin }, { ...selection, ids: [32, 32] })).status, 400);
 });
+
+test('rebuilds a paginated letter with all unclassified posts and preserves the owner-approved insertion point', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'rhea-rebuild-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const config = { ...scope, rebuildEnabled: true, file: join(directory, 'session.enc') };
+  const ids = Array.from({ length: 64 }, (_, i) => 100 + i);
+  const old = ids.map(id => ({ ...rawPost(id, id), replyTo: { replyToMsgId: 8 }, message: 'Original caption ' + id }));
+  const incoming = [rawPost(31, '02'), rawPost(32, '01')];
+  const destination = [];
+  const sends = [];
+  const oldOffsets = new Set();
+  const provider = () => ({
+    connect: async () => {}, destroy: async () => {}, updateManager: { stop() {} },
+    async invoke({ query }) {
+      if (query instanceof Api.users.GetUsers) return [{ id: 700n }];
+      if (query instanceof Api.messages.CheckChatInvite) return { className: 'ChatInviteAlready', chat: {
+        className: 'Channel', id: 11111n, accessHash: 4n, title: 'Fixture forum', forum: true, megagroup: true, creator: true,
+      } };
+      if (query instanceof Api.messages.GetForumTopicsByID) {
+        const [id] = query.topics;
+        return { topics: [{ className: 'ForumTopic', id, title: id === 8 ? 'Letter T' : 'Letter T [NEW]' }] };
+      }
+      if (query instanceof Api.messages.GetReplies) {
+        assert.equal(query.peer.channelId.toString(), '11111');
+        if (query.msgId === 8) oldOffsets.add(query.offsetId);
+        const rows = query.msgId === 8 ? old : query.msgId === 1 ? incoming : destination;
+        const sorted = [...rows].reverse().filter(post => !query.offsetId || post.id < query.offsetId);
+        return { className: 'messages.ChannelMessages', count: rows.length, messages: sorted.slice(0, query.limit) };
+      }
+      assert.ok(query instanceof Api.messages.SendMedia);
+      assert.equal(query.peer.channelId.toString(), '11111');
+      assert.equal(query.replyTo.replyToMsgId, 9);
+      const original = [...old, ...incoming].find(post => post.media.document.id.toString() === query.media.id.id.toString());
+      const id = 200 + destination.length;
+      assert.equal(query.message, original.message);
+      destination.push({ ...original, id, replyTo: { replyToMsgId: 9 } });
+      sends.push(original.id);
+      return { updates: [{ className: 'UpdateMessageID', randomId: query.randomId, id }] };
+    },
+  });
+  const transport = telegramClient(config, provider);
+  const start = () => mtprotoControl(config, { read: async () => 'test' }, (_session, fn) => transport(null, fn));
+  let adapter = start();
+  const input = { sourceTopicId: 1, currentTopicId: 8, replacementTopicId: 9, beforeId: 160, letter: 'T', ids: [32, 31] };
+  const invoke = async (op, body = input) => {
+    const response = await adapter(new Request('https://adapter.example/v1/rebuild' + op, {
+      method: 'POST', headers: { Authorization: 'Bearer ' + config.key, 'X-Rhea-Access-Subject': config.actor },
+      body: JSON.stringify(body),
+    }));
+    return response.json();
+  };
+  assert.equal((await invoke('next')).state, 'mirror_idle');
+  assert.equal((await invoke('preview', { ...input, beforeId: 404 })).issue.code, 'selection_changed');
+  old[59].groupedId = old[60].groupedId = 77n;
+  assert.equal((await invoke('preview')).issue.code, 'album_or_reply');
+  delete old[59].groupedId;
+  delete old[60].groupedId;
+  destination.push({ id: 200 });
+  assert.equal((await invoke('preview')).issue.code, 'destination_not_empty');
+  destination.pop();
+  const preview = await invoke('preview');
+  assert.equal(preview.state, 'mirror_preview');
+  assert.equal(preview.mirror.total, 66);
+  const sequence = [...ids.slice(0, 60), 32, 31, ...ids.slice(60)];
+  assert.deepEqual(preview.mirror.posts.map(post => post.id), sequence);
+  assert.ok(oldOffsets.has(104) && oldOffsets.has(100));
+  const approval = await invoke('approve', { ...input, confirm: true, approval: preview.mirror.approval });
+  assert.equal(approval.state, 'mirror_progress');
+  assert.deepEqual(sends, []);
+  old.at(-1).message = 'Concurrent edit';
+  assert.equal((await invoke('next')).state, 'mirror_changed');
+  old.at(-1).message = 'Original caption 163';
+  assert.equal((await invoke('next')).state, 'mirror_progress');
+  adapter = start();
+  assert.equal((await invoke('next')).mirror.copies.length, 1);
+  assert.deepEqual(sends, [100]);
+  let result;
+  for (let step = 2; step < 2 * sequence.length; step++) result = await invoke('next');
+  assert.equal(result.state, 'mirror_done');
+  assert.deepEqual(sends, sequence);
+  assert.deepEqual(result.mirror.copies.map(receipt => receipt.sourceId), sequence);
+  assert.equal((await invoke('next')).state, 'mirror_done');
+  assert.equal(old.length, 64);
+  assert.equal(incoming.length, 2);
+});

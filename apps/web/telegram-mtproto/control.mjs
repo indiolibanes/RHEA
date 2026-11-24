@@ -5,7 +5,7 @@ import { stagingControl } from './staging.mjs';
 import { isForumOperation } from '../src/rhea/library/forum-contract.mjs';
 import { isMirrorOperation } from '../src/rhea/library/mirror-contract.mjs';
 import { mirrorControl } from './mirror.mjs';
-import { isOrganizationOperation, organizationOperations } from '../src/rhea/library/organization-contract.mjs';
+import { isOrganizationOperation, isRebuildOperation, organizationOperations } from '../src/rhea/library/organization-contract.mjs';
 
 const enrollmentTtl = 5 * 60_000;
 const startCooldown = 60_000;
@@ -136,11 +136,18 @@ export function mtprotoControl(config, store, withClient, now = Date.now) {
     }
     if (isOrganizationOperation(operation)) {
       if (!saved) return { state: 'disconnected' };
-      if (!config.organizationEnabled) return { state: 'mirror_disabled' };
+      const rebuild = isRebuildOperation(operation);
+      if (rebuild ? !config.rebuildEnabled : !config.organizationEnabled) return { state: 'mirror_disabled' };
       const { sourceTopicId, localTopicId, backupTopicId, letter, ids } = input;
-      const key = JSON.stringify([sourceTopicId, localTopicId, backupTopicId, letter, ids]);
+      const { currentTopicId, replacementTopicId, beforeId } = input;
+      const key = JSON.stringify([rebuild, sourceTopicId, localTopicId, backupTopicId, currentTopicId, replacementTopicId, beforeId, letter, ids]);
       if (organization?.key !== key) {
-        const scope = {
+        const scope = rebuild ? {
+          source: { ...config.forum, topicId: currentTopicId },
+          intake: { ...config.forum, topicId: sourceTopicId },
+          destination: { ...config.forum, topicId: replacementTopicId },
+          rebuild: { letter, ids, beforeId },
+        } : {
           source: { ...config.forum, topicId: sourceTopicId },
           local: { ...config.forum, topicId: localTopicId },
           destination: { ...config.backupForum, topicId: backupTopicId },
@@ -216,7 +223,7 @@ export function mtprotoControl(config, store, withClient, now = Date.now) {
       const input = inputFor(operation, value);
       if (!input) return mtprotoResult('invalid_request');
       const result = await operate(operation, input);
-      return mtprotoResult(result.state, result);
+      return mtprotoResult(result.state, result, operation);
     } catch (error) {
       const result = handleError(error, operation);
       if (result.state === 'expired' && operation === 'inventory') {

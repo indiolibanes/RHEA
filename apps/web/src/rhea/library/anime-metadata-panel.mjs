@@ -1,15 +1,44 @@
-import { animeFormats as formats, animeProviders, lookupAnime, lookupMessage } from './anime-lookup.mjs';
+import { animeFormats as formats, animeProviders, lookupAnime, lookupMessage,
+  setSessionMalClientId, validMalClientId } from './anime-lookup.mjs';
 
 const root = document.querySelector('[data-rhea-telegram-library]');
 const form = root.querySelector('#anime-lookup-form');
 const input = root.querySelector('#anime-title');
 const submit = form.querySelector('button');
 const providerChoice = form.querySelector('#anime-provider');
+form.querySelector('#anime-example').addEventListener('click', () => {
+  input.value = input.placeholder;
+  input.focus();
+});
 const status = root.querySelector('#anime-lookup-status');
 const results = root.querySelector('#anime-lookup-results');
 const endpoint = root.dataset.animeMetadataEndpoint;
 const node = (tag, value) => Object.assign(document.createElement(tag), { textContent: value });
 let active;
+const credentialForm = root.querySelector('#mal-client-form');
+const credential = root.querySelector('#mal-client-id');
+const clearCredential = root.querySelector('#mal-client-clear');
+const credentialStatus = root.querySelector('#mal-client-status');
+
+function clearMalCredential() {
+  setSessionMalClientId(undefined);
+  credentialForm.reset();
+  clearCredential.hidden = true;
+  credentialStatus.textContent = 'Use o Client ID do aplicativo cadastrado no MyAnimeList.';
+}
+
+credentialForm.addEventListener('submit', event => {
+  event.preventDefault();
+  const value = credential.value.trim();
+  if (!validMalClientId(value)) return;
+  setSessionMalClientId(value);
+  credentialForm.reset();
+  clearCredential.hidden = false;
+  credentialStatus.textContent = 'Client ID pronto para usar enquanto a aba Telegram estiver aberta.';
+});
+clearCredential.addEventListener('click', clearMalCredential);
+root.addEventListener('rhea:telegram-hide', clearMalCredential);
+window.addEventListener('pagehide', clearMalCredential);
 
 function link(text, url) {
   const anchor = node('a', text);

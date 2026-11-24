@@ -135,3 +135,31 @@ the resulting alphabetical series and numeric episode order. It flags ambiguous 
 episodes, possible same-title duplicates, protected content, unassigned files, and covers or notes
 that need association. The preview reads at most 20 pages from the current letter and labels a
 partial result. It does not use the one-source publication pilot or copy into the backup forum.
+
+## Approve a letter reconstruction
+
+In an authorized disposable private forum, keep the current `Letter T`, place only the selected
+incoming work in Requests, and create a separate empty `Letter T [NEW]`. The reconstruction uses
+`RHEA_TELEGRAM_ORGANIZE_MODE=approved-pilot`, the same Access-protected session, and the main forum
+configuration. It needs no backup binding. The rollout must qualify publication with authorized
+synthetic media before reading or writing real library content for this pilot.
+
+After **Montar prévia da letra**, choose the insertion point before a specific publication in
+the already ordered current letter, or choose the end. Use the first publication of the next
+series, including its cover where applicable. The server reads the entire current topic, preserves
+its order and supported publications, and inserts the selected incoming files at the confirmed
+point. Identification warnings in the catalogue do not remove posts from this reconstruction.
+An unsupported publication, broken reply dependency, split album, protected media or incomplete
+snapshot stops approval. Preview, approval and execution are separate actions.
+
+The current pilot supports at most 240 combined publications and 20 selected incoming files from
+a Requests topic with up to 60 entries. The target must be empty at approval. The durable journal
+verifies copies by Telegram message ID and media metadata. It retains the originals and creates
+new destination links, with the existing captions and filenames. Any uncertain receipt stops the
+run. Reopen the same work, target and insertion point to verify or resume known receipts. This pilot
+keeps one reconstruction journal per deployment. It does not publish to a backup forum.
+
+A protected **Configurar MyAnimeList** form can supply a registered Client ID for the current tab.
+The client retains it in memory, sends it only to the protected RHEA lookup, and clears it when
+leaving the tab or reloading. The backend forwards it only as the official MyAnimeList API header.
+For persistent server-side configuration, continue to use the `RHEA_MAL_CLIENT_ID` binding.

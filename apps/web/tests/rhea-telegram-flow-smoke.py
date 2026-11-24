@@ -102,6 +102,22 @@ def respond(route):
         route.fulfill(json={'state': 'forum_page', 'forum': {'next': None, 'topicId': 1, 'channelId': '22222', 'posts': [
             {'id': 37, 'kind': 'document', 'filename': '[Fixture]_Tsuki_ga_Kirei_01_[1280x720].mkv', 'sizeBytes': GIB},
             {'id': 30, 'kind': 'document', 'filename': '[Fixture]_Tsuki_ga_Kirei_10_[1280x720][synthetic_release_tag_that_is_long_enough_to_force_wrapping_on_a_phone].mkv', 'sizeBytes': GIB}]}})
+    elif operation.startswith('rebuild'):
+        assert {key: data[key] for key in ['sourceTopicId', 'currentTopicId', 'replacementTopicId', 'beforeId', 'ids']} == {
+            'sourceTopicId': 1, 'currentTopicId': 9, 'replacementTopicId': 81, 'beforeId': 19, 'ids': [37, 30],
+        }
+        order = [15, 16, 37, 30, 19]
+        if operation == 'rebuildpreview':
+            route.fulfill(json={'state': 'mirror_preview', 'mirror': {'total': 5, 'approval': 'a' * 43,
+                'source': 'Letter T + Requests', 'destination': 'Letter T [NEW]',
+                'posts': [{'id': id, 'label': 'Fixture'} for id in order]}})
+        elif operation == 'rebuildapprove':
+            assert data['confirm'] is True
+            route.fulfill(json={'state': 'mirror_progress', 'mirror': {'total': 5, 'copies': []}})
+        else:
+            assert operation == 'rebuildnext'
+            route.fulfill(json={'state': 'mirror_done', 'mirror': {'total': 5,
+                'copies': [{'sourceId': id, 'destinationId': 100 + i} for i, id in enumerate(order)]}})
     elif operation == 'organizepreview':
         route.fulfill(json={'state': 'mirror_preview', 'mirror': {
             'approval': 'a' * 43, 'localDestination': 'Fixture group / Letter T', 'destination': 'Fixture backup / Letter T',
@@ -237,6 +253,11 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
 
     if name == 'mobile-light':
         # A separate provider request uses only the edited title and provider name.
+        page.locator('#mal-settings > summary').click()
+        page.locator('#mal-client-id').fill('a' * 32)
+        page.get_by_role('button', name='Usar nesta sessão').click()
+        expect(page.locator('#mal-client-id')).to_have_value('')
+        expect(page.locator('#mal-client-status')).to_contain_text('Client ID pronto')
         page.locator('#enrich-provider').select_option('mal')
         state['lookup'] = [(200, {'state': 'candidates', 'candidates': [{
             **candidate, 'provider': 'mal', 'duration': 25, 'url': 'https://myanimelist.net/anime/1',
@@ -245,7 +266,8 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         page.locator('#enrich-candidates button').first.click()
         expect(page.locator('#enrich-match')).to_contain_text('MyAnimeList')
         expect(page.locator('#enrich-links a')).to_have_attribute('href', 'https://myanimelist.net/anime/1')
-        assert lookups[-1] == {'title': 'Tsuki ga Kirei', 'provider': 'mal'}
+        assert lookups[-1] == {'title': 'Tsuki ga Kirei', 'provider': 'mal', 'malClientId': 'a' * 32}
+        page.locator('#mal-client-clear').click()
         previous_count = len(lookups)
         page.locator('#enrich-manual-open').click()
         page.locator('#enrich-manual input[name=link]').fill('https://anilist.co/anime/98202/Tsuki-ga-Kirei')
@@ -258,7 +280,7 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         expect(page.locator('#enrich-links a')).to_have_attribute('href', 'https://anilist.co/anime/98202')
         assert len(lookups) == previous_count
 
-        # Letter T is a source, the new topic is the target, and rebuilding only reads.
+        # The current Letter T remains intact; selecting an insertion point gates approval.
         state['replacement'] = True
         organization_calls = sum(call.startswith('organize') for call in calls)
         page.locator('#enrich-check-destinations').click()
@@ -268,9 +290,20 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         expect(page.locator('#enrich-rebuild-items summary').nth(0)).to_contain_text('Tapestry')
         expect(page.locator('#enrich-rebuild-items summary').nth(1)).to_contain_text('Tsuki ga Kirei')
         expect(page.locator('#enrich-rebuild-items summary').nth(2)).to_contain_text('Tundra')
-        expect(page.locator('#enrich-rebuild-status')).to_contain_text('precisam de associação')
+        expect(page.locator('#enrich-rebuild-status')).to_contain_text('serão mantidas na ordem atual')
         expect(page.locator('#enrich-publish')).to_be_hidden()
         assert sum(call.startswith('organize') for call in calls) == organization_calls
+        page.locator('#enrich-rebuild-anchor').select_option('19')
+        page.get_by_role('button', name='Revisar reconstrução').click()
+        expect(page.get_by_role('dialog', name='Aprovar reconstrução da letra')).to_be_visible()
+        expect(page.locator('#enrich-publish-files > li').nth(2)).to_contain_text('#37')
+        assert 'rebuildnext' not in calls
+        page.locator('#enrich-publish-approve').click()
+        expect(page.locator('#enrich-publish-run')).to_be_visible()
+        assert 'rebuildnext' not in calls
+        page.locator('#enrich-publish-run').click()
+        expect(page.locator('#enrich-publish-status')).to_contain_text('Tópico [NEW]: 5 de 5')
+        expect(page.locator('#enrich-progress-backup').locator('..')).to_be_hidden()
         state['replacement'] = False
 
     no_overflow(page, name)
