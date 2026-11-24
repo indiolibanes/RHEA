@@ -275,7 +275,7 @@ test('new operations enforce Access identity, same origin, and explicit approval
   assert.equal(f.calls.length, 0);
 });
 
-test('mirror runtime refuses incomplete settings, shared targets and the General topic', () => {
+test('invalid optional mirror settings isolate writes from the forum reader', async () => {
   const env = { RHEA_TELEGRAM_MTPROTO_MODE: 'sandbox', RHEA_TELEGRAM_API_ID: '77', RHEA_TELEGRAM_API_HASH: 'a'.repeat(32),
     RHEA_TELEGRAM_CHANNEL_ID: '33333', RHEA_TELEGRAM_OWNER_ID: config.ownerId, RHEA_TELEGRAM_PHONE: '+15550001111',
     RHEA_TELEGRAM_CHANNEL_INVITE: 'https://t.me/+fixtureChannelInvite', RHEA_TELEGRAM_ACCESS_SUB: config.actor,
@@ -292,12 +292,43 @@ test('mirror runtime refuses incomplete settings, shared targets and the General
   const dual = { ...env, ...mirror, RHEA_TELEGRAM_MIRROR_MODE: 'synthetic-dual',
     RHEA_TELEGRAM_MIRROR_LOCAL_TOPIC_ID: String(organized.topicId) };
   assert.deepEqual(configuration(dual).mirror.local, organized);
-  assert.throws(() => configuration({ ...dual, RHEA_TELEGRAM_MIRROR_LOCAL_TOPIC_ID: String(source.topicId) }),
-    /Invalid MTProto mirror test configuration/);
-  for (const patch of [{ RHEA_TELEGRAM_MIRROR_MODE: '' }, { RHEA_TELEGRAM_MIRROR_DESTINATION_TOPIC_ID: '1' },
-    { RHEA_TELEGRAM_MIRROR_DESTINATION_ID: source.channelId }, { RHEA_TELEGRAM_MIRROR_DESTINATION_INVITE: '' }]) {
-    assert.throws(() => configuration({ ...env, ...mirror, ...patch }), /Invalid MTProto mirror test configuration/);
+  const forum = { RHEA_TELEGRAM_FORUM_ID: '654321', RHEA_TELEGRAM_FORUM_INVITE: 'https://t.me/+fixtureForumInvite' };
+  for (const patch of [
+    { RHEA_TELEGRAM_MIRROR_MODE: '' },
+    { RHEA_TELEGRAM_MIRROR_SOURCE_TOPIC_ID: '1' },
+    { RHEA_TELEGRAM_MIRROR_DESTINATION_TOPIC_ID: '' },
+    { RHEA_TELEGRAM_MIRROR_DESTINATION_ID: source.channelId },
+    { RHEA_TELEGRAM_MIRROR_DESTINATION_INVITE: '' },
+    { RHEA_TELEGRAM_MIRROR_MODE: 'synthetic-dual' },
+    { RHEA_TELEGRAM_MIRROR_MODE: 'synthetic-dual', RHEA_TELEGRAM_MIRROR_LOCAL_TOPIC_ID: String(source.topicId) },
+  ]) {
+    const rejected = configuration({ ...env, ...forum, ...mirror, ...patch });
+    assert.equal(rejected.mirror, undefined);
+    assert.equal(rejected.invalidMirror, true);
+    assert.equal(rejected.forum.channelId, forum.RHEA_TELEGRAM_FORUM_ID);
   }
+
+  const paused = configuration({ ...dual, ...forum, RHEA_TELEGRAM_MIRROR_MODE: 'disabled' });
+  assert.equal(paused.mirror, undefined);
+  assert.equal(paused.invalidMirror, false);
+  assert.equal(paused.forum.channelId, forum.RHEA_TELEGRAM_FORUM_ID);
+
+  const invalid = configuration({ ...env, ...forum, RHEA_TELEGRAM_MIRROR_MODE: 'synthetic-dual' });
+  const client = { forumInventory: async op => {
+    assert.equal(op, 'forumtopics');
+    return { state: 'forum_topics', forum: { channelId: invalid.forum.channelId, next: null,
+      topics: [{ id: 22, title: 'Fixture topic' }] } };
+  } };
+  const control = mtprotoControl(invalid, { read: async () => 'fixture-session' }, async (_, invoke) => invoke(client));
+  const headers = { Authorization: 'Bearer ' + invalid.key, 'X-Rhea-Access-Subject': invalid.actor };
+  const rejected = await control(new Request('https://adapter.test/v1/mirrorpreview', { method: 'POST', headers }));
+  assert.equal(rejected.status, 409);
+  assert.deepEqual(await rejected.json(), { state: 'mirror_disabled' });
+  const read = await control(new Request('https://adapter.test/v1/forumtopics', { method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ cursor: null }) }));
+  assert.equal(read.status, 200);
+  assert.equal((await read.json()).forum.topics[0].title, 'Fixture topic');
+
 });
 
 test('reads the unpaged messages constructor safely and accepts a pinned top-only topic reply', () => {

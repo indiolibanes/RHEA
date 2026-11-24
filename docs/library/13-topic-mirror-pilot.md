@@ -22,7 +22,7 @@ Set these values in the **private Node adapter environment**, on Railway or the 
 | `RHEA_TELEGRAM_MIRROR_DESTINATION_INVITE` | Private invite URL for the second supergroup |
 | `RHEA_TELEGRAM_MIRROR_DESTINATION_TOPIC_ID` | Numeric ID of the destination test topic |
 
-Leave the settings absent to disable the pilot. Both routes use the existing Cloudflare Access and service authentication rules. No new D1 binding, Worker secret or Telegram API application is required. Never commit either invite or the configured identifiers. An embedding site must update its existing MTProto bridge and mount the middleware-protected `/api/rhea/anime-metadata` Pages Function alongside the updated Astro component.
+Set `RHEA_TELEGRAM_MIRROR_MODE=disabled` to pause the pilot and keep its settings, or leave all mirror variables absent. Invalid mirror-only settings disable the copy pilot at startup while the session and forum inventory remain available. Both routes use the existing Cloudflare Access and service authentication rules. No new D1 binding, Worker secret or Telegram API application is required. Never commit either invite or the configured identifiers. An embedding site must update its existing MTProto bridge and mount the middleware-protected `/api/rhea/anime-metadata` Pages Function alongside the updated Astro component.
 
 ## Mobile acceptance
 
