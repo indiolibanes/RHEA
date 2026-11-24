@@ -48,25 +48,47 @@ export async function animeMetadata({ request, data }, fetcher = fetch) {
     if (Object.keys(input ?? {}).length === 1 && typeof input.title === 'string') title = input.title.trim().normalize('NFC');
   } catch { /* Reject unreadable or oversized input. */ }
   if (!title || title.length < 2 || title.length > 120 || /[\p{Cc}]/u.test(title)) return json({ state: 'invalid_title' }, 400);
+  // Fixed categories only: no title, upstream body, header or session value reaches the log.
+  const failed = (stage, state, status, extra = {}) => {
+    console.warn('[rhea-anilist] lookup_failed', { stage, ...extra });
+    return json({ state }, status);
+  };
+  let response;
   try {
-    const response = await fetcher('https://graphql.anilist.co', {
-      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(6000),
+    // Cloudflare Workers reject redirect: 'error' before any network I/O, so redirects are refused manually.
+    response = await fetcher('https://graphql.anilist.co', {
+      method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(6000),
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ query, variables: { title } }),
     });
+  } catch (error) {
+    return error?.name === 'TimeoutError' || error?.name === 'AbortError' ?
+      failed('timeout', 'provider_timeout', 504) : failed('transport', 'provider_unreachable', 503);
+  }
+  try {
     if (response.status === 429) {
       const retryAfter = Number(response.headers.get('Retry-After'));
+      console.warn('[rhea-anilist] lookup_failed', { stage: 'rate_limit', status: 429 });
       return json({ state: 'rate_limited',
         ...(Number.isInteger(retryAfter) && retryAfter >= 1 && retryAfter <= 3600 ? { retryAfter } : {}) }, 429);
     }
-    if (response.status === 403) return json({ state: 'provider_refused' }, 503);
-    if (!response.ok) return json({ state: 'provider_unavailable' }, 503);
+    if (response.status === 403) {
+      return failed('refused', 'provider_refused', 503,
+        { status: 403, html: /text\/html/i.test(response.headers.get('Content-Type') ?? '') });
+    }
+    if (response.status >= 300 && response.status < 400) return failed('redirect', 'provider_unavailable', 503, { status: response.status });
+    if (response.status >= 500) return failed('upstream_status', 'provider_unavailable', 503, { status: response.status });
+    if (!response.ok) return failed('upstream_status', 'provider_error', 502, { status: response.status });
+    if (!/^application\/json(?:[; ]|$)/i.test(response.headers.get('Content-Type') ?? '')) {
+      return failed('content_type', 'provider_error', 502, { status: response.status });
+    }
     const payload = await boundedTelegramJson(response, 65_536);
     const entries = payload?.data?.Page?.media;
-    if (payload?.errors?.length || !Array.isArray(entries) || entries.length > 6) return json({ state: 'provider_unavailable' }, 503);
+    if (payload?.errors?.length) return failed('graphql_errors', 'provider_error', 502, { status: response.status });
+    if (!Array.isArray(entries) || entries.length > 6) return failed('shape', 'provider_error', 502, { status: response.status });
     return json({ state: 'candidates', candidates: entries.map(candidate).filter(Boolean) });
   } catch {
-    return json({ state: 'provider_unavailable' }, 503);
+    return failed('body', 'provider_unavailable', 503);
   }
 }
 

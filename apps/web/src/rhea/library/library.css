@@ -39,3 +39,38 @@
 .library dialog::backdrop { background: rgba(0, 0, 0, .65); }
 .library :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
 @media (max-width: 42rem) { .library-catalog, .library-orders { grid-template-columns: minmax(0, 1fr); } }
+
+/* Telegram organization path: steps, summary, progress and interaction states. All rules stay inside .library. */
+.library .editorial-action { min-height: 2.75rem; min-width: 2.75rem; padding-inline: 1rem; }
+.library .editorial-action:active:not(:disabled) { transform: translateY(1px); filter: brightness(.94); }
+.library .editorial-action:disabled { opacity: .55; cursor: not-allowed; border-style: dashed; }
+.library .editorial-action[aria-busy="true"] { cursor: progress; }
+.library .rhea-primary:not(:disabled), .library .relay-primary:not(:disabled) { box-shadow: 0 0 0 1px var(--color-accent) inset; }
+.library-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.library-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: .4rem; margin: 0 0 1rem; padding: 0; list-style: none; counter-reset: step; }
+.library-steps li { counter-increment: step; display: flex; align-items: center; gap: .5rem; min-height: 2.75rem; padding: .4rem .65rem; border: 1px solid var(--color-outline-variant); border-radius: .5rem; background: var(--color-surface); color: var(--color-text-muted); font-size: .9rem; overflow-wrap: anywhere; }
+.library-steps li::before { content: counter(step); display: grid; place-items: center; flex: none; width: 1.5rem; height: 1.5rem; border: 1px solid currentColor; border-radius: 50%; font-size: .8rem; }
+.library-steps li[data-state="done"]::before { content: "✓"; }
+.library-steps li[data-state="current"] { color: var(--color-text-primary); border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent) inset; font-weight: 600; }
+.library-steps li[data-state="done"] { color: var(--color-text-primary); }
+.library-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: .6rem; margin: 1rem 0; padding: .9rem 1rem; border: 1px solid var(--color-outline-variant); border-radius: .6rem; background: var(--color-surface); }
+.library-summary div { min-width: 0; }
+.library-summary dd { overflow-wrap: anywhere; font-weight: 600; }
+.library-note { padding: .65rem .85rem; border-inline-start: 3px solid var(--color-accent); background: var(--color-surface); border-radius: .3rem; }
+.library-progress { display: grid; gap: .6rem; margin: .8rem 0; padding: 0; list-style: none; }
+.library-progress li { display: grid; grid-template-columns: minmax(6rem, 8rem) minmax(0, 1fr); gap: .25rem .75rem; align-items: center; }
+.library-progress strong { grid-column: 2; font-weight: 500; overflow-wrap: anywhere; }
+.library-progress progress { width: 100%; height: .6rem; accent-color: var(--color-accent); }
+.library-order li, .library-catalog li, #enrich-status, #enrich-destination-status, #enrich-publish-status { overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: no-preference) {
+  .library .editorial-action, .library-steps li { transition: background-color .15s ease, border-color .15s ease, transform .1s ease; }
+}
+@media (max-width: 42rem) {
+  .library .library-actions > .editorial-action, .library .library-actions > form { flex: 1 1 100%; }
+  .library .library-actions > form > .editorial-action { width: 100%; }
+  .library-progress li { grid-template-columns: minmax(0, 1fr); }
+  .library-progress strong { grid-column: 1; }
+}
+/* Long synthetic or real filenames wrap instead of widening the page. */
+.library p, .library li, .library dd, .library summary, .library label { overflow-wrap: anywhere; }
+.library details { min-width: 0; }
