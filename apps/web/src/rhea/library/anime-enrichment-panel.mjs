@@ -560,26 +560,29 @@ get('manual-open').addEventListener('click', () => {
   if (!form.hidden) form.elements.link.focus();
 });
 function clearCapture() {
+  captureVersion++;
   const canvas = get('capture-preview');
   canvas.hidden = true;
   canvas.width = canvas.height = 0;
   get('capture-status').textContent = 'A imagem fica neste aparelho para você consultar enquanto preenche os campos.';
 }
 
-get('capture').addEventListener('change', async event => {
+let captureVersion = 0;
+const captureTypes = ['image/png', 'image/jpeg', 'image/webp'];
+
+async function showCapture(file) {
   clearCapture();
-  const input = event.currentTarget;
-  const file = input.files[0];
   if (!file) return;
+  const version = captureVersion;
   const feedback = get('capture-status');
-  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 8 * 1024 ** 2) {
-    feedback.textContent = 'Selecione uma captura PNG, JPEG ou WebP de até 8 MiB.';
+  if (!captureTypes.includes(file.type) || file.size > 8 * 1024 ** 2) {
+    feedback.textContent = 'Use uma imagem PNG, JPEG ou WebP de até 8 MiB.';
     return;
   }
   let image;
   try {
     image = await createImageBitmap(file);
-    if (input.files[0] !== file) return;
+    if (version !== captureVersion) return;
     const canvas = get('capture-preview');
     const scale = Math.min(1, 950 / image.width, 1800 / image.height);
     canvas.width = Math.max(1, Math.round(image.width * scale));
@@ -588,10 +591,47 @@ get('capture').addEventListener('change', async event => {
     canvas.hidden = false;
     feedback.textContent = 'Consulte a captura abaixo e preencha os campos que você quer usar na prévia.';
   } catch {
-    if (input.files[0] === file) feedback.textContent = 'Não foi possível abrir essa imagem neste navegador.';
+    if (version === captureVersion) feedback.textContent = 'Não foi possível abrir essa imagem neste navegador.';
   } finally {
     image?.close();
   }
+}
+
+get('capture').addEventListener('change', event => void showCapture(event.currentTarget.files[0]));
+const pasteArea = get('paste-area');
+pasteArea.addEventListener('input', () => { pasteArea.value = ''; });
+pasteArea.addEventListener('paste', event => {
+  event.preventDefault();
+  const files = [...(event.clipboardData?.files ?? [])];
+  const file = files.find(item => captureTypes.includes(item.type)) ?? files[0];
+  if (file) {
+    get('capture').value = '';
+    void showCapture(file);
+  } else {
+    get('capture-status').textContent = 'Copie uma imagem e cole nesta área.';
+  }
+});
+
+get('paste-image').addEventListener('click', async () => {
+  const version = captureVersion;
+  try {
+    const items = await navigator.clipboard.read();
+    if (version !== captureVersion) return;
+    for (const item of items) {
+      const type = captureTypes.find(value => item.types.includes(value));
+      if (!type) continue;
+      const file = await item.getType(type);
+      if (version !== captureVersion) return;
+      get('capture').value = '';
+      await showCapture(file);
+      return;
+    }
+    get('capture-status').textContent = 'Copie uma imagem e cole nesta área.';
+  } catch {
+    if (version !== captureVersion) return;
+    get('capture-status').textContent = 'Toque e segure na área de colagem e selecione Colar, ou use Ctrl+V.';
+  }
+  pasteArea.focus();
 });
 
 get('fetch-link').addEventListener('click', () => {

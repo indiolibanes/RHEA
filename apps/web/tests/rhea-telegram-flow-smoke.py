@@ -70,7 +70,7 @@ GIB = 1_610_612_736  # 1.5 GiB per synthetic file
 calls = []
 lookups = []
 state = {'lookup': [], 'local_closed': True, 'replacement': False, 'rebuild_blocked': False, 'rebuild_waits': [],
-         'extra_intake': False, 'special': False}
+         'extra_intake': False, 'special': False, 'forum_id': '22222'}
 
 def respond(route):
     request = route.request
@@ -93,7 +93,7 @@ def respond(route):
         if not backup and state['replacement']:
             topics.append({'id': 81, 'title': 'Letter T [NEW]'})
         route.fulfill(json={'state': 'forum_topics', 'forum': {
-            'next': None, 'channelId': '11111' if backup else '22222', 'topics': topics, **({'scope': 'backup'} if backup else {})}})
+            'next': None, 'channelId': '11111' if backup else state['forum_id'], 'topics': topics, **({'scope': 'backup'} if backup else {})}})
     elif operation == 'forumpage':
         if data['topicId'] == 9:
             route.fulfill(json={'state': 'forum_page', 'forum': {'next': None, 'topicId': 9, 'channelId': '22222', 'posts': [
@@ -107,7 +107,7 @@ def respond(route):
         ] if state['extra_intake'] else []
         if state['special']:
             extra.append({'id': 40, 'kind': 'document', 'filename': '[Fixture] Tsuki ga Kirei - OVA [1080p].mkv'})
-        route.fulfill(json={'state': 'forum_page', 'forum': {'next': None, 'topicId': 1, 'channelId': '22222', 'posts': [
+        route.fulfill(json={'state': 'forum_page', 'forum': {'next': None, 'topicId': 1, 'channelId': state['forum_id'], 'posts': [
             *extra, {'id': 37, 'kind': 'document', 'filename': '[Fixture]_Tsuki_ga_Kirei_01_[1280x720].mkv', 'sizeBytes': GIB},
             {'id': 30, 'kind': 'document', 'filename': '[Fixture]_Tsuki_ga_Kirei_10_[1280x720][synthetic_release_tag_that_is_long_enough_to_force_wrapping_on_a_phone].mkv', 'sizeBytes': GIB}]}})
     elif operation.startswith('rebuild'):
@@ -300,6 +300,23 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         page.get_by_text('Usar uma captura como referência').click()
         pixel_data = page.evaluate("() => { const canvas = document.createElement('canvas'); canvas.width = canvas.height = 16; return canvas.toDataURL() }")
         pixel = base64.b64decode(pixel_data.split(',', 1)[1])
+        paste_area = page.locator('#enrich-paste-area')
+        paste_area.evaluate("""async (target, data) => {
+            const blob = await (await fetch(data)).blob();
+            const clipboard = new DataTransfer();
+            clipboard.items.add(new File([blob], 'fixture.png', { type: blob.type }));
+            target.dispatchEvent(new ClipboardEvent('paste', { clipboardData: clipboard, bubbles: true, cancelable: true }));
+        }""", pixel_data)
+        expect(page.locator('#enrich-capture-preview')).to_be_visible()
+        expect(paste_area).to_have_value('')
+        page.evaluate("""data => {
+            Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { read: async () => [{
+                types: ['image/png'], getType: async () => (await fetch(data)).blob()
+            }] } });
+        }""", pixel_data)
+        page.locator('#enrich-capture-preview').evaluate("canvas => { canvas.hidden = true; }")
+        page.get_by_role('button', name='Colar imagem', exact=True).click()
+        expect(page.locator('#enrich-capture-preview')).to_be_visible()
         page.locator('#enrich-capture').set_input_files({'name': 'fixture.png', 'mimeType': 'image/png', 'buffer': pixel})
         expect(page.locator('#enrich-capture-preview')).to_be_visible()
         page.locator('#enrich-manual select[name=format]').select_option('TV')
@@ -384,22 +401,36 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
     # Correct a standalone extra with no metadata provider or publish operation.
     state['special'] = True
     reach_enrichment(page)
-    page.get_by_text('Posts sem série confirmada', exact=True).click()
-    page.get_by_role('button', name='Editar no catálogo · Post #40').click()
+    page.locator('#forum-items').get_by_role('button', name='Editar no catálogo · Post #40').click()
     expect(page.locator('#correction-series')).to_be_focused()
     expect(page.locator('#correction-id')).to_have_value('40')
+    expect(page.locator('#correction-id')).to_be_hidden()
+    expect(page.locator('#correction-file')).to_contain_text('Tsuki ga Kirei - OVA')
     expect(page.locator('#correction-kind')).to_have_value('ova')
     expect(page.locator('#correction-season')).to_be_hidden()
     calls_before, lookups_before = len(calls), len(lookups)
     page.locator('#correction-series').select_option(label='Tsuki ga Kirei')
     page.get_by_role('button', name='Salvar correção').click()
-    expect(page.locator('#correction-feedback')).to_have_text('Post #40 vinculado a Tsuki ga Kirei como OVA.')
+    expect(page.locator('#correction-feedback')).to_have_text('Salvo neste navegador. Tsuki ga Kirei · OVA.')
+    assert len(calls) == calls_before and len(lookups) == lookups_before
+    # A post with the same ID in another forum keeps its own metadata.
+    state['forum_id'] = '33333'
+    reach_enrichment(page)
+    expect(page.get_by_text('Posts sem série confirmada', exact=True)).to_be_visible()
+    state['forum_id'] = '22222'
+    # Navigation discards the live snapshot. Loading the original topic restores the exact correction.
+    reach_enrichment(page)
     series = page.locator('#catalog-items summary').filter(has_text='Tsuki ga Kirei')
     series.click()
     expect(page.locator('#post-40')).to_contain_text('Arquivo · [Fixture] Tsuki ga Kirei - OVA [1080p].mkv')
-    assert len(calls) == calls_before and len(lookups) == lookups_before
+    page.locator('#post-40').get_by_role('button', name='Editar no catálogo · Post #40').click()
+    expect(page.locator('#correction-series')).to_have_value('forum-series-1')
+    expect(page.locator('#correction-kind')).to_have_value('ova')
+    page.get_by_role('button', name='Escolher outro post').click()
+    expect(page.locator('#correction-id')).to_be_focused()
     page.get_by_role('button', name='Desfazer correção').click()
     expect(page.locator('#correction-feedback')).to_have_text('Correção removida do catálogo.')
+    reach_enrichment(page)
     expect(page.get_by_text('Posts sem série confirmada', exact=True)).to_be_visible()
     state['special'] = False
 

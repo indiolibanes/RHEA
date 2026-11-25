@@ -164,14 +164,16 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
 
     <section class="library-section" id="correcoes" aria-labelledby="correction-title">
       <h2 id="correction-title">Corrigir no catálogo</h2>
-      <p>Para vincular um especial, escolha o post, a série e o tipo. A correção vale nesta sessão.</p>
+      <p>As correções ficam salvas neste navegador.</p>
       <form id="correction-form" class="library-form">
-        <label>Post<select id="correction-id" required></select></label>
+        <label id="correction-post-select">Post<select id="correction-id" required></select></label>
+        <p class="library-field-row" id="correction-file" hidden></p>
         <label>Série<select id="correction-series"></select></label>
         <label>Tipo<select id="correction-kind"></select></label>
         <div class="library-actions">
           <button class="editorial-action rhea-primary" type="submit">Salvar correção</button>
           <button class="editorial-action" id="correction-reset" type="button">Desfazer correção</button>
+          <button class="editorial-action" id="correction-choose-post" type="button" hidden>Escolher outro post</button>
         </div>
         <details id="correction-details">
           <summary>Mais campos</summary>
