@@ -11,6 +11,24 @@ function call(body, fetcher, { origin = url, authorized = true, site, env } = {}
     data: authorized ? { cloudflareAccess: { JWT: { payload: { sub: 'operator' } } } } : {} }, fetcher);
 }
 
+test('queries an exact AniList anime by numeric ID against the fixed official API', async () => {
+  const result = await call({ aniListId: 98202 }, (target, init) => {
+    assert.equal(target, 'https://graphql.anilist.co');
+    assert.equal(init.redirect, 'manual');
+    const { query, variables } = JSON.parse(init.body);
+    assert.deepEqual(variables, { id: 98202 });
+    assert.match(query, /Media\(id: \$id, type: ANIME/);
+    return Response.json({ data: { Media: { id: 98202, title: { romaji: 'Tsuki ga Kirei' }, episodes: 12, duration: 25 } } });
+  });
+  assert.equal(result.status, 200);
+  assert.equal((await result.json()).candidates[0].duration, 25);
+  const noFetch = () => assert.fail('Invalid ID requests must not reach AniList.');
+  assert.equal((await call({ aniListId: 1, title: 'Mixed input' }, noFetch)).status, 400);
+  assert.equal((await call({ aniListId: '98202' }, noFetch)).status, 400);
+  const refused = await call({ aniListId: 98202 }, () => new Response('<p>Refused</p>', { status: 403 }));
+  assert.deepEqual(await refused.json(), { state: 'provider_refused' });
+});
+
 test('uses the configured MyAnimeList client ID only at the official API and maps public metadata', async () => {
   const result = await call({ title: '  Synthetic "T" ', provider: 'mal' }, (endpoint, init) => {
     const target = new URL(endpoint);

@@ -13,13 +13,19 @@
     <label>Fonte da consulta <select id="enrich-provider"><option value="anilist">AniList</option><option value="mal">MyAnimeList</option></select></label>
     <div class="library-actions">
       <button type="submit" class="editorial-action rhea-primary" id="enrich-search">Buscar no AniList</button>
-      <button type="button" class="editorial-action" id="enrich-manual-open" aria-expanded="false" aria-controls="enrich-manual">Preencher metadados</button>
+      <button type="button" class="editorial-action" id="enrich-manual-open" aria-expanded="false" aria-controls="enrich-manual">Usar link ou preencher metadados</button>
       <button type="button" class="editorial-action" id="enrich-use-title">Usar título sem metadados</button>
     </div>
   </form>
   <form class="library-form" id="enrich-manual" method="post" hidden>
-    <p class="library-note library-field-row">Abra a ficha pública da obra no AniList, copie os campos que quiser e cole o link da edição como referência.</p>
     <label class="library-field-row">Link da obra no AniList <input name="link" type="url" maxlength="512" placeholder="https://anilist.co/anime/98202"></label>
+    <div class="library-actions library-field-row"><button class="editorial-action" id="enrich-fetch-link" type="button">Buscar pelo link</button></div>
+    <details class="library-field-row">
+      <summary>Usar uma captura como referência</summary>
+      <label>Captura da ficha pública <input id="enrich-capture" type="file" accept="image/png,image/jpeg,image/webp"></label>
+      <p id="enrich-capture-status" class="library-note" role="status">A imagem fica neste aparelho para você consultar enquanto preenche os campos.</p>
+      <canvas id="enrich-capture-preview" role="img" aria-label="Captura da ficha de anime carregada como referência" hidden></canvas>
+    </details>
     <label>Formato <select name="format">
       <option value="">A conferir</option><option value="TV">Série</option><option value="TV_SHORT">Série curta</option>
       <option value="MOVIE">Filme</option><option value="SPECIAL">Especial</option><option value="OVA">OVA</option><option value="ONA">ONA</option>
@@ -61,10 +67,11 @@
       <div class="library-actions"><button id="enrich-rebuild-review" class="editorial-action rhea-primary" type="button">Montar prévia da letra</button></div>
       <p id="enrich-rebuild-status" role="status"></p>
       <div id="enrich-rebuild-insert" class="library-form" hidden>
-        <label>Inserir a obra de Requests
-          <select id="enrich-rebuild-anchor"><option value="">Escolha o ponto de inserção</option></select>
+        <label>Onde entra a obra de Requests?
+          <select id="enrich-rebuild-anchor"><option value="">Escolha a posição no tópico</option></select>
         </label>
-        <p>Escolha a primeira publicação da obra seguinte, incluindo a capa quando houver, ou insira no fim. A ordem das publicações da Letter atual será preservada.</p>
+        <p>Escolha uma obra seguinte ou o fim do tópico. A ordem da letra atual será preservada.</p>
+        <ol id="enrich-rebuild-neighbors" class="library-field-row" aria-label="Ordem no ponto de inserção" hidden></ol>
       </div>
       <ol class="library-order" id="enrich-rebuild-items"></ol>
     </section>
@@ -101,4 +108,5 @@
 </script>
 <style>
   #enrich-form .library-actions, .library-field-row { grid-column: 1 / -1; }
+  #enrich-capture-preview { max-width: 100%; height: auto; margin-block: .5rem; border-radius: .5rem; }
 </style>

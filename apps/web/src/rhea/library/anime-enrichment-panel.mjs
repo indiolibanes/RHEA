@@ -1,7 +1,7 @@
 import { alphabeticDestination, episodeLabel, groupTopicDocuments, proposeAnimePreview } from './anime-enrichment.mjs';
-import { animeFormats, animeProviders, lookupAnime, lookupMessage, providerFallback, retryableLookup } from './anime-lookup.mjs';
+import { aniListIdFromLink, animeFormats, animeProviders, lookupAnime, lookupMessage, providerFallback, retryableLookup } from './anime-lookup.mjs';
 import { manualAnimeMetadata } from './manual-anime-metadata.mjs';
-import { letterRebuildTopics, planLetterRebuild } from './letter-rebuild.mjs';
+import { letterInsertionOptions, letterRebuildTopics, planLetterRebuild } from './letter-rebuild.mjs';
 import { rebuildLimit } from './organization-contract.mjs';
 import { forumEnrichmentSnapshot } from './forum-panel.mjs';
 import { organizationPublication } from './organization-panel.mjs';
@@ -89,6 +89,7 @@ function clearChoice() {
   clearRebuild();
   active?.abort();
   active = undefined;
+  get('fetch-link').disabled = false;
   destinationRead?.abort();
   destinationRead = undefined;
   preview = undefined;
@@ -111,6 +112,7 @@ function clearChoice() {
 function selectGroup() {
   clearChoice();
   get('manual').reset();
+  clearCapture();
   get('manual').hidden = true;
   get('manual-open').setAttribute('aria-expanded', 'false');
   get('manual-status').textContent = '';
@@ -235,6 +237,8 @@ function clearRebuild() {
   rebuildRead = rebuildSelection = rebuildPosts = undefined;
   get('rebuild').hidden = true;
   get('rebuild-insert').hidden = true;
+  get('rebuild-neighbors').hidden = true;
+  get('rebuild-neighbors').replaceChildren();
   get('rebuild-review').disabled = false;
   get('rebuild-status').textContent = '';
   get('rebuild-items').replaceChildren();
@@ -242,6 +246,8 @@ function clearRebuild() {
 
 get('rebuild-anchor').addEventListener('change', event => {
   publication.clear();
+  const context = get('rebuild-neighbors');
+  context.hidden = true;
   if (!rebuildSelection || !rebuildPosts || !event.target.value) return;
   const beforeId = event.target.value === 'end' ? null : Number(event.target.value);
   const oldIds = rebuildPosts.map(post => post.id);
@@ -249,6 +255,16 @@ get('rebuild-anchor').addEventListener('change', event => {
   if (before < 0) return;
   const ids = preview.sorted.map(post => post.id);
   const { current, target } = rebuildSelection;
+  const neighbor = (label, post, whenMissing) => {
+    const row = node('li', label + ' · ');
+    row.append(post ? providerLink((post.heading || post.filename || post.caption || 'Publicação #' + post.id).slice(0, 120),
+      'https://t.me/c/' + rebuildSelection.channelId + '/' + current.id + '/' + post.id) : whenMissing);
+    return row;
+  };
+  context.replaceChildren(neighbor('Última publicação anterior', rebuildPosts[before - 1], 'Início do tópico'),
+    node('li', 'Obra de Requests · ' + preview.title + ' · ' + ids.length + ' arquivos'),
+    neighbor('Primeira publicação seguinte', rebuildPosts[before], 'Fim do tópico'));
+  context.hidden = false;
   publication.prepare({ currentTopicId: current.id, replacementTopicId: target.id, sourceTopicId: source.topicId,
     letter: preview.letter, beforeId, ids }, [...oldIds.slice(0, before), ...ids, ...oldIds.slice(before)]);
   setStep('review');
@@ -283,6 +299,7 @@ get('rebuild-review').addEventListener('click', async () => {
   rebuildPosts = undefined;
   publication.clear();
   get('rebuild-insert').hidden = true;
+  get('rebuild-neighbors').hidden = true;
   get('rebuild-review').disabled = true;
   get('rebuild-items').replaceChildren();
   get('rebuild-status').textContent = 'Lendo as publicações do tópico atual…';
@@ -325,10 +342,16 @@ get('rebuild-review').addEventListener('click', async () => {
     }));
     if (!blocker) {
       rebuildPosts = [...posts].sort((a, b) => a.id - b.id);
-      get('rebuild-anchor').replaceChildren(new Option('Escolha o ponto de inserção', ''),
-        ...rebuildPosts.map(post => new Option('Antes de #' + post.id + ' · ' +
-          (post.heading || post.filename || post.caption || post.kind).slice(0, 120), String(post.id))),
-        new Option('Depois da última publicação', 'end'));
+      const choices = letterInsertionOptions(rebuildPosts, plan.groups);
+      const byWork = document.createElement('optgroup');
+      byWork.label = 'Obra seguinte';
+      const byPost = document.createElement('optgroup');
+      byPost.label = 'Publicação seguinte';
+      for (const { id, work, label } of choices) {
+        (work ? byWork : byPost).append(new Option(work || label + ' · #' + id, String(id)));
+      }
+      get('rebuild-anchor').replaceChildren(new Option('Escolha a posição no tópico', ''),
+        new Option('No fim do tópico', 'end'), ...[byWork, byPost].filter(option => option.children.length));
       get('rebuild-insert').hidden = false;
     }
   } catch {
@@ -468,6 +491,56 @@ get('manual-open').addEventListener('click', () => {
   get('manual-open').setAttribute('aria-expanded', String(!form.hidden));
   if (!form.hidden) form.elements.link.focus();
 });
+function clearCapture() {
+  const canvas = get('capture-preview');
+  canvas.hidden = true;
+  canvas.width = canvas.height = 0;
+  get('capture-status').textContent = 'A imagem fica neste aparelho para você consultar enquanto preenche os campos.';
+}
+
+get('capture').addEventListener('change', async event => {
+  clearCapture();
+  const input = event.currentTarget;
+  const file = input.files[0];
+  if (!file) return;
+  const feedback = get('capture-status');
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 8 * 1024 ** 2) {
+    feedback.textContent = 'Selecione uma captura PNG, JPEG ou WebP de até 8 MiB.';
+    return;
+  }
+  let image;
+  try {
+    image = await createImageBitmap(file);
+    if (input.files[0] !== file) return;
+    const canvas = get('capture-preview');
+    const scale = Math.min(1, 950 / image.width, 1800 / image.height);
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+    canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+    canvas.hidden = false;
+    feedback.textContent = 'Consulte a captura abaixo e preencha os campos que você quer usar na prévia.';
+  } catch {
+    if (input.files[0] === file) feedback.textContent = 'Não foi possível abrir essa imagem neste navegador.';
+  } finally {
+    image?.close();
+  }
+});
+
+get('fetch-link').addEventListener('click', () => {
+  const value = get('manual').elements.link.value;
+  const id = aniListIdFromLink(value);
+  if (!id) {
+    get('manual-status').textContent = 'Cole o link da ficha da obra no AniList, no formato anilist.co/anime/ID.';
+    return;
+  }
+  if ((retryAt.get('anilist') ?? 0) > Date.now()) {
+    get('manual-status').textContent = 'Aguarde o limite temporário do AniList. O preenchimento manual já está disponível.';
+    return;
+  }
+  get('provider').value = 'anilist';
+  get('manual-status').textContent = '';
+  void runLookup('anilist', 'https://anilist.co/anime/' + id);
+});
 get('manual').addEventListener('submit', event => {
   event.preventDefault();
   if (!group() || !title.reportValidity()) return;
@@ -479,6 +552,8 @@ get('manual').addEventListener('submit', event => {
   }
   get('manual-status').textContent = '';
   get('manual').hidden = true;
+  get('capture').value = '';
+  clearCapture();
   get('manual-open').setAttribute('aria-expanded', 'false');
   clearChoice();
   show(candidate);
@@ -486,24 +561,31 @@ get('manual').addEventListener('submit', event => {
 select.addEventListener('change', selectGroup);
 title.addEventListener('input', clearChoice);
 get('provider').addEventListener('change', clearChoice);
+get('manual').elements.link.addEventListener('input', clearChoice);
 
-get('form').addEventListener('submit', async event => {
+get('form').addEventListener('submit', event => {
   event.preventDefault();
-  const provider = currentProvider();
+  void runLookup(currentProvider(), title.value);
+});
+
+async function runLookup(provider, query) {
   if (!source || !group() || active || (retryAt.get(provider) ?? 0) > Date.now()) return;
   clearChoice();
   const request = new AbortController();
   active = request;
   get('search').disabled = true;
+  get('fetch-link').disabled = true;
   status.textContent = 'Consultando o ' + animeProviders[provider] + '…';
   try {
-    const result = await lookupAnime(root.dataset.animeMetadataEndpoint, title.value, request.signal, provider);
+    const result = await lookupAnime(root.dataset.animeMetadataEndpoint, query, request.signal, provider);
     if (request.signal.aborted) return;
     if (result.state !== 'candidates') {
       status.textContent = lookupMessage(result, provider);
       const site = get('provider-search');
-      site.href = provider === 'mal' ? 'https://myanimelist.net/anime.php' : 'https://anilist.co/search/anime';
-      site.textContent = 'Pesquisar no site do ' + animeProviders[provider];
+      const id = provider === 'anilist' ? aniListIdFromLink(query) : undefined;
+      site.href = provider === 'mal' ? 'https://myanimelist.net/anime.php' :
+        id ? 'https://anilist.co/anime/' + id : 'https://anilist.co/search/anime';
+      site.textContent = id ? 'Abrir a ficha no AniList' : 'Pesquisar no site do ' + animeProviders[provider];
       site.hidden = !providerFallback.has(result.state);
       if (result.state === 'rate_limited' && result.retryAfter) {
         retryAt.set(provider, Date.now() + result.retryAfter * 1000);
@@ -524,10 +606,11 @@ get('form').addEventListener('submit', async event => {
   } finally {
     if (active === request) {
       active = undefined;
+      get('fetch-link').disabled = false;
       if (!cooldown) get('search').disabled = false;
     }
   }
-});
+}
 
 const reset = () => {
   load(undefined);

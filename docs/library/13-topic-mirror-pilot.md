@@ -163,3 +163,17 @@ A protected **Configurar MyAnimeList** form can supply a registered Client ID fo
 The client retains it in memory, sends it only to the protected RHEA lookup, and clears it when
 leaving the tab or reloading. The backend forwards it only as the official MyAnimeList API header.
 For persistent server-side configuration, continue to use the `RHEA_MAL_CLIENT_ID` binding.
+
+## Find an exact AniList edition and review the insertion
+
+Use **Usar link ou preencher metadados → Buscar pelo link** with an official AniList anime page.
+RHEA sends the numeric anime ID to the official API and presents the result for confirmation.
+A direct ID avoids title ambiguity, but the API can still refuse the request. You can open the
+same public entry and transcribe it, or display a screenshot locally as a reference. The screenshot
+is never sent to a provider and does not perform automatic text recognition.
+
+For a reconstruction, choose the following work from the recognized titles, choose a specific
+publication, or append at the end. RHEA shows the neighboring publications and avoids offering an
+insertion within a known album. Server preflight still validates the position, ordered history,
+and exact copy plan. A position offset in a later Telegram result is accepted when consistent with
+the number already collected. An inexact result, a gap, or a changed topic still stops approval.

@@ -89,7 +89,7 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
     <summary><strong>Consultar dados de anime</strong></summary>
     <p>Digite o título da obra ou temporada. A consulta envia apenas o título à fonte escolhida.</p>
     <form class="library-form" id="anime-lookup-form" method="post">
-      <label>Título <input id="anime-title" type="search" minlength="2" maxlength="120" placeholder="Kaguya-sama wa Kokurasetai?: Tensaitachi no Renai Zunousen" required></label>
+        <label>Título ou link do AniList <input id="anime-title" type="search" minlength="2" maxlength="512" placeholder="Kaguya-sama wa Kokurasetai?: Tensaitachi no Renai Zunousen" required></label>
       <label>Fonte da consulta <select id="anime-provider"><option value="anilist">AniList</option><option value="mal">MyAnimeList</option></select></label>
       <div class="library-actions">
         <button class="editorial-action rhea-primary" type="submit">Buscar no AniList</button>

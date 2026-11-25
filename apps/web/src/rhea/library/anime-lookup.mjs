@@ -6,17 +6,33 @@ export const animeProviders = { anilist: 'AniList', mal: 'MyAnimeList' };
 let sessionMalClientId;
 
 export const validMalClientId = value => typeof value === 'string' && /^[a-f0-9]{32}$/i.test(value);
+export const validAniListId = value => Number.isInteger(value) && value > 0 && value <= 2_147_483_647;
+
+export function aniListIdFromLink(value) {
+  if (typeof value !== 'string' || value.length > 512) return undefined;
+  try {
+    const url = new URL(value.trim());
+    if (url.origin !== 'https://anilist.co' || url.username || url.password) return undefined;
+    const id = Number(/^\/anime\/([1-9]\d{0,9})(?:\/[^/]+)?\/?$/.exec(url.pathname)?.[1]);
+    return validAniListId(id) ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
 export function setSessionMalClientId(value) {
   sessionMalClientId = validMalClientId(value) ? value : undefined;
 }
 
 export async function lookupAnime(endpoint, title, signal, provider = 'anilist') {
+  const aniListId = provider === 'anilist' ? aniListIdFromLink(title) : undefined;
+  if (provider === 'anilist' && !aniListId && /^\s*https?:\/\//i.test(title)) return { state: 'invalid_anilist_link' };
+  const payload = aniListId ? { aniListId } : { title, ...(provider === 'mal' && {
+    provider, ...(sessionMalClientId && { malClientId: sessionMalClientId }),
+  }) };
   // Redirects stay manual: an expired Access session answers with a redirect to the identity provider.
   const response = await fetch(endpoint, {
     method: 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'manual',
-    signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, ...(provider === 'mal' && {
-      provider, ...(sessionMalClientId && { malClientId: sessionMalClientId }),
-    }) }),
+    signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
   });
   if (response.type === 'opaqueredirect' || response.status === 401) return { state: 'access_required' };
   if (response.status === 404 || response.status === 405) return { state: 'endpoint_missing' };
@@ -36,6 +52,7 @@ export async function lookupAnime(endpoint, title, signal, provider = 'anilist')
 export const lookupErrors = {
   rate_limited: 'O AniList atingiu o limite de consultas. Aguarde e tente novamente.',
   invalid_title: 'Digite de 2 a 120 caracteres.',
+  invalid_anilist_link: 'Cole o link da ficha de um anime no AniList, no formato anilist.co/anime/ID.',
   access_required: 'Sua sessão expirou. Entre no Private novamente e repita a busca, ou continue com o título sem metadados.',
   access_refused: 'O Cloudflare Access recusou esta sessão. Entre novamente com a conta autorizada e repita a busca.',
   not_allowed: 'O Private recusou a consulta. Recarregue a página e tente novamente.',

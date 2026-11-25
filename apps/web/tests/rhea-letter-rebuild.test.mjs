@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { letterRebuildTopics, planLetterRebuild } from '../src/rhea/library/letter-rebuild.mjs';
+import { letterInsertionOptions, letterRebuildTopics, planLetterRebuild } from '../src/rhea/library/letter-rebuild.mjs';
 import { manualAnimeMetadata } from '../src/rhea/library/manual-anime-metadata.mjs';
 
 test('resolves Letter T as the current catalog and Letter T [NEW] as a separate target', () => {
@@ -41,4 +41,13 @@ test('accepts manual AniList attribution without provider access and rejects unr
     provider: 'manual', format: 'TV', year: 2017, episodes: 12, duration: 25, studios: ['Test Studio'], genres: ['Drama', 'Romance'] });
   assert.equal(manualAnimeMetadata({ ...fields, link: 'https://anilist.co.invalid/anime/123' }), null);
   assert.equal(manualAnimeMetadata({ ...fields, episodes: '0' }), null);
+});
+
+test('offers a named work boundary before its matching cover and hides positions inside an album', () => {
+  const posts = [{ id: 32, kind: 'cover', heading: 'Tundra' },
+    { id: 33, kind: 'document', filename: 'Episode 1', albumId: 'a' },
+    { id: 34, kind: 'document', filename: 'Episode 2', albumId: 'a' }];
+  const groups = [{ title: 'Tundra', origin: 'current', posts: posts.slice(1) }];
+  const options = letterInsertionOptions(posts, groups);
+  assert.deepEqual(options.map(option => [option.id, option.work]), [[32, 'Tundra'], [33, undefined]]);
 });

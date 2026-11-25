@@ -5,7 +5,8 @@ export const mirrorTestTopic = 'RHEA Mirror Test';
 const operations = new Set(['mirrorstatus', 'mirrorpreview', 'mirrorapprove', 'mirrornext']);
 const issueCodes = new Set(['account_unverified', 'group_unavailable', 'group_not_forum',
   'group_not_owned', 'group_protected', 'topic_missing', 'topic_name', 'dual_topic_name', 'topic_closed',
-  'history_unverified', 'history_limit', 'unsupported_post', 'album_or_reply', 'source_empty', 'destination_not_empty', 'selection_changed']);
+  'history_unverified', 'history_limit', 'unsupported_post', 'album_or_reply', 'insertion_splits_album',
+  'source_empty', 'destination_not_empty', 'selection_changed']);
 
 const postDetails = new Set(['service_event', 'reply', 'protected_or_temporary', 'forwarded_or_bot',
   'text_format', 'media_type', 'media_reference', 'filename', 'file_size', 'large_file_size']);
@@ -17,6 +18,9 @@ export function mirrorIssue(issue) {
       (issue.code === 'source_empty' && issue.side !== 'source') ||
       (issue.code === 'destination_not_empty' && issue.side === 'source')) return undefined;
   const result = { side: issue.side, code: issue.code };
+  if (issue.code === 'insertion_splits_album' && issue.side === 'source' && forumId(issue.postId)) {
+    return { ...result, postId: issue.postId };
+  }
   if (issue.code === 'unsupported_post' && forumId(issue.postId) && postDetails.has(issue.detail)) {
     return { ...result, postId: issue.postId, detail: issue.detail };
   }

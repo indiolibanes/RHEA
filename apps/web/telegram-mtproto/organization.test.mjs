@@ -147,6 +147,7 @@ test('rebuilds a paginated letter with all unclassified posts and preserves the 
   const destination = [];
   const sends = [];
   const oldOffsets = new Set();
+  let oldPageGap = 0;
   const provider = () => ({
     connect: async () => {}, destroy: async () => {}, updateManager: { stop() {} },
     async invoke({ query }) {
@@ -163,7 +164,8 @@ test('rebuilds a paginated letter with all unclassified posts and preserves the 
         if (query.msgId === 8) oldOffsets.add(query.offsetId);
         const rows = query.msgId === 8 ? old : query.msgId === 1 ? incoming : destination;
         const sorted = [...rows].reverse().filter(post => !query.offsetId || post.id < query.offsetId);
-        return { className: 'messages.ChannelMessages', count: rows.length, messages: sorted.slice(0, query.limit) };
+        const offsetIdOffset = rows.length - sorted.length + (query.msgId === 8 ? oldPageGap : 0);
+        return { className: 'messages.ChannelMessages', count: rows.length, offsetIdOffset, messages: sorted.slice(0, query.limit) };
       }
       assert.ok(query instanceof Api.messages.SendMedia);
       assert.equal(query.peer.channelId.toString(), '11111');
@@ -188,9 +190,12 @@ test('rebuilds a paginated letter with all unclassified posts and preserves the 
     return response.json();
   };
   assert.equal((await invoke('next')).state, 'mirror_idle');
+  oldPageGap = 2;
+  assert.equal((await invoke('preview')).issue.code, 'history_unverified');
+  oldPageGap = 0;
   assert.equal((await invoke('preview', { ...input, beforeId: 404 })).issue.code, 'selection_changed');
   old[59].groupedId = old[60].groupedId = 77n;
-  assert.equal((await invoke('preview')).issue.code, 'album_or_reply');
+  assert.deepEqual((await invoke('preview')).issue, { side: 'source', code: 'insertion_splits_album', postId: 160 });
   delete old[59].groupedId;
   delete old[60].groupedId;
   destination.push({ id: 200 });

@@ -1,4 +1,4 @@
-import { animeFormats } from './anime-lookup.mjs';
+import { aniListIdFromLink, animeFormats } from './anime-lookup.mjs';
 
 const text = (value, limit) => typeof value === 'string' ? value.trim().normalize('NFC').slice(0, limit) : '';
 const number = (value, minimum, maximum) => {
@@ -12,9 +12,9 @@ export function manualAnimeMetadata(fields) {
   const link = text(fields.link, 512);
   let url;
   if (link) {
-    const match = /^https:\/\/anilist\.co\/anime\/([1-9]\d{0,11})(?:\/[\w-]+)?\/?(?:[?#][^\s]*)?$/i.exec(link);
-    if (!match) return null;
-    url = 'https://anilist.co/anime/' + match[1];
+    const id = aniListIdFromLink(link);
+    if (!id) return null;
+    url = 'https://anilist.co/anime/' + id;
   }
   const optional = { year: number(fields.year, 1900, 2200), episodes: number(fields.episodes, 1, 9999),
     duration: number(fields.duration, 1, 999) };
