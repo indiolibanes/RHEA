@@ -31,6 +31,8 @@
 .library-duplicates { padding-inline-start: 1.2rem; }
 .library-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: .85rem; }
 .library-form select, .library-form input, .library-search input { width: 100%; min-height: 2.75rem; }
+#correction-form > .library-actions, #correction-details { grid-column: 1 / -1; }
+.library-catalog .catalog-correction { justify-self: start; }
 .library-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .6rem; }
 .library-orders { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; align-items: start; margin-block: .9rem; }
 .library-order { max-height: 24rem; overflow: auto; padding-inline-start: 2rem; }

@@ -5,6 +5,18 @@ import { manualAnimeMetadata } from '../src/rhea/library/manual-anime-metadata.m
 import { forumCatalogSnapshot } from '../src/rhea/library/live-catalog.mjs';
 import { buildCatalog } from '../src/rhea/library/catalog.mjs';
 
+test('suggests the kind of an explicitly marked extra without assigning its series', () => {
+  const posts = [
+    { id: 20, kind: 'document', filename: '[Fixture] Tidal Library - OVA [1080p].mkv' },
+    { id: 21, kind: 'document', filename: '[Fixture] Tidal Library [Especial 1].mkv' },
+    { id: 22, kind: 'document', filename: '[Fixture] Special Library - 01.mkv' },
+    { id: 23, kind: 'document', filename: '[OVA] Tidal Library - 02.mkv' },
+  ];
+  const catalog = buildCatalog(forumCatalogSnapshot({ title: 'Letter T', channelId: '11111', topicId: 10, posts, complete: true }));
+  assert.deepEqual(catalog.chronological.map(post => post.kind), ['ova', 'special', 'episode', 'episode']);
+  assert.deepEqual(catalog.unresolved.flatMap(unit => unit.items.map(item => item.id)), [20, 21]);
+});
+
 test('resolves Letter T as the current catalog and Letter T [NEW] as a separate target', () => {
   const current = { id: 11, title: 'Letter T' };
   const replacement = { id: 13, title: 'Letter "T" [NEW]' };
