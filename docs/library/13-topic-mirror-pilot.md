@@ -152,8 +152,8 @@ point. Identification warnings in the catalogue do not remove posts from this re
 An unsupported publication, broken reply dependency, split album, protected media or incomplete
 snapshot stops approval. Preview, approval and execution are separate actions.
 
-The current pilot supports at most 240 combined publications and 20 selected incoming files from
-a Requests topic with up to 60 entries. The target must be empty at approval. The durable journal
+The reconstruction supports at most 240 combined publications and up to 60 selected incoming
+files from a Requests topic with up to 60 entries. The target must be empty at approval. The durable journal
 verifies copies by Telegram message ID and media metadata. It retains the originals and creates
 new destination links, with the existing captions and filenames. Any uncertain receipt stops the
 run. Reopen the same work, target and insertion point to verify or resume known receipts. This pilot
@@ -177,3 +177,22 @@ publication, or append at the end. RHEA shows the neighboring publications and a
 insertion within a known album. Server preflight still validates the position, ordered history,
 and exact copy plan. A position offset in a later Telegram result is accepted when consistent with
 the number already collected. An inexact result, a gap, or a changed topic still stops approval.
+
+## Automatic alphabetical insertion
+
+The forum catalog and the reconstruction preview use the same title extraction. Explicit series
+headings, titled covers, known numbered filename formats, and exact user-supplied Markdown matches
+are considered. A cover with an unconfirmed label can appear for review without assigning its
+unknown files to a work. Posts remain visible when their title or episode cannot be determined.
+
+The reconstruction can plan all detected Requests works of the selected letter together. Each is
+inserted before the next confidently identified work, or at the end, while preserving the current
+letter's chronology and episode order of incoming documents. The display lists the proposed
+positions for review before approval. Partial history, a possibly repeated title, a reversal in
+the existing alphabetical order, or an unidentified boundary requires review. The operator can
+adjust a single work's placement without changing existing publication order. A different letter
+has its own preview and destination. Reconstruction remains a separately approved operation.
+
+When Telegram returns a wait with a retry duration, the panel holds further execution requests
+and displays the remaining time. When the interval ends, the operator can choose **Retomar cópia**.
+The journal still stops an ambiguous send for manual verification.

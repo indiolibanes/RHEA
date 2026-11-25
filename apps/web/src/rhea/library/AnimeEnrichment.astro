@@ -64,15 +64,20 @@
     <section id="enrich-rebuild" hidden>
       <h4>Reconstruir a letra em outro tópico</h4>
       <p id="enrich-rebuild-targets"></p>
+      <label id="enrich-rebuild-batch" class="library-check" hidden>
+        <input id="enrich-rebuild-all" type="checkbox" checked>
+        <span id="enrich-rebuild-batch-label">Incluir as outras obras desta letra em Requests</span>
+      </label>
       <div class="library-actions"><button id="enrich-rebuild-review" class="editorial-action rhea-primary" type="button">Montar prévia da letra</button></div>
       <p id="enrich-rebuild-status" role="status"></p>
+      <button id="enrich-rebuild-adjust" class="editorial-action" type="button" aria-expanded="false" aria-controls="enrich-rebuild-insert" hidden>Ajustar posição</button>
       <div id="enrich-rebuild-insert" class="library-form" hidden>
         <label>Onde entra a obra de Requests?
           <select id="enrich-rebuild-anchor"><option value="">Escolha a posição no tópico</option></select>
         </label>
-        <p>Escolha uma obra seguinte ou o fim do tópico. A ordem da letra atual será preservada.</p>
-        <ol id="enrich-rebuild-neighbors" class="library-field-row" aria-label="Ordem no ponto de inserção" hidden></ol>
+        <p>Confira a posição quando o histórico não identificar os limites entre as obras.</p>
       </div>
+      <ol id="enrich-rebuild-neighbors" class="library-field-row" aria-label="Ordem no ponto de inserção" hidden></ol>
       <ol class="library-order" id="enrich-rebuild-items"></ol>
     </section>
     <div id="enrich-publish" hidden>

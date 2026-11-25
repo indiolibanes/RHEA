@@ -16,6 +16,8 @@ export function organizationPublication(get, endpoint) {
   let active;
   let paused;
   let approved = false;
+  let retryUntil = 0;
+  let retryTimer;
 
   // Each destination reports on its own: verified copies of the total plus a text state, never color alone.
   function showProgress(local, backup, total, state) {
@@ -34,6 +36,7 @@ export function organizationPublication(get, endpoint) {
   function clear() {
     active?.abort();
     active = selection = approval = reconstructionIds = undefined;
+    clearInterval(retryTimer);
     approved = false;
     paused = true;
     if (dialog.open) dialog.close();
@@ -41,6 +44,26 @@ export function organizationPublication(get, endpoint) {
     showProgress(0, 0, 0, '');
     review.disabled = false;
     status.textContent = '';
+    run.textContent = 'Executar cópia';
+  }
+
+  function pauseForTelegram(result, action) {
+    if (!Number.isInteger(result.retryAfter) || result.retryAfter < 1 || result.retryAfter > 86400) return;
+    retryUntil = Date.now() + result.retryAfter * 1000;
+    clearInterval(retryTimer);
+    if (action === 'next') {
+      run.hidden = false;
+      run.textContent = 'Retomar cópia';
+    }
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((retryUntil - Date.now()) / 1000));
+      review.disabled = run.disabled = remaining > 0 || Boolean(active);
+      status.textContent = remaining ? 'O Telegram pediu uma pausa. Aguarde ' + remaining + ' s para retomar.' :
+        'O intervalo terminou. Você pode ' + (action === 'next' ? 'retomar a cópia.' : 'repetir a revisão.');
+      if (!remaining) clearInterval(retryTimer);
+    };
+    tick();
+    retryTimer = setInterval(tick, 1000);
   }
 
   function prepare(value, rebuildIds) {
@@ -52,6 +75,8 @@ export function organizationPublication(get, endpoint) {
     get('publish-title').textContent = rebuildIds ? 'Aprovar reconstrução da letra' : 'Aprovar cópia para os dois tópicos';
     review.textContent = rebuildIds ? 'Revisar reconstrução' : 'Revisar publicação';
     container.hidden = false;
+    const remaining = Math.ceil((retryUntil - Date.now()) / 1000);
+    if (remaining > 0) pauseForTelegram({ retryAfter: remaining }, 'preview');
   }
 
   async function request(operation, signal, confirmation) {
@@ -136,7 +161,7 @@ export function organizationPublication(get, endpoint) {
   }
 
   async function handle(action) {
-    if (!selection || active) return;
+    if (!selection || active || Date.now() < retryUntil) return;
     if (action === 'preview') approved = false;
     const controller = new AbortController();
     active = controller;
@@ -152,6 +177,7 @@ export function organizationPublication(get, endpoint) {
           result = await request('next', signal);
           if (signal.aborted) return;
           display(result);
+          if (result.state === 'rate_limited') pauseForTelegram(result, action);
         } while (result.state === 'mirror_progress' && !paused && --remaining > 0);
         if (paused && result.state === 'mirror_progress') {
           status.textContent += ' Cópia pausada.';
@@ -179,7 +205,10 @@ export function organizationPublication(get, endpoint) {
             Object.assign(document.createElement('li'), { textContent: '#' + post.id + ' · ' + post.label })));
           status.textContent = 'Confira a ordem e confirme a cópia no diálogo.';
           dialog.showModal();
-        } else display(result);
+        } else {
+          display(result);
+          if (result.state === 'rate_limited') pauseForTelegram(result, action);
+        }
       }
     } catch {
       if (!signal.aborted) display({ state: 'unavailable' });
@@ -187,7 +216,7 @@ export function organizationPublication(get, endpoint) {
       if (active === controller) {
         active = undefined;
         pause.hidden = true;
-        review.disabled = run.disabled = false;
+        review.disabled = run.disabled = Date.now() < retryUntil;
         if (action === 'approve' && !run.hidden) run.focus();
         else if (action !== 'approve' && !dialog.open && !run.hidden) run.focus();
       }

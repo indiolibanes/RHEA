@@ -5,7 +5,7 @@ import { stagingControl } from './staging.mjs';
 import { isForumOperation } from '../src/rhea/library/forum-contract.mjs';
 import { isMirrorOperation } from '../src/rhea/library/mirror-contract.mjs';
 import { mirrorControl } from './mirror.mjs';
-import { isOrganizationOperation, isRebuildOperation, organizationOperations } from '../src/rhea/library/organization-contract.mjs';
+import { isOrganizationOperation, isRebuildOperation, organizationOperations, rebuildRequestLimit } from '../src/rhea/library/organization-contract.mjs';
 
 const enrollmentTtl = 5 * 60_000;
 const startCooldown = 60_000;
@@ -139,14 +139,14 @@ export function mtprotoControl(config, store, withClient, now = Date.now) {
       const rebuild = isRebuildOperation(operation);
       if (rebuild ? !config.rebuildEnabled : !config.organizationEnabled) return { state: 'mirror_disabled' };
       const { sourceTopicId, localTopicId, backupTopicId, letter, ids } = input;
-      const { currentTopicId, replacementTopicId, beforeId } = input;
-      const key = JSON.stringify([rebuild, sourceTopicId, localTopicId, backupTopicId, currentTopicId, replacementTopicId, beforeId, letter, ids]);
+      const { currentTopicId, replacementTopicId, beforeId, insertions } = input;
+      const key = JSON.stringify([rebuild, sourceTopicId, localTopicId, backupTopicId, currentTopicId, replacementTopicId, beforeId, letter, ids, insertions]);
       if (organization?.key !== key) {
         const scope = rebuild ? {
           source: { ...config.forum, topicId: currentTopicId },
           intake: { ...config.forum, topicId: sourceTopicId },
           destination: { ...config.forum, topicId: replacementTopicId },
-          rebuild: { letter, ids, beforeId },
+          rebuild: { letter, ids, beforeId, insertions },
         } : {
           source: { ...config.forum, topicId: sourceTopicId },
           local: { ...config.forum, topicId: localTopicId },
@@ -219,7 +219,8 @@ export function mtprotoControl(config, store, withClient, now = Date.now) {
     if (busy) return mtprotoResult('busy');
     busy = true;
     try {
-      const value = request.body ? await boundedTelegramJson(request, 1536).catch(() => null) : undefined;
+      const limit = isRebuildOperation(operation) ? rebuildRequestLimit : 1536;
+      const value = request.body ? await boundedTelegramJson(request, limit).catch(() => null) : undefined;
       const input = inputFor(operation, value);
       if (!input) return mtprotoResult('invalid_request');
       const result = await operate(operation, input);
