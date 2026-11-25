@@ -163,20 +163,25 @@ const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
     </section>
 
     <section class="library-section" id="correcoes" aria-labelledby="correction-title">
-      <h2 id="correction-title">Corrigir metadados</h2>
-      <p>As correções valem para o catálogo nesta sessão. Os campos originais ficam visíveis no catálogo.</p>
+      <h2 id="correction-title">Corrigir no catálogo</h2>
+      <p>Para vincular um especial, escolha o post, a série e o tipo. A correção vale nesta sessão.</p>
       <form id="correction-form" class="library-form">
         <label>Post<select id="correction-id" required></select></label>
-        <label>Série<select id="correction-series" required></select></label>
-        <label>Temporada<input id="correction-season" type="number" min="0" max="99999"></label>
-        <label>Episódio<input id="correction-episode" type="number" min="0" max="99999" step="any"></label>
-        <label>Parte<input id="correction-part" type="number" min="1" max="99999"></label>
+        <label>Série<select id="correction-series"></select></label>
         <label>Tipo<select id="correction-kind"></select></label>
-        <label>Nome de exibição<input id="correction-label" type="text" maxlength="160"></label>
         <div class="library-actions">
-          <button class="editorial-action rhea-primary" type="submit">Aplicar ao catálogo</button>
-          <button class="editorial-action" id="correction-reset" type="button">Redefinir</button>
+          <button class="editorial-action rhea-primary" type="submit">Salvar correção</button>
+          <button class="editorial-action" id="correction-reset" type="button">Desfazer correção</button>
         </div>
+        <details id="correction-details">
+          <summary>Mais campos</summary>
+          <div class="library-form">
+            <label>Temporada<input id="correction-season" type="number" min="0" max="99999"></label>
+            <label>Episódio<input id="correction-episode" type="number" min="0" max="99999" step="any"></label>
+            <label>Parte<input id="correction-part" type="number" min="1" max="99999"></label>
+            <label>Nome de exibição<input id="correction-label" type="text" maxlength="160"></label>
+          </div>
+        </details>
       </form>
       <p class="meta" id="correction-feedback" role="status"></p>
     </section>

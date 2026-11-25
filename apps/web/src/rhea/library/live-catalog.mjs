@@ -2,6 +2,14 @@ import { parseEpisodeLabel, privateMessageLink, titleKey } from './catalog.mjs';
 import { groupTopicDocuments } from './anime-enrichment.mjs';
 import { forumId } from './forum-contract.mjs';
 
+function extraKind(filename) {
+  if (typeof filename !== 'string') return;
+  const stem = filename.normalize('NFKC').replace(/\.[a-z0-9]+$/i, '');
+  const suffix = /(?:[ ._]-(?:[ ._]+)|\[)(OVA|ONA|Special|Especial)(?:[ ._-]+\d{1,3})?\s*\]?(?:[ ._-]*\[[^\[\]]+\])*[ ._-]*$/iu.exec(stem);
+  const kind = suffix?.[1].toLowerCase();
+  return kind === 'especial' ? 'special' : kind;
+}
+
 export function catalogSnapshot(inventory) {
   const series = new Map();
   const messages = inventory.messages.map(post => {
@@ -10,7 +18,7 @@ export function catalogSnapshot(inventory) {
     const title = match?.[1].trim().normalize('NFC');
     if (title && !series.has(title)) series.set(title, { id: 'series-' + (series.size + 1), title });
     return {
-      ...post, ...parseEpisodeLabel(match?.[2] ?? post.filename),
+      ...post, ...parseEpisodeLabel(match?.[2] ?? post.filename), kind: post.kind ?? extraKind(post.filename),
       seriesId: series.get(title)?.id,
       link: privateMessageLink(inventory.channelId, post.id),
     };
@@ -51,9 +59,9 @@ export function forumCatalogSnapshot({ title, topicId, channelId, posts, complet
     const seriesId = seriesFor(group.title);
     for (const { id, season, episode, part } of group.posts) assignments.set(id, { seriesId, season, episode, part });
   }
-  const messages = posts.map(post => ({ ...post, ...assignments.get(post.id),
-    link: topicId === 1 ? privateMessageLink(channelId, post.id) :
-      privateMessageLink(channelId, topicId) + '/' + post.id }));
+  const messages = posts.map(post => ({ ...post,
+    ...(post.kind === 'document' && { kind: extraKind(post.filename) }), ...assignments.get(post.id),
+    link: topicId === 1 ? privateMessageLink(channelId, post.id) : privateMessageLink(channelId, topicId) + '/' + post.id }));
   return { sourceId: 'forum-topic', title, complete, series: [...entries.values()],
     messages, correctionIds: messages.map(post => post.id) };
 }

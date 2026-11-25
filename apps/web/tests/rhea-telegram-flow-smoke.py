@@ -69,7 +69,8 @@ base = f'http://127.0.0.1:{server.server_port}'
 GIB = 1_610_612_736  # 1.5 GiB per synthetic file
 calls = []
 lookups = []
-state = {'lookup': [], 'local_closed': True, 'replacement': False, 'rebuild_blocked': False, 'rebuild_waits': [], 'extra_intake': False}
+state = {'lookup': [], 'local_closed': True, 'replacement': False, 'rebuild_blocked': False, 'rebuild_waits': [],
+         'extra_intake': False, 'special': False}
 
 def respond(route):
     request = route.request
@@ -104,6 +105,8 @@ def respond(route):
         extra = [
             {'id': 39, 'kind': 'document', 'filename': 'Tada-kun - 01.mkv', 'sizeBytes': GIB},
         ] if state['extra_intake'] else []
+        if state['special']:
+            extra.append({'id': 40, 'kind': 'document', 'filename': '[Fixture] Tsuki ga Kirei - OVA [1080p].mkv'})
         route.fulfill(json={'state': 'forum_page', 'forum': {'next': None, 'topicId': 1, 'channelId': '22222', 'posts': [
             *extra, {'id': 37, 'kind': 'document', 'filename': '[Fixture]_Tsuki_ga_Kirei_01_[1280x720].mkv', 'sizeBytes': GIB},
             {'id': 30, 'kind': 'document', 'filename': '[Fixture]_Tsuki_ga_Kirei_10_[1280x720][synthetic_release_tag_that_is_long_enough_to_force_wrapping_on_a_phone].mkv', 'sizeBytes': GIB}]}})
@@ -377,6 +380,28 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         expect(page.locator('#enrich-publish-review')).to_be_visible()
         state['extra_intake'] = False
         state['replacement'] = False
+
+    # Correct a standalone extra with no metadata provider or publish operation.
+    state['special'] = True
+    reach_enrichment(page)
+    page.get_by_text('Posts sem série confirmada', exact=True).click()
+    page.get_by_role('button', name='Editar no catálogo · Post #40').click()
+    expect(page.locator('#correction-series')).to_be_focused()
+    expect(page.locator('#correction-id')).to_have_value('40')
+    expect(page.locator('#correction-kind')).to_have_value('ova')
+    expect(page.locator('#correction-season')).to_be_hidden()
+    calls_before, lookups_before = len(calls), len(lookups)
+    page.locator('#correction-series').select_option(label='Tsuki ga Kirei')
+    page.get_by_role('button', name='Salvar correção').click()
+    expect(page.locator('#correction-feedback')).to_have_text('Post #40 vinculado a Tsuki ga Kirei como OVA.')
+    series = page.locator('#catalog-items summary').filter(has_text='Tsuki ga Kirei')
+    series.click()
+    expect(page.locator('#post-40')).to_contain_text('Arquivo · [Fixture] Tsuki ga Kirei - OVA [1080p].mkv')
+    assert len(calls) == calls_before and len(lookups) == lookups_before
+    page.get_by_role('button', name='Desfazer correção').click()
+    expect(page.locator('#correction-feedback')).to_have_text('Correção removida do catálogo.')
+    expect(page.get_by_text('Posts sem série confirmada', exact=True)).to_be_visible()
+    state['special'] = False
 
     no_overflow(page, name)
     assert small_targets(page) == [], small_targets(page)

@@ -18,6 +18,22 @@ let messages;
 let selected = '';
 
 const alphabet = [...document.querySelectorAll('[data-letter]')];
+
+function correctionButton(id) {
+  const button = element('button', 'Editar no catálogo');
+  button.type = 'button';
+  button.className = 'editorial-action catalog-correction';
+  button.setAttribute('aria-label', 'Editar no catálogo · Post #' + id);
+  button.addEventListener('click', () => {
+    get('correction-id').value = String(id);
+    populateCorrection();
+    get('correction-feedback').textContent = '';
+    get('correcoes').scrollIntoView({ block: 'start' });
+    get('correction-series').focus({ preventScroll: true });
+  });
+  return button;
+}
+
 function renderCatalog() {
   const entries = findSeries(catalog, get('library-query').value)
     .filter(entry => !selected || letterFor(entry.key) === selected);
@@ -44,6 +60,7 @@ function renderCatalog() {
         link.rel = 'noreferrer';
         item.append(link);
       }
+      if (row.filename) item.append(correctionButton(row.id));
       seasons.get(label).append(item);
     }
     for (const [label, list] of seasons) details.append(element('h3', label), list);
@@ -54,13 +71,15 @@ function renderCatalog() {
     unresolved.append(element('summary', 'Posts sem série confirmada'));
     const list = element('ul');
     for (const row of catalog.unresolved.flatMap(group => group.items)) {
-      const item = element('li', 'Post #' + row.id + ' · ' + (row.filename || row.caption || '—'));
+      const item = element('li');
+      item.append(element('span', 'Post #' + row.id + ' · ' + (row.filename || row.caption || '—')));
       if (row.link) {
         const link = element('a', 'Abrir no Telegram');
         link.href = row.link;
         link.rel = 'noreferrer';
         item.append(link);
       }
+      if (row.filename) item.append(correctionButton(row.id));
       list.append(item);
     }
     unresolved.append(list);
@@ -100,6 +119,8 @@ function populateCorrection() {
   const row = messages.get(Number(get('correction-id').value));
   for (const name of ['season', 'episode', 'part', 'kind', 'label']) get('correction-' + name).value = row?.[name] ?? '';
   get('correction-series').value = row?.seriesId ?? '';
+  get('correction-details').open = false;
+  get('correction-reset').disabled = !row || !Object.hasOwn(snapshot.overrides, row.id);
 }
 
 function refresh() {
@@ -124,10 +145,14 @@ export function setCatalogSnapshot(current = { sourceId: 'empty', series: [], me
   get('inventory-source').textContent = snapshot.sourceId === 'empty' ? 'Carregue um tópico para ver as obras do seu acervo.' :
     snapshot.complete ? 'Histórico consultado no Telegram. As correções valem nesta sessão.' :
       'Inventário parcial do Telegram. O catálogo mostra os posts lidos.';
-  get('correction-id').replaceChildren(...snapshot.correctionIds.map(id => new Option('Post #' + id, String(id))));
+  const byId = new Map(snapshot.messages.map(post => [post.id, post]));
+  get('correction-id').replaceChildren(...snapshot.correctionIds.map(id => {
+    const file = byId.get(id)?.filename;
+    return new Option('Post #' + id + (file ? ' · ' + file : ''), String(id));
+  }));
   get('correction-series').replaceChildren(new Option('Sem série definida', ''),
     ...snapshot.series.map(item => new Option(item.title, item.id)));
-  for (const button of get('correction-form').querySelectorAll('button')) button.disabled = !snapshot.messages.length || !snapshot.series.length;
+  get('correction-form').querySelector('[type="submit"]').disabled = !snapshot.correctionIds.length;
   get('message-count').textContent = count.format(snapshot.messages.length);
   refresh();
 }
@@ -138,13 +163,24 @@ get('correction-id').addEventListener('change', populateCorrection);
 get('correction-form').addEventListener('submit', event => {
   event.preventDefault();
   const id = get('correction-id').value;
+  if (!messages.has(Number(id))) return;
+  const advanced = get('correction-details').open;
   snapshot.overrides[id] = {
+    ...snapshot.overrides[id],
     seriesId: get('correction-series').value || null, kind: get('correction-kind').value,
-    label: get('correction-label').value.trim(),
-    ...Object.fromEntries(['season', 'episode', 'part'].map(name => [name, get('correction-' + name).value === '' ? null : get('correction-' + name).valueAsNumber])),
+    ...(advanced && {
+      label: get('correction-label').value.trim(),
+      ...Object.fromEntries(['season', 'episode', 'part'].map(name => {
+        const field = get('correction-' + name);
+        return [name, field.value === '' ? null : field.valueAsNumber];
+      })),
+    }),
   };
   refresh();
-  get('correction-feedback').textContent = 'Catálogo atualizado para o post #' + id + '.';
+  const row = messages.get(Number(id));
+  const series = snapshot.series.find(item => item.id === row.seriesId);
+  get('correction-feedback').textContent = series ? 'Post #' + id + ' vinculado a ' + series.title + ' como ' + kindLabels[row.kind] + '.' :
+    'Post #' + id + ' salvo como ' + kindLabels[row.kind] + ' sem série vinculada.';
 });
 get('correction-reset').addEventListener('click', () => {
   delete snapshot.overrides[get('correction-id').value];
