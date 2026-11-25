@@ -196,10 +196,16 @@ has its own preview and destination. Reconstruction remains a separately approve
 After **Executar cópia**, a Telegram wait with a retry duration pauses the copy and displays a
 countdown. The same tab resumes the approved run automatically after each wait. Keep the page open
 for automatic continuation. Choose **Pausar retomada automática** to wait and continue manually.
-If the browser closes, reopen the same work and review the plan to resume from the journal. Preview
-and approval still require user action. An explicit send rejection with a Telegram wait records the
-deadline in the journal and retries with the same Telegram random IDs, including after an adapter
-restart. A missing receipt with no explicit rejection still requires manual verification.
+If the browser reloads or closes during a wait, open Telegram in the same browser. The publication
+panel shows the remaining time from the saved deadline. Select **Reabrir cópia salva** to reattach
+the timer to the same approved plan. It continues when the original deadline passes. A deliberate
+pause stays manual. The browser stores only the selection IDs, letter, deadline, and pause choice.
+If browser site data is cleared, reopen the same work and plan manually.
+
+The adapter journal stores waits reported during reading or sending in an approved copy and keeps
+their original deadlines after an adapter restart. On an explicit send rejection, a retry uses the
+same Telegram random IDs. Preview and approval still require user action. A missing receipt with no
+explicit rejection still requires manual verification.
 
 Intermediate organization and reconstruction receipts use the fresh origin and destination
 snapshots already read during that step. Each send revalidates the topics before publication,

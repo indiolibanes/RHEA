@@ -687,5 +687,10 @@ const reset = () => {
 root.addEventListener('rhea:telegram-hide', reset);
 root.addEventListener('rhea:forum-clear', reset);
 root.addEventListener('rhea:forum-inventory-change', () => { if (source) reset(); });
+let shown = root.dataset.telegramAutoload === 'true';
+root.addEventListener('rhea:telegram-show', () => { shown = true; publication.restore(); });
+root.addEventListener('rhea:telegram-hide', () => { shown = false; });
 window.addEventListener('pagehide', reset);
+window.addEventListener('pageshow', event => { if (event.persisted && shown) publication.restore(); });
 reset();
+if (shown) publication.restore();

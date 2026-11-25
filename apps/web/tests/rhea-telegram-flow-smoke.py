@@ -16,6 +16,7 @@ import re
 import shutil
 import tempfile
 import threading
+import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
@@ -124,7 +125,9 @@ def respond(route):
             route.fulfill(json={'state': 'mirror_progress', 'mirror': {'total': 5, 'copies': []}})
         elif state['rebuild_waits']:
             assert operation == 'rebuildnext'
-            route.fulfill(status=429, json={'state': 'rate_limited', 'retryAfter': state['rebuild_waits'].pop(0)})
+            wait = state['rebuild_waits'].pop(0)
+            route.fulfill(status=429, json={'state': 'rate_limited', 'retryAfter': wait,
+                                           'retryAt': int(time.time() * 1000) + wait * 1000})
         else:
             assert operation == 'rebuildnext'
             route.fulfill(json={'state': 'mirror_done', 'mirror': {'total': 5,
@@ -332,7 +335,7 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         page.locator('#enrich-publish-approve').click()
         expect(page.locator('#enrich-publish-run')).to_be_visible()
         assert 'rebuildnext' not in calls
-        state['rebuild_waits'] = [2, 2, 2]
+        state['rebuild_waits'] = [2, 600, 2]
         page.locator('#enrich-publish-run').click()
         expect(page.locator('#enrich-publish-status')).to_contain_text('será retomada automaticamente nesta aba')
         expect(page.locator('#enrich-publish-run')).to_be_disabled()
@@ -343,8 +346,25 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         assert calls.count('rebuildnext') == 1
         page.get_by_role('button', name='Retomar cópia').click()
         expect(page.locator('#enrich-publish-status')).to_contain_text('será retomada automaticamente nesta aba')
+        saved_copy = "JSON.parse(localStorage.getItem('rhea:telegram:copy:v1:/api/rhea/telegram-mtproto'))"
+        checkpoint = page.evaluate(saved_copy)
+        assert set(checkpoint) == {'selection', 'retryAt', 'automatic'}
+        assert set(checkpoint['selection']) == {'currentTopicId', 'sourceTopicId', 'replacementTopicId', 'beforeId', 'letter', 'ids'}
+        assert checkpoint['automatic'] is True
+        page.reload()
+        page.clock.set_system_time((checkpoint['retryAt'] - 210_000) / 1000)
+        page.locator('[data-rhea-telegram-library]').dispatch_event('rhea:telegram-show')
+        expect(page.locator('#enrich-publish-run')).to_have_text('Aguarde 210 s')
+        expect(page.locator('#enrich-publish-run')).to_be_disabled()
+        assert page.evaluate(saved_copy) == checkpoint
+        assert calls.count('rebuildnext') == 2
+        page.get_by_role('button', name='Reabrir cópia salva').click()
+        expect(page.locator('#enrich-publish-status')).to_contain_text('será retomada automaticamente nesta aba')
+        assert calls.count('rebuildnext') == 2
+        page.clock.set_system_time(checkpoint['retryAt'] / 1000)
         expect(page.locator('#enrich-publish-status')).to_contain_text('Tópico [NEW]: 5 de 5', timeout=10000)
         assert calls.count('rebuildnext') == 4
+        assert page.evaluate(saved_copy) is None
         expect(page.locator('#enrich-progress-backup').locator('..')).to_be_hidden()
         state['extra_intake'] = True
         reach_enrichment(page, expected='Tada-kun')

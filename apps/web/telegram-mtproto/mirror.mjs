@@ -12,6 +12,11 @@ const digest = value => createHash('sha256').update(JSON.stringify(value)).diges
 const idsOf = unit => unit.map(post => post.id);
 const fingerprint = posts => posts.map(({ id, parent, album, contents }) => [id, parent, album, contents]);
 
+export function telegramWaitSeconds(error) {
+  const seconds = Number(error?.seconds ?? /^FLOOD_WAIT_(\d+)$/.exec(error?.errorMessage ?? '')?.[1]);
+  return Number.isInteger(seconds) && seconds > 0 && seconds <= 2_147_483_647 ? seconds : 0;
+}
+
 function readLog(lines, scope, dual, ordered, limit) {
   const [header, ...events] = lines;
   if (header?.type !== 'approved' || header.scope !== scope ||
@@ -39,6 +44,8 @@ function readLog(lines, scope, dual, ordered, limit) {
       retryAt = 0;
     } else if (event.type === 'deferred' && intent && !receipt && !retryAt && Number.isSafeInteger(event.until) && event.until > 0) {
       retryAt = event.until;
+    } else if (event.type === 'cooldown' && (!intent || receipt || retryAt) && Number.isSafeInteger(event.until) && event.until > retryAt) {
+      retryAt = event.until;
     } else if (event.type === 'receipt' && intent && !receipt && !retryAt && Array.isArray(event.ids) && event.ids.length === unit.length &&
         event.ids.every((id, i) => forumId(id) && id > (i ? event.ids[i - 1] : last))) {
       receipt = event;
@@ -46,6 +53,7 @@ function readLog(lines, scope, dual, ordered, limit) {
       targetCopies.push(...receipt.ids.map((id, i) => ({ sourceId: unit[i], destinationId: id })));
       step++;
       intent = receipt = undefined;
+      retryAt = 0;
     } else {
       return null;
     }
@@ -185,7 +193,7 @@ export function mirrorControl(config, now = Date.now) {
       }
       const targetParent = unit[0].parent === null ? null : verified.find(item => item.sourceId === unit[0].parent)?.destinationId;
       if (targetParent === undefined) return { state: 'mirror_changed' };
-      const ids = log.retryAt ? log.intent.ids.map(id => BigInt(id)) : unit.map(() => (randomBytes(8).readBigUInt64BE() >> 1n) || 1n);
+      const ids = log.intent ? log.intent.ids.map(id => BigInt(id)) : unit.map(() => (randomBytes(8).readBigUInt64BE() >> 1n) || 1n);
       await append(file, { type: 'intent', step, ids: ids.map(String) });
       let receipt;
       try {
@@ -214,14 +222,19 @@ export function mirrorControl(config, now = Date.now) {
   async function handle(operation, input, client) {
     if (active) return { state: 'busy' };
     active = true;
+    let advancing = false;
     try {
       const previous = await readJournal();
       const result = status(previous);
+      const retryAt = previous?.retryAt;
+      const time = now();
+      if ((operation === 'mirrorstatus' || operation === 'mirrornext') && retryAt > time) {
+        return { state: 'rate_limited', retryAt, retryAfter: Math.ceil((retryAt - time) / 1000) };
+      }
       if (operation === 'mirrorstatus' || !['mirror_idle', 'mirror_progress'].includes(result.state)) return result;
       if (operation === 'mirrornext') {
         if (!previous) return result;
-        const retryAfter = Math.ceil((previous.retryAt - now()) / 1000);
-        if (retryAfter > 0) return { state: 'rate_limited', retryAfter };
+        advancing = Boolean(ordered);
         const plan = await inspect(client);
         if (plan.evidence !== previous.evidence ||
             digest(plan.units.map(idsOf)) !== digest(previous.units)) return { state: 'mirror_changed' };
@@ -253,6 +266,20 @@ export function mirrorControl(config, now = Date.now) {
         posts: plan.posts.map(({ id, contents, message }) => ({ id, kind: contents.kind,
           label: message.entities?.some(entity => entity.className === 'MessageEntitySpoiler') ? '' : contents.filename || contents.text })) } };
     } catch (error) {
+      const seconds = telegramWaitSeconds(error);
+      if (advancing && seconds) {
+        const latest = await readJournal();
+        const checkpoint = status(latest);
+        if (checkpoint.state !== 'mirror_progress') return checkpoint;
+        const time = now();
+        const retryAt = latest.retryAt > time ? latest.retryAt : time + seconds * 1000;
+        if (retryAt !== latest.retryAt) {
+          const file = await open(journal, 'a');
+          try { await append(file, { type: 'cooldown', step: latest.step, until: retryAt }); }
+          finally { await file.close(); }
+        }
+        return { state: 'rate_limited', retryAt, retryAfter: Math.ceil((retryAt - time) / 1000) };
+      }
       if (!(error instanceof MirrorPreflightError)) throw error;
       return { state: operation === 'mirrorpreview' ? 'mirror_ineligible' : 'mirror_changed', issue: error.issue };
     } finally {

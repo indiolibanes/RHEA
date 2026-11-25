@@ -33,6 +33,7 @@ async function setup(t) {
   const attempts = [];
   let clock = 1000;
   let wait = 0;
+  let readWait = 0;
   let failReceipt = false;
   const messages = rows => ({ className: 'messages.Messages', messages: rows });
   const provider = () => ({
@@ -52,6 +53,11 @@ async function setup(t) {
       }
       if (query instanceof Api.messages.GetReplies) {
         reads.push(query.msgId);
+        if (readWait) {
+          const seconds = readWait;
+          readWait = 0;
+          throw new FloodWaitError({ capture: seconds, request: query });
+        }
         if (query.msgId === 1) return messages(source);
         return messages([...targets[query.msgId]].reverse());
       }
@@ -94,6 +100,7 @@ async function setup(t) {
   }
   return { invoke, approve, source, sends, targets, reads, attempts, restart: () => { adapter = start(); },
     delaySend: seconds => { wait = seconds; }, advance: milliseconds => { clock += milliseconds; },
+    delayRead: seconds => { readWait = seconds; },
     loseReceipt: () => { failReceipt = true; } };
 }
 
@@ -101,12 +108,13 @@ test('journals a Telegram send rejection and retries the same IDs only after the
   const run = await setup(t);
   await run.approve();
   run.delaySend(90_000);
-  assert.deepEqual(await run.invoke('next'), { state: 'rate_limited', retryAfter: 90_000 });
-  assert.deepEqual(await run.invoke('next'), { state: 'rate_limited', retryAfter: 90_000 });
+  const retryAt = 90_001_000;
+  assert.deepEqual(await run.invoke('next'), { state: 'rate_limited', retryAt, retryAfter: 90_000 });
+  assert.deepEqual(await run.invoke('next'), { state: 'rate_limited', retryAt, retryAfter: 90_000 });
   run.restart();
   run.advance(89_999_999);
   const readsBeforeRetry = run.reads.length;
-  assert.deepEqual(await run.invoke('next'), { state: 'rate_limited', retryAfter: 1 });
+  assert.deepEqual(await run.invoke('next'), { state: 'rate_limited', retryAt, retryAfter: 1 });
   assert.equal(run.reads.length, readsBeforeRetry);
   assert.equal(run.attempts.length, 1);
   assert.deepEqual(run.sends, []);
@@ -114,6 +122,28 @@ test('journals a Telegram send rejection and retries the same IDs only after the
   assert.equal((await run.invoke('next')).state, 'mirror_progress');
   assert.deepEqual(run.attempts, [run.attempts[0], run.attempts[0]]);
   assert.deepEqual(run.sends, [[8, 32]]);
+});
+
+test('preserves the original deadline when Telegram pauses a read before sending or verifying an approved batch', async t => {
+  const run = await setup(t);
+  await run.approve();
+  for (let index = 0; index < 2; index++) {
+    const retryAt = 601_000 + index * 600_000;
+    run.delayRead(600);
+    assert.deepEqual(await run.invoke('next'), { state: 'rate_limited', retryAt, retryAfter: 600 });
+    const priorReads = run.reads.length;
+    run.restart();
+    run.advance(390_000);
+    assert.deepEqual(await run.invoke('status'), { state: 'rate_limited', retryAt, retryAfter: 210 });
+    assert.deepEqual(await run.invoke('next'), { state: 'rate_limited', retryAt, retryAfter: 210 });
+    assert.equal(run.reads.length, priorReads);
+    assert.equal(run.sends.length, index);
+    run.advance(210_000);
+    const result = await run.invoke('next');
+    assert.equal(result.state, 'mirror_progress');
+    assert.equal(result.mirror.localCopies.length, index);
+    assert.deepEqual(run.sends, [[8, 32]]);
+  }
 });
 
 test('copies only the approved files from General in the selected order to both verified targets', async t => {
@@ -160,17 +190,24 @@ test('blocks destination content, partial albums, concurrent source changes and 
 
 test('requires a protected same-origin approval and validates selected topics and IDs', async () => {
   const origin = 'https://workspace.example';
-  const check = (operation, headers, body, data = { cloudflareAccess: { JWT: { payload: { sub: scope.actor } } } }) =>
+  const check = (operation, headers, body, data = { cloudflareAccess: { JWT: { payload: { sub: scope.actor } } } },
+    fetcher = () => { assert.fail('Rejected input must never reach the adapter.'); }) =>
     mtprotoPage({ request: new Request(origin + '/api/rhea/telegram-mtproto?op=organize' + operation, {
       method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json', ...headers },
     }), data, env: { RHEA_TELEGRAM_MTPROTO_ORIGIN: 'https://adapter.example',
       RHEA_TELEGRAM_MTPROTO_KEY: scope.key, RHEA_TELEGRAM_CF_CLIENT_ID: 'test', RHEA_TELEGRAM_CF_CLIENT_SECRET: 'test',
-    } }, () => { assert.fail('Rejected input must never reach the adapter.'); });
+    } }, fetcher);
   assert.equal((await check('approve', { Origin: origin }, selection)).status, 400);
   assert.equal((await check('preview', { Origin: 'https://other.example' }, selection)).status, 403);
   assert.equal((await check('preview', { Origin: origin }, selection, {})).status, 401);
   assert.equal((await check('preview', { Origin: origin }, { ...selection, localTopicId: 1 })).status, 400);
   assert.equal((await check('preview', { Origin: origin }, { ...selection, ids: [32, 32] })).status, 400);
+  const retryAt = 1_800_000_000_000;
+  const response = await check('status', { Origin: origin }, selection, undefined, async () =>
+    Response.json({ state: 'rate_limited', retryAfter: 210, retryAt, internal: 'discard' }, { status: 429 }));
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get('Retry-After'), '210');
+  assert.deepEqual(await response.json(), { state: 'rate_limited', retryAfter: 210, retryAt });
 });
 
 test('rebuilds a paginated letter with all unclassified posts and preserves the owner-approved insertion point', async t => {

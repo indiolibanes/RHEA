@@ -80,22 +80,23 @@
       <ol id="enrich-rebuild-neighbors" class="library-field-row" aria-label="Ordem no ponto de inserção" hidden></ol>
       <ol class="library-order" id="enrich-rebuild-items"></ol>
     </section>
-    <div id="enrich-publish" hidden>
-      <div class="library-actions">
-        <button class="editorial-action rhea-primary" id="enrich-publish-review" type="button">Revisar publicação</button>
-        <button class="editorial-action rhea-primary" id="enrich-publish-run" type="button" hidden>Executar cópia</button>
-        <button class="editorial-action" id="enrich-publish-pause" type="button" hidden>Pausar após este lote</button>
-      </div>
-      <ul class="library-progress" id="enrich-progress" aria-label="Progresso das cópias" hidden>
-        <li><span>Mesmo grupo</span><progress id="enrich-progress-local" max="1" value="0"></progress><strong id="enrich-progress-local-text"></strong></li>
-        <li><span>Backup</span><progress id="enrich-progress-backup" max="1" value="0"></progress><strong id="enrich-progress-backup-text"></strong></li>
-      </ul>
-      <p id="enrich-publish-status" role="status"></p>
-    </div>
     <div id="enrich-order" class="library-orders">
       <details><summary>Ordem na origem</summary><ol id="enrich-original" class="library-order"></ol></details>
       <details open><summary>Ordem por episódio</summary><ol id="enrich-sorted" class="library-order"></ol></details>
     </div>
+  </div>
+  <div id="enrich-publish" hidden>
+    <div class="library-actions">
+      <button class="editorial-action rhea-primary" id="enrich-publish-review" type="button">Revisar publicação</button>
+      <button class="editorial-action rhea-primary" id="enrich-publish-run" type="button" hidden>Executar cópia</button>
+      <button class="editorial-action rhea-primary" id="enrich-publish-reopen" type="button" hidden>Reabrir cópia salva</button>
+      <button class="editorial-action" id="enrich-publish-pause" type="button" hidden>Pausar após este lote</button>
+    </div>
+    <ul class="library-progress" id="enrich-progress" aria-label="Progresso das cópias" hidden>
+      <li><span>Mesmo grupo</span><progress id="enrich-progress-local" max="1" value="0"></progress><strong id="enrich-progress-local-text"></strong></li>
+      <li><span>Backup</span><progress id="enrich-progress-backup" max="1" value="0"></progress><strong id="enrich-progress-backup-text"></strong></li>
+    </ul>
+    <p id="enrich-publish-status" role="status"></p>
   </div>
 </details>
 <dialog id="enrich-publish-dialog" aria-labelledby="enrich-publish-title">
