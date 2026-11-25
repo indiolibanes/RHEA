@@ -237,7 +237,10 @@ export async function openMirror(config, privateChat, peerFor, invoke, download)
           for (let offset = 0, pages = 0; pages < Math.ceil((rebuildLimit + 1) / forumPageSize) + 1; pages++) {
             const result = await page(offset, forumPageSize);
             const messages = result?.messages;
-            if (!Array.isArray(messages) || messages.length > forumPageSize || result.inexact || result.offsetIdOffset > 0 ||
+            if (!Array.isArray(messages) || messages.length > forumPageSize || result.inexact ||
+                (messages.length && result.offsetIdOffset != null &&
+                  (!Number.isInteger(result.offsetIdOffset) || result.offsetIdOffset < 0 ||
+                    Math.abs(result.offsetIdOffset - rows.length) > 1)) ||
                 messages.some((item, i) => !forumId(item?.id) || (i ? item.id >= messages[i - 1].id : offset && item.id >= offset))) {
               return reject('history_unverified');
             }
@@ -283,6 +286,9 @@ export async function openMirror(config, privateChat, peerFor, invoke, download)
     const before = rebuild.beforeId === null ? current.length : current.findIndex(post => post.id === rebuild.beforeId);
     if (before < 0) throw new MirrorPreflightError('source', 'selection_changed');
     if (current.length + incoming.length > rebuildLimit) throw new MirrorPreflightError('source', 'history_limit');
+    if (current[before]?.album != null && current[before].album === current[before - 1]?.album) {
+      throw new MirrorPreflightError('source', 'insertion_splits_album', current[before].id);
+    }
     return [...current.slice(0, before), ...incoming, ...current.slice(before)];
   }
 

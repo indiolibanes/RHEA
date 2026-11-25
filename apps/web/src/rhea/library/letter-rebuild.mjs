@@ -30,3 +30,23 @@ export function planLetterRebuild({ letter, currentPosts, intakeGroup, intakeTit
   };
   return { groups, checks };
 }
+
+export function letterInsertionOptions(posts, groups) {
+  const old = [...posts].sort((a, b) => a.id - b.id);
+  const positions = new Map(old.map((post, index) => [post.id, index]));
+  const workAnchors = new Map();
+  for (const group of groups) {
+    if (group.origin !== 'current') continue;
+    const start = positions.get(Math.min(...group.posts.map(post => post.id)));
+    const previous = old[start - 1];
+    const coverTitle = previous?.heading || previous?.caption;
+    const cover = previous?.kind === 'cover' && coverTitle && titleKey(coverTitle) === titleKey(group.title);
+    const id = old[cover ? start - 1 : start]?.id;
+    if (id !== undefined) workAnchors.set(id, group.title + (group.season != null ? ' · Temporada ' + group.season : ''));
+  }
+  return old.flatMap((post, index) => {
+    if (post.albumId != null && post.albumId === old[index - 1]?.albumId) return [];
+    return [{ id: post.id, work: workAnchors.get(post.id),
+      label: (post.heading || post.filename || post.caption || 'Publicação').slice(0, 120) }];
+  });
+}

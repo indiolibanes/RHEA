@@ -9,6 +9,7 @@ Environment:
   RHEA_SHOTS_DIR    where to write screenshots (default: none).
   RHEA_BASELINE=1   skip assertions that only exist in the new interface and only capture screenshots.
 """
+import base64
 import functools
 import os
 import re
@@ -67,7 +68,7 @@ base = f'http://127.0.0.1:{server.server_port}'
 GIB = 1_610_612_736  # 1.5 GiB per synthetic file
 calls = []
 lookups = []
-state = {'lookup': [], 'local_closed': True, 'replacement': False}
+state = {'lookup': [], 'local_closed': True, 'replacement': False, 'rebuild_blocked': False}
 
 def respond(route):
     request = route.request
@@ -107,7 +108,11 @@ def respond(route):
             'sourceTopicId': 1, 'currentTopicId': 9, 'replacementTopicId': 81, 'beforeId': 19, 'ids': [37, 30],
         }
         order = [15, 16, 37, 30, 19]
-        if operation == 'rebuildpreview':
+        if operation == 'rebuildpreview' and state['rebuild_blocked']:
+            route.fulfill(status=409, json={'state': 'mirror_ineligible', 'issue': {
+                'side': 'source', 'code': 'history_unverified',
+            }})
+        elif operation == 'rebuildpreview':
             route.fulfill(json={'state': 'mirror_preview', 'mirror': {'total': 5, 'approval': 'a' * 43,
                 'source': 'Letter T + Requests', 'destination': 'Letter T [NEW]',
                 'posts': [{'id': id, 'label': 'Fixture'} for id in order]}})
@@ -268,9 +273,22 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         expect(page.locator('#enrich-links a')).to_have_attribute('href', 'https://myanimelist.net/anime/1')
         assert lookups[-1] == {'title': 'Tsuki ga Kirei', 'provider': 'mal', 'malClientId': 'a' * 32}
         page.locator('#mal-client-clear').click()
-        previous_count = len(lookups)
         page.locator('#enrich-manual-open').click()
         page.locator('#enrich-manual input[name=link]').fill('https://anilist.co/anime/98202/Tsuki-ga-Kirei')
+        state['lookup'] = [(503, {'state': 'provider_refused'})]
+        page.get_by_role('button', name='Buscar pelo link').click()
+        expect(page.locator('#enrich-status')).to_contain_text('O AniList recusou')
+        expect(page.locator('#enrich-provider-search')).to_have_attribute('href', 'https://anilist.co/anime/98202')
+        assert lookups[-1] == {'aniListId': 98202}
+        state['lookup'] = [(200, {'state': 'candidates', 'candidates': [candidate]})]
+        page.get_by_role('button', name='Buscar pelo link').click()
+        expect(page.locator('#enrich-candidates button')).to_be_visible()
+        previous_count = len(lookups)
+        page.get_by_text('Usar uma captura como referência').click()
+        pixel_data = page.evaluate("() => { const canvas = document.createElement('canvas'); canvas.width = canvas.height = 16; return canvas.toDataURL() }")
+        pixel = base64.b64decode(pixel_data.split(',', 1)[1])
+        page.locator('#enrich-capture').set_input_files({'name': 'fixture.png', 'mimeType': 'image/png', 'buffer': pixel})
+        expect(page.locator('#enrich-capture-preview')).to_be_visible()
         page.locator('#enrich-manual select[name=format]').select_option('TV')
         page.locator('#enrich-manual input[name=episodes]').fill('12')
         page.locator('#enrich-manual input[name=duration]').fill('25')
@@ -293,7 +311,14 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         expect(page.locator('#enrich-rebuild-status')).to_contain_text('serão mantidas na ordem atual')
         expect(page.locator('#enrich-publish')).to_be_hidden()
         assert sum(call.startswith('organize') for call in calls) == organization_calls
-        page.locator('#enrich-rebuild-anchor').select_option('19')
+        page.locator('#enrich-rebuild-anchor').select_option(label='Tundra')
+        expect(page.locator('#enrich-rebuild-neighbors')).to_contain_text('Obra de Requests · Tsuki ga Kirei')
+        expect(page.locator('#enrich-rebuild-neighbors li').last).to_contain_text('Tundra')
+        state['rebuild_blocked'] = True
+        page.get_by_role('button', name='Revisar reconstrução').click()
+        expect(page.locator('#enrich-publish-status')).to_contain_text('a leitura ficou incompleta')
+        expect(page.locator('#enrich-publish-dialog')).to_be_hidden()
+        state['rebuild_blocked'] = False
         page.get_by_role('button', name='Revisar reconstrução').click()
         expect(page.get_by_role('dialog', name='Aprovar reconstrução da letra')).to_be_visible()
         expect(page.locator('#enrich-publish-files > li').nth(2)).to_contain_text('#37')

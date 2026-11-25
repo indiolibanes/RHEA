@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { lookupAnime, lookupErrors, lookupMessage, providerFallback, retryableLookup } from '../src/rhea/library/anime-lookup.mjs';
+import { aniListIdFromLink, lookupAnime, lookupErrors, lookupMessage, providerFallback, retryableLookup } from '../src/rhea/library/anime-lookup.mjs';
 
 const endpoint = '/api/rhea/anime-metadata';
 const reply = (body, { status = 200, type = 'application/json', kind = 'basic' } = {}) => async () => ({
@@ -23,6 +23,21 @@ test('sends a same-origin title-only POST and never follows redirects', async ()
   assert.equal(init.credentials, 'same-origin');
   assert.equal(init.redirect, 'manual');
   assert.deepEqual(JSON.parse(init.body), { title: 'Tsuki ga Kirei' });
+});
+
+test('an AniList link sends only the numeric ID and rejects lookalike hosts', async () => {
+  const link = 'https://anilist.co/anime/98202/Tsuki-ga-Kirei/?tracking=ignored';
+  await withFetch(async (url, init) => {
+    assert.equal(url, endpoint);
+    assert.deepEqual(JSON.parse(init.body), { aniListId: 98202 });
+    return reply({ state: 'candidates', candidates: [] })();
+  }, () => lookupAnime(endpoint, link));
+  for (const url of ['https://anilist.co.example/anime/98202', 'https://anilist.co/manga/98202',
+    'https://private@anilist.co/anime/98202', 'https://anilist.co/anime/2147483648']) {
+    assert.equal(aniListIdFromLink(url), undefined);
+    await withFetch(() => assert.fail('An invalid link should not be queried.'),
+      async () => assert.equal((await lookupAnime(endpoint, url)).state, 'invalid_anilist_link'));
+  }
 });
 
 test('an Access redirect or 401 asks for a new sign-in instead of failing silently', async () => {

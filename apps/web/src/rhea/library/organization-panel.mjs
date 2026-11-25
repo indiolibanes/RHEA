@@ -65,8 +65,23 @@ export function organizationPublication(get, endpoint) {
   function display(result) {
     const details = result.mirror;
     const side = { local: 'No mesmo grupo', destination: reconstructionIds ? 'No tópico [NEW]' : 'No backup',
-      source: 'Na origem' }[result.issue?.side];
+      source: 'Na origem', account: 'Na conexão Telegram' }[result.issue?.side];
+    const postReason = {
+      service_event: 'é um evento de serviço do Telegram.',
+      reply: 'tem uma resposta com vínculo que a RHEA não conseguiu preservar.',
+      protected_or_temporary: 'tem conteúdo protegido ou temporário.',
+      forwarded_or_bot: 'foi encaminhada ou veio de um bot.',
+      text_format: 'usa uma legenda ou formatação que o piloto não consegue preservar.',
+      media_type: 'usa um tipo de mídia fora do piloto.',
+      media_reference: 'tem uma referência de mídia indisponível.',
+      filename: 'tem um nome de arquivo que o piloto não consegue preservar.',
+      file_size: 'excede o limite permitido para mídia nesse piloto.',
+      large_file_size: 'excede 4 GiB por arquivo.',
+    }[result.issue?.detail];
     const reason = {
+      account_unverified: 'reconecte a conta autorizada e tente novamente.',
+      group_unavailable: 'confira o convite e a participação da conta conectada no grupo.',
+      group_not_forum: 'o grupo cadastrado precisa ter tópicos habilitados.',
       destination_not_empty: 'o tópico precisa estar vazio para o piloto.',
       group_protected: 'o Telegram impede a cópia de conteúdo protegido.',
       group_not_owned: 'a conta conectada precisa ser proprietária do grupo.',
@@ -74,8 +89,14 @@ export function organizationPublication(get, endpoint) {
         'o tópico de origem precisa ter até 60 publicações neste piloto.',
       selection_changed: 'um arquivo aprovado mudou ou saiu do tópico.',
       topic_name: 'o tópico deixou de corresponder à letra esperada.',
+      dual_topic_name: 'o nome do tópico deixou de corresponder à configuração do piloto.',
+      topic_missing: 'o tópico não foi encontrado. Confira os destinos novamente.',
+      topic_closed: 'reabra o tópico de destino no Telegram e confira os destinos novamente.',
+      source_empty: 'nenhuma publicação da seleção foi encontrada. Recarregue o inventário.',
+      history_unverified: 'a leitura ficou incompleta ou o tópico mudou durante a revisão. Pause novas publicações no tópico e carregue a prévia novamente.',
       album_or_reply: 'a seleção dividiria um álbum ou uma resposta.',
-      unsupported_post: 'uma publicação selecionada exige conferência no Telegram.',
+      insertion_splits_album: 'o ponto de inserção divide um álbum. Escolha o começo do lote ou a publicação seguinte.',
+      unsupported_post: postReason ? 'a publicação ' + postReason : 'uma publicação selecionada exige conferência no Telegram.',
     }[result.issue?.code];
     run.hidden = result.state !== 'mirror_progress';
     if (result.state === 'mirror_progress' || result.state === 'mirror_done') {
@@ -98,7 +119,11 @@ export function organizationPublication(get, endpoint) {
       mirror_disabled: 'A publicação piloto precisa ser habilitada no Railway.',
       mirror_recovery: 'A execução precisa de conferência manual. Confira os tópicos antes de qualquer nova cópia.',
       mirror_changed: 'O plano ou o conteúdo mudou. Confira as origens e os destinos da revisão.',
-      mirror_ineligible: 'A seleção ainda não atende às condições da cópia.',
+      mirror_ineligible: 'A revisão foi bloqueada sem um motivo detalhado nesta versão do leitor. Recarregue a prévia e confira a versão do leitor no Railway.',
+      disconnected: 'Reconecte o Telegram e repita a revisão.',
+      access_required: 'Entre no Private novamente para revisar a cópia.',
+      not_allowed: 'A conta atual não tem acesso à revisão da cópia.',
+      busy: 'Outra leitura do Telegram está em andamento. Aguarde alguns instantes e tente novamente.',
       rate_limited: 'O Telegram pediu uma pausa. Aguarde antes de retomar.',
     };
     if (result.state === 'mirror_recovery' && details?.copies && (reconstructionIds || details.localCopies)) {

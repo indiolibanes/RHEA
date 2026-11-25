@@ -1,15 +1,17 @@
 import { boundedTelegramJson } from '../../../src/rhea/library/telegram-contract.mjs';
-import { validMalClientId } from '../../../src/rhea/library/anime-lookup.mjs';
+import { validAniListId, validMalClientId } from '../../../src/rhea/library/anime-lookup.mjs';
 
+const mediaFields = `id title { romaji english native } startDate { year }
+  episodes duration format genres studios(isMain: true) { nodes { name } }
+  coverImage { large }`;
 const query = `query ($title: String!) {
   Page(page: 1, perPage: 6) {
     media(type: ANIME, search: $title, isAdult: false) {
-      id title { romaji english native } startDate { year }
-      episodes duration format genres studios(isMain: true) { nodes { name } }
-      coverImage { large }
+      ${mediaFields}
     }
   }
 }`;
+const byIdQuery = `query ($id: Int!) { Media(id: $id, type: ANIME) { isAdult ${mediaFields} } }`;
 
 const text = value => typeof value === 'string' ? value.trim().slice(0, 160) : '';
 const number = value => Number.isSafeInteger(value) && value > 0 ? value : undefined;
@@ -63,12 +65,14 @@ export async function animeMetadata({ request, data, env }, fetcher = fetch) {
   if (request.method !== 'POST' || !sameOrigin) return json({ state: 'not_allowed' }, 403);
   if (!/^application\/json(?:[; ]|$)/i.test(request.headers.get('Content-Type') ?? '')) return json({ state: 'invalid_title' }, 400);
   let title;
+  let aniListId;
   let provider = 'anilist';
   let sessionClientId;
   try {
     const input = await boundedTelegramJson(request, 1024);
     const keys = Object.keys(input ?? {});
-    if (typeof input?.title === 'string' && keys.every(key => ['title', 'provider', 'malClientId'].includes(key)) &&
+    if (keys.length === 1 && validAniListId(input?.aniListId)) aniListId = input.aniListId;
+    else if (typeof input?.title === 'string' && keys.every(key => ['title', 'provider', 'malClientId'].includes(key)) &&
         (!Object.hasOwn(input, 'malClientId') || (input.provider === 'mal' && validMalClientId(input.malClientId))) &&
         (input.provider === undefined || ['anilist', 'mal'].includes(input.provider))) {
       title = input.title.trim().normalize('NFC');
@@ -76,11 +80,13 @@ export async function animeMetadata({ request, data, env }, fetcher = fetch) {
       sessionClientId = input.malClientId;
     }
   } catch { /* Reject unreadable or oversized input. */ }
-  if (!title || title.length < 2 || title.length > 120 || /[\p{Cc}]/u.test(title)) return json({ state: 'invalid_title' }, 400);
+  if (!aniListId && (!title || title.length < 2 || title.length > 120 || /[\p{Cc}]/u.test(title))) {
+    return json({ state: 'invalid_title' }, 400);
+  }
   const useMal = provider === 'mal';
   let endpoint = 'https://graphql.anilist.co';
   let options = { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ query, variables: { title } }) };
+    body: JSON.stringify(aniListId ? { query: byIdQuery, variables: { id: aniListId } } : { query, variables: { title } }) };
   if (useMal) {
     const clientId = sessionClientId ?? env?.RHEA_MAL_CLIENT_ID?.trim();
     if (!clientId) return json({ state: 'provider_unconfigured' }, 503);
@@ -116,12 +122,19 @@ export async function animeMetadata({ request, data, env }, fetcher = fetch) {
     }
     if (response.status >= 300 && response.status < 400) return failed('redirect', 'provider_unavailable', 503, { status: response.status });
     if (response.status >= 500) return failed('upstream_status', 'provider_unavailable', 503, { status: response.status });
+    if (aniListId && response.status === 404) return json({ state: 'candidates', candidates: [] });
     if (!response.ok) return failed('upstream_status', 'provider_error', 502, { status: response.status });
     if (!/^application\/json(?:[; ]|$)/i.test(response.headers.get('Content-Type') ?? '')) {
       return failed('content_type', 'provider_error', 502, { status: response.status });
     }
     const payload = await boundedTelegramJson(response, 65_536);
-    const entries = useMal ? payload?.data : payload?.data?.Page?.media;
+    if (aniListId && payload?.errors?.length && payload.errors.every(error => error?.status === 404)) {
+      return json({ state: 'candidates', candidates: [] });
+    }
+    if (aniListId && payload?.data?.Media && payload.data.Media.id !== aniListId) return failed('shape', 'provider_error', 502);
+    const entries = useMal ? payload?.data : aniListId ?
+      (Object.hasOwn(payload?.data ?? {}, 'Media') ? [payload.data.Media].filter(entry => !entry?.isAdult) : undefined) :
+      payload?.data?.Page?.media;
     if (payload?.errors?.length) return failed('graphql_errors', 'provider_error', 502, { status: response.status });
     if (!Array.isArray(entries) || entries.length > 6) return failed('shape', 'provider_error', 502, { status: response.status });
     return json({ state: 'candidates', candidates: entries.map(useMal ? malCandidate : candidate).filter(Boolean) });
