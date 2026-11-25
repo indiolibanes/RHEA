@@ -117,8 +117,9 @@ export function mtprotoResult(state, extra = {}, operation) {
           (index && copy.destinationId <= copies[index - 1].destinationId))) return mtprotoResult('unavailable');
     body.copies = copies.map(({ sourceId, destinationId }) => ({ sourceId, destinationId }));
   }
-  if (state === 'rate_limited' && Number.isInteger(extra.retryAfter) && extra.retryAfter > 0 && extra.retryAfter <= 86_400) {
+  if (state === 'rate_limited' && Number.isInteger(extra.retryAfter) && extra.retryAfter > 0 && extra.retryAfter <= 2_147_483_647) {
     body.retryAfter = extra.retryAfter;
+    if (isOrganizationOperation(operation) && Number.isSafeInteger(extra.retryAt) && extra.retryAt > 0) body.retryAt = extra.retryAt;
   }
   return Response.json(body, { status, headers: {
     'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',

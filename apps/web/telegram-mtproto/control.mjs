@@ -4,7 +4,7 @@ import { acceptsInput, inputFor, mtprotoResult, operationAllowed } from '../src/
 import { stagingControl } from './staging.mjs';
 import { isForumOperation } from '../src/rhea/library/forum-contract.mjs';
 import { isMirrorOperation } from '../src/rhea/library/mirror-contract.mjs';
-import { mirrorControl } from './mirror.mjs';
+import { mirrorControl, telegramWaitSeconds } from './mirror.mjs';
 import { isOrganizationOperation, isRebuildOperation, organizationOperations, rebuildRequestLimit } from '../src/rhea/library/organization-contract.mjs';
 
 const enrollmentTtl = 5 * 60_000;
@@ -41,10 +41,10 @@ export function mtprotoControl(config, store, withClient, now = Date.now) {
 
   function handleError(error, operation) {
     const code = errorCode(error);
-    const wait = Number(error?.seconds ?? /^FLOOD_WAIT_(\d+)$/.exec(code ?? '')?.[1]);
-    if (Number.isInteger(wait) && wait > 0) {
+    const wait = telegramWaitSeconds(error);
+    if (wait) {
       throttledUntil = Math.max(throttledUntil, now() + wait * 1000);
-      return { state: 'rate_limited', retryAfter: wait };
+      return { state: 'rate_limited', retryAt: throttledUntil, retryAfter: wait };
     }
     if (code === 'PHONE_CODE_INVALID') return { state: 'invalid_code' };
     if (code === 'PASSWORD_HASH_INVALID') return { state: 'invalid_password' };
@@ -119,7 +119,7 @@ export function mtprotoControl(config, store, withClient, now = Date.now) {
       }
       return { state: 'disconnected' };
     }
-    if (throttledUntil > now()) return { state: 'rate_limited', retryAfter: Math.ceil((throttledUntil - now()) / 1000) };
+    if (throttledUntil > now()) return { state: 'rate_limited', retryAt: throttledUntil, retryAfter: Math.ceil((throttledUntil - now()) / 1000) };
     if (operation === 'inventory') {
       if (!saved) return { state: 'disconnected' };
       return withClient(saved, client => client.inventory());
@@ -224,13 +224,14 @@ export function mtprotoControl(config, store, withClient, now = Date.now) {
       const input = inputFor(operation, value);
       if (!input) return mtprotoResult('invalid_request');
       const result = await operate(operation, input);
+      if (result.state === 'rate_limited' && result.retryAt) throttledUntil = Math.max(throttledUntil, result.retryAt);
       return mtprotoResult(result.state, result, operation);
     } catch (error) {
       const result = handleError(error, operation);
       if (result.state === 'expired' && operation === 'inventory') {
         try { await store.clear(); } catch { return mtprotoResult('unavailable'); }
       }
-      return mtprotoResult(result.state, result);
+      return mtprotoResult(result.state, result, operation);
     } finally {
       busy = false;
     }
