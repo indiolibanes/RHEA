@@ -283,13 +283,21 @@ export async function openMirror(config, privateChat, peerFor, invoke, download)
     const current = await from.read();
     if (!rebuild) return current;
     const incoming = await intake.read();
-    const before = rebuild.beforeId === null ? current.length : current.findIndex(post => post.id === rebuild.beforeId);
-    if (before < 0) throw new MirrorPreflightError('source', 'selection_changed');
     if (current.length + incoming.length > rebuildLimit) throw new MirrorPreflightError('source', 'history_limit');
-    if (current[before]?.album != null && current[before].album === current[before - 1]?.album) {
-      throw new MirrorPreflightError('source', 'insertion_splits_album', current[before].id);
+    const byId = new Map(incoming.map(post => [post.id, post]));
+    const timeline = [];
+    let start = 0;
+    for (const slot of rebuild.insertions ?? [{ beforeId: rebuild.beforeId, ids: rebuild.ids }]) {
+      const before = slot.beforeId === null ? current.length : current.findIndex(post => post.id === slot.beforeId);
+      if (before < start) throw new MirrorPreflightError('source', 'selection_changed');
+      if (current[before]?.album != null && current[before].album === current[before - 1]?.album) {
+        throw new MirrorPreflightError('source', 'insertion_splits_album', current[before].id);
+      }
+      timeline.push(...current.slice(start, before), ...slot.ids.map(id => byId.get(id)));
+      start = before;
     }
-    return [...current.slice(0, before), ...incoming, ...current.slice(before)];
+    timeline.push(...current.slice(start));
+    return timeline;
   }
 
   function destinationTransport(to) {

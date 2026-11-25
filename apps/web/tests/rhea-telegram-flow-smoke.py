@@ -68,7 +68,7 @@ base = f'http://127.0.0.1:{server.server_port}'
 GIB = 1_610_612_736  # 1.5 GiB per synthetic file
 calls = []
 lookups = []
-state = {'lookup': [], 'local_closed': True, 'replacement': False, 'rebuild_blocked': False}
+state = {'lookup': [], 'local_closed': True, 'replacement': False, 'rebuild_blocked': False, 'rebuild_pause': False, 'extra_intake': False}
 
 def respond(route):
     request = route.request
@@ -100,8 +100,11 @@ def respond(route):
                 {'id': 15, 'kind': 'cover', 'caption': 'Tapestry'},
             ]}})
             return
+        extra = [
+            {'id': 39, 'kind': 'document', 'filename': 'Tada-kun - 01.mkv', 'sizeBytes': GIB},
+        ] if state['extra_intake'] else []
         route.fulfill(json={'state': 'forum_page', 'forum': {'next': None, 'topicId': 1, 'channelId': '22222', 'posts': [
-            {'id': 37, 'kind': 'document', 'filename': '[Fixture]_Tsuki_ga_Kirei_01_[1280x720].mkv', 'sizeBytes': GIB},
+            *extra, {'id': 37, 'kind': 'document', 'filename': '[Fixture]_Tsuki_ga_Kirei_01_[1280x720].mkv', 'sizeBytes': GIB},
             {'id': 30, 'kind': 'document', 'filename': '[Fixture]_Tsuki_ga_Kirei_10_[1280x720][synthetic_release_tag_that_is_long_enough_to_force_wrapping_on_a_phone].mkv', 'sizeBytes': GIB}]}})
     elif operation.startswith('rebuild'):
         assert {key: data[key] for key in ['sourceTopicId', 'currentTopicId', 'replacementTopicId', 'beforeId', 'ids']} == {
@@ -119,6 +122,10 @@ def respond(route):
         elif operation == 'rebuildapprove':
             assert data['confirm'] is True
             route.fulfill(json={'state': 'mirror_progress', 'mirror': {'total': 5, 'copies': []}})
+        elif state['rebuild_pause']:
+            assert operation == 'rebuildnext'
+            state['rebuild_pause'] = False
+            route.fulfill(status=429, json={'state': 'rate_limited', 'retryAfter': 2})
         else:
             assert operation == 'rebuildnext'
             route.fulfill(json={'state': 'mirror_done', 'mirror': {'total': 5,
@@ -148,16 +155,17 @@ def no_overflow(page, label):
 
 def small_targets(page):
     return page.evaluate("""() => [...document.querySelectorAll('#anime-enrichment button, #anime-enrichment select, #anime-enrichment input, #anime-enrichment summary')]
-      .filter(el => el.offsetParent !== null).map(el => [el.id || el.textContent.trim().slice(0, 20), el.getBoundingClientRect().height])
+      .filter(el => el.offsetParent !== null).map(el => [el.id || el.textContent.trim().slice(0, 20),
+        (el.type === 'checkbox' && el.labels?.[0] ? el.labels[0] : el).getBoundingClientRect().height])
       .filter(([, h]) => h < 43.5)""")
 
-def reach_enrichment(page):
+def reach_enrichment(page, expected='Tsuki ga Kirei'):
     page.goto(base)
     page.locator('#forum-load').click()
     page.locator('#forum-topic').select_option('1')
-    expect(page.locator('#forum-status')).to_contain_text('2 arquivos disponíveis')
+    expect(page.locator('#forum-status')).to_contain_text('arquivos disponíveis')
     page.locator('#forum-organize').click()
-    expect(page.locator('#enrich-title')).to_have_value('Tsuki ga Kirei')
+    expect(page.locator('#enrich-title')).to_have_value(expected)
 
 def snap(page, name):
     if shots:
@@ -309,11 +317,10 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         expect(page.locator('#enrich-rebuild-items summary').nth(1)).to_contain_text('Tsuki ga Kirei')
         expect(page.locator('#enrich-rebuild-items summary').nth(2)).to_contain_text('Tundra')
         expect(page.locator('#enrich-rebuild-status')).to_contain_text('serão mantidas na ordem atual')
-        expect(page.locator('#enrich-publish')).to_be_hidden()
+        expect(page.locator('#enrich-publish')).to_be_visible()
         assert sum(call.startswith('organize') for call in calls) == organization_calls
-        page.locator('#enrich-rebuild-anchor').select_option(label='Tundra')
-        expect(page.locator('#enrich-rebuild-neighbors')).to_contain_text('Obra de Requests · Tsuki ga Kirei')
-        expect(page.locator('#enrich-rebuild-neighbors li').last).to_contain_text('Tundra')
+        expect(page.locator('#enrich-rebuild-anchor')).to_be_hidden()
+        expect(page.locator('#enrich-rebuild-neighbors')).to_contain_text('Tsuki ga Kirei → antes de Tundra')
         state['rebuild_blocked'] = True
         page.get_by_role('button', name='Revisar reconstrução').click()
         expect(page.locator('#enrich-publish-status')).to_contain_text('a leitura ficou incompleta')
@@ -326,9 +333,25 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         page.locator('#enrich-publish-approve').click()
         expect(page.locator('#enrich-publish-run')).to_be_visible()
         assert 'rebuildnext' not in calls
+        state['rebuild_pause'] = True
         page.locator('#enrich-publish-run').click()
+        expect(page.locator('#enrich-publish-status')).to_contain_text('O Telegram pediu uma pausa.')
+        expect(page.locator('#enrich-publish-run')).to_be_disabled()
+        expect(page.locator('#enrich-publish-run')).to_be_enabled(timeout=5000)
+        assert calls.count('rebuildnext') == 1
+        page.get_by_role('button', name='Retomar cópia').click()
         expect(page.locator('#enrich-publish-status')).to_contain_text('Tópico [NEW]: 5 de 5')
         expect(page.locator('#enrich-progress-backup').locator('..')).to_be_hidden()
+        state['extra_intake'] = True
+        reach_enrichment(page, expected='Tada-kun')
+        page.locator('#enrich-use-title').click()
+        page.locator('#enrich-check-destinations').click()
+        expect(page.locator('#enrich-rebuild-batch')).to_contain_text('2 obras da letra T')
+        page.locator('#enrich-rebuild-review').click()
+        expect(page.locator('#enrich-rebuild-neighbors li').first).to_contain_text('Tada-kun → antes de Tapestry')
+        expect(page.locator('#enrich-rebuild-neighbors li').last).to_contain_text('Tsuki ga Kirei → antes de Tundra')
+        expect(page.locator('#enrich-publish-review')).to_be_visible()
+        state['extra_intake'] = False
         state['replacement'] = False
 
     no_overflow(page, name)

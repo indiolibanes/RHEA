@@ -1,6 +1,6 @@
 import { isForumOperation } from '../../../src/rhea/library/forum-contract.mjs';
 import { isMirrorOperation } from '../../../src/rhea/library/mirror-contract.mjs';
-import { isOrganizationOperation } from '../../../src/rhea/library/organization-contract.mjs';
+import { isOrganizationOperation, isRebuildOperation, rebuildRequestLimit } from '../../../src/rhea/library/organization-contract.mjs';
 import { boundedTelegramJson } from '../../../src/rhea/library/telegram-contract.mjs';
 import { acceptsInput, inputFor, mtprotoResult, operationAllowed, overviewLimit } from '../../../src/rhea/library/mtproto-contract.mjs';
 
@@ -45,7 +45,7 @@ export async function mtprotoPage({ request, data, env }, fetcher = fetch) {
   try {
     let value;
     if (acceptsBody) {
-      value = await boundedTelegramJson(request, 1536);
+      value = await boundedTelegramJson(request, isRebuildOperation(operation) ? rebuildRequestLimit : 1536);
     } else if (request.body) {
       // Workers can expose a zero-byte POST as an empty stream.
       const reader = request.body.getReader();

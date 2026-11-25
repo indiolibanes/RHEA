@@ -1,4 +1,4 @@
-import { parseEpisodeLabel, privateMessageLink } from './catalog.mjs';
+import { parseEpisodeLabel, privateMessageLink, titleKey } from './catalog.mjs';
 import { groupTopicDocuments } from './anime-enrichment.mjs';
 import { forumId } from './forum-contract.mjs';
 
@@ -38,12 +38,17 @@ export function catalogSnapshot(inventory) {
 
 export function forumCatalogSnapshot({ title, topicId, channelId, posts, complete, reference }) {
   if (!forumId(topicId)) throw new TypeError('Invalid topic ID.');
-  const { groups } = groupTopicDocuments(posts, reference);
+  const { groups, sections } = groupTopicDocuments(posts, reference);
   const entries = new Map();
   const assignments = new Map();
+  function seriesFor(title) {
+    const key = titleKey(title, { foldDiacritics: false });
+    if (!entries.has(key)) entries.set(key, { id: 'forum-series-' + (entries.size + 1), title });
+    return entries.get(key).id;
+  }
+  for (const section of sections) assignments.set(section.id, { seriesId: seriesFor(section.title), kind: 'extra' });
   for (const group of groups) {
-    if (!entries.has(group.title)) entries.set(group.title, { id: 'forum-series-' + (entries.size + 1), title: group.title });
-    const seriesId = entries.get(group.title).id;
+    const seriesId = seriesFor(group.title);
     for (const { id, season, episode, part } of group.posts) assignments.set(id, { seriesId, season, episode, part });
   }
   const messages = posts.map(post => ({ ...post, ...assignments.get(post.id),

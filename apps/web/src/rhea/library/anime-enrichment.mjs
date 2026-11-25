@@ -2,7 +2,9 @@ import { letterFor, parseEpisodeLabel, titleKey } from './catalog.mjs';
 import { forumId } from './forum-contract.mjs';
 
 const filenameTitle = /^(?:\[[^\[\]]+\]\s*)*([^\[\]]+?)[ ._-]+[ST]\d{1,3}[ ._-]*E\d{1,4}(?=$|[^\p{L}\p{N}]|V\d)/iu;
-const numberedFansubTitle = /^(?:\[[^\[\]]+\][ ._-]*)+([^\[\]]+?)[ _-]+(\d{1,3})(?:v[1-9]\d?)?(?:[ ._-]*\[[^\[\]]+\])*[ ._-]*\.(?:mkv|mp4|avi|webm)$/iu;
+const numberedFansubTitle = /^(?:\[[^\[\]]+\][ ._-]*)+([^\[\]]+?)[ _-]+(?:(?:E|EP)[ ._-]*)?(\d{1,3})(?:v[1-9]\d?)?(?:[ ._-]*\[[^\[\]]+\])*[ ._-]*\.(?:mkv|mp4|avi|webm)$/iu;
+const numberedTitle = /^([^\[\]]+?)\s+-\s+(?:(?:E|EP)[ ._-]*)?(\d{1,3})(?:v[1-9]\d?)?(?:[ ._-]*\[[^\[\]]+\])*[ ._-]*\.(?:mkv|mp4|avi|webm)$/iu;
+const episodeOnly = /^(?:\[[^\[\]]+\][ ._-]*)*(?:E|EP[ ._-]*)?(\d{1,3})(?:v[1-9]\d?)?(?:[ ._-]*\[[^\[\]]+\])*[ ._-]*\.(?:mkv|mp4|avi|webm)$/iu;
 const seriesCaption = /^Series:[ \t]*(.{1,120}?)(?:[ \t]*\||\s*$)/iu;
 const titleFromFilename = filename => filename?.match(filenameTitle)?.[1]?.replace(/[_.]+/g, ' ').trim();
 const order = (a, b) => (a.season ?? Infinity) - (b.season ?? Infinity) ||
@@ -14,9 +16,16 @@ const slotKey = ({ season, episode, part }) => [season, episode, part ?? 0].join
 export const sortAnimeEpisodes = posts => [...posts].sort(order);
 
 function numberedFansubEpisode(filename) {
-  const match = numberedFansubTitle.exec(filename.normalize('NFKC'));
+  const normalized = filename.normalize('NFKC');
+  if (/\d+[ ._-]*[-–+&][ ._-]*(?:EP?)?\d/iu.test(normalized)) return null;
+  const match = numberedFansubTitle.exec(normalized) ?? numberedTitle.exec(normalized);
   if (!match || !/\p{L}/u.test(match[1]) || /(?:^|[ ._-])[ST]?\d{1,3}$/i.test(match[1])) return null;
   return { title: match[1].replace(/[_.]+/g, ' ').trim(), episode: Number(match[2]) };
+}
+
+function coverHeading(value) {
+  const text = value?.trim().replace(/\s*\[\s*\d+(?:[.,]\d+)?\s*(?:[KMGT]i?B|bytes)\s*\]\s*$/iu, '').trim();
+  return text && text.length <= 120 && /\p{L}/u.test(text) && !/[\r\n]|https?:\/\/|\bfansub\b/iu.test(text) ? text : undefined;
 }
 
 export function episodeLabel({ season, episode, part }) {
@@ -27,12 +36,18 @@ export function episodeLabel({ season, episode, part }) {
 
 export function groupTopicDocuments(posts, reference) {
   const groups = new Map();
+  const sections = [];
   const albumGroups = new Map();
   let unassigned = 0;
-  let sectionTitle;
+  let section;
   for (const post of [...posts].sort((a, b) => a.id - b.id)) {
     const captionTitle = seriesCaption.exec(post.caption?.split(/\r?\n/, 1)[0] ?? '')?.[1]?.trim();
-    if (post.kind === 'cover' || (post.kind === 'note' && captionTitle)) sectionTitle = captionTitle;
+    if (post.kind === 'cover' || (post.kind === 'note' && captionTitle)) {
+      const explicit = captionTitle || (post.kind === 'cover' ? coverHeading(post.heading) : undefined);
+      const hint = explicit || (post.kind === 'cover' ? coverHeading(post.caption) : undefined);
+      if (hint) sections.push({ id: post.id, title: hint, trusted: Boolean(explicit) });
+      section = explicit ? sections.at(-1) : undefined;
+    }
     if (post.kind !== 'document') continue;
     const match = post.filename && reference?.match(post.filename);
     const explicit = match?.reason === 'exact' ? match.series : undefined;
@@ -41,7 +56,11 @@ export function groupTopicDocuments(posts, reference) {
     const numbered = metadata.episode === undefined ? numberedFansubEpisode(filename) : null;
     if (numbered) metadata.episode = numbered.episode;
     const detected = numbered?.title || (metadata.episode !== undefined && titleFromFilename(filename));
-    const title = (explicit || captionTitle || detected || sectionTitle || '').trim();
+    const title = (explicit || captionTitle || detected || section?.title || '').trim();
+    if (metadata.episode === undefined && section && titleKey(title) === titleKey(section.title)) {
+      const number = episodeOnly.exec(filename.normalize('NFKC'))?.[1];
+      if (number !== undefined) metadata.episode = Number(number);
+    }
     const groupKey = title && JSON.stringify([titleKey(title, { foldDiacritics: false }), metadata.season ?? null]);
     if (post.albumId) {
       if (!albumGroups.has(post.albumId)) albumGroups.set(post.albumId, new Set());
@@ -49,7 +68,8 @@ export function groupTopicDocuments(posts, reference) {
     }
     if (!groupKey) { unassigned++; continue; }
     if (!groups.has(groupKey)) groups.set(groupKey, { key: groupKey, title, season: metadata.season, posts: [] });
-    groups.get(groupKey).posts.push({ id: post.id, filename, albumId: post.albumId, sizeBytes: post.sizeBytes,
+    const group = groups.get(groupKey);
+    group.posts.push({ id: post.id, filename, albumId: post.albumId, sizeBytes: post.sizeBytes,
       protected: post.protected === true, ...metadata });
   }
   for (const group of groups.values()) {
@@ -67,7 +87,7 @@ export function groupTopicDocuments(posts, reference) {
     }
   }
   return { groups: [...groups.values()].sort((a, b) => a.title.localeCompare(b.title, 'pt-BR') ||
-    (a.season ?? Infinity) - (b.season ?? Infinity)), unassigned };
+    (a.season ?? Infinity) - (b.season ?? Infinity)), sections, unassigned };
 }
 
 export function alphabeticDestination(letter, topics, sourceTopicId, role = 'letter') {

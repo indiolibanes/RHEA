@@ -181,7 +181,7 @@ test('rebuilds a paginated letter with all unclassified posts and preserves the 
   const transport = telegramClient(config, provider);
   const start = () => mtprotoControl(config, { read: async () => 'test' }, (_session, fn) => transport(null, fn));
   let adapter = start();
-  const input = { sourceTopicId: 1, currentTopicId: 8, replacementTopicId: 9, beforeId: 160, letter: 'T', ids: [32, 31] };
+  let input = { sourceTopicId: 1, currentTopicId: 8, replacementTopicId: 9, beforeId: 160, letter: 'T', ids: [32, 31] };
   const invoke = async (op, body = input) => {
     const response = await adapter(new Request('https://adapter.example/v1/rebuild' + op, {
       method: 'POST', headers: { Authorization: 'Bearer ' + config.key, 'X-Rhea-Access-Subject': config.actor },
@@ -201,10 +201,16 @@ test('rebuilds a paginated letter with all unclassified posts and preserves the 
   destination.push({ id: 200 });
   assert.equal((await invoke('preview')).issue.code, 'destination_not_empty');
   destination.pop();
+  assert.equal((await invoke('preview')).state, 'mirror_preview'); // Single-anchor clients remain compatible.
+  input = { ...input, beforeId: null, insertions: [{ beforeId: 160, ids: [32] }, { beforeId: 162, ids: [31] }] };
+  assert.equal((await invoke('preview', { ...input, insertions: [{ beforeId: 162, ids: [32] }, { beforeId: 160, ids: [31] }] })).issue.code,
+    'selection_changed');
+  assert.equal((await invoke('preview', { ...input, insertions: [{ beforeId: 160, ids: [31] }, { beforeId: 162, ids: [32] }] })).state,
+    'invalid_request');
   const preview = await invoke('preview');
   assert.equal(preview.state, 'mirror_preview');
   assert.equal(preview.mirror.total, 66);
-  const sequence = [...ids.slice(0, 60), 32, 31, ...ids.slice(60)];
+  const sequence = [...ids.slice(0, 60), 32, ...ids.slice(60, 62), 31, ...ids.slice(62)];
   assert.deepEqual(preview.mirror.posts.map(post => post.id), sequence);
   assert.ok(oldOffsets.has(104) && oldOffsets.has(100));
   const approval = await invoke('approve', { ...input, confirm: true, approval: preview.mirror.approval });

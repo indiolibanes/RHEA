@@ -78,7 +78,8 @@ export function mirrorControl(config, now = Date.now) {
   const limit = rebuild ? rebuildLimit : mirrorLimit;
   const target = digest([destination.channelId, destination.topicId]);
   const scope = digest([config.actor, config.ownerId, source.channelId, source.topicId, target, ...(local ? [local.topicId] : []),
-    ...(ordered ? [ordered.letter, ordered.ids] : []), ...(rebuild ? [intake.topicId, rebuild.beforeId] : [])]);
+    ...(ordered ? [ordered.letter, ordered.ids] : []), ...(rebuild ? [intake.topicId, rebuild.beforeId] : []),
+    ...(rebuild?.insertions ? [rebuild.insertions] : [])]);
   const journal = join(dirname(config.file), rebuild ? 'letter-rebuild-pilot.jsonl' :
     ordered ? 'organization-pilot.jsonl' : 'mirror-' + target + '.jsonl');
   let pending;
