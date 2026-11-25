@@ -104,6 +104,8 @@ def respond(route):
             return
         extra = [
             {'id': 39, 'kind': 'document', 'filename': 'Tada-kun - 01.mkv', 'sizeBytes': GIB},
+            {'id': 41, 'kind': 'document', 'filename': 'Tsuki ga Kirei - S02E01.mkv'},
+            {'id': 42, 'kind': 'document', 'filename': 'Amber Archive - 01.mkv'},
         ] if state['extra_intake'] else []
         if state['special']:
             extra.append({'id': 40, 'kind': 'document', 'filename': '[Fixture] Tsuki ga Kirei - OVA [1080p].mkv'})
@@ -111,6 +113,16 @@ def respond(route):
             *extra, {'id': 37, 'kind': 'document', 'filename': '[Fixture]_Tsuki_ga_Kirei_01_[1280x720].mkv', 'sizeBytes': GIB},
             {'id': 30, 'kind': 'document', 'filename': '[Fixture]_Tsuki_ga_Kirei_10_[1280x720][synthetic_release_tag_that_is_long_enough_to_force_wrapping_on_a_phone].mkv', 'sizeBytes': GIB}]}})
     elif operation.startswith('rebuild'):
+        if state['extra_intake']:
+            assert operation == 'rebuildpreview'
+            assert data == {'sourceTopicId': 1, 'currentTopicId': 9, 'replacementTopicId': 81, 'beforeId': None,
+                            'letter': 'T', 'ids': [39, 41, 37, 30],
+                            'insertions': [{'beforeId': 15, 'ids': [39]}, {'beforeId': 19, 'ids': [41, 37, 30]}]}
+            order = [39, 15, 16, 41, 37, 30, 19]
+            route.fulfill(json={'state': 'mirror_preview', 'mirror': {'total': len(order), 'approval': 'a' * 43,
+                'source': 'Letter T + Requests', 'destination': 'Letter T [NEW]',
+                'posts': [{'id': id, 'label': 'Fixture'} for id in order]}})
+            return
         assert {key: data[key] for key in ['sourceTopicId', 'currentTopicId', 'replacementTopicId', 'beforeId', 'ids']} == {
             'sourceTopicId': 1, 'currentTopicId': 9, 'replacementTopicId': 81, 'beforeId': 19, 'ids': [37, 30],
         }
@@ -387,14 +399,35 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         assert page.evaluate(saved_copy) is None
         expect(page.locator('#enrich-progress-backup').locator('..')).to_be_hidden()
         state['extra_intake'] = True
-        reach_enrichment(page, expected='Tada-kun')
-        page.locator('#enrich-use-title').click()
-        page.locator('#enrich-check-destinations').click()
-        expect(page.locator('#enrich-rebuild-batch')).to_contain_text('2 obras da letra T')
+        reach_enrichment(page, expected='Amber Archive')
+        expect(page.locator('#enrich-letter option')).to_have_text(['A', 'T'])
+        page.locator('#enrich-letter').select_option('T')
+        previous_count = len(lookups)
+        page.get_by_role('button', name='Escolher séries').click()
+        expect(page.locator('#enrich-rebuild-legend')).to_contain_text('Séries da letra T')
+        picks = page.locator('#enrich-rebuild-options')
+        expect(picks.get_by_role('checkbox')).to_have_count(2)
+        expect(picks.get_by_role('checkbox', name='Tsuki ga Kirei · 3 arquivos')).to_be_visible()
+        expect(picks.get_by_role('checkbox', name='Amber Archive', exact=False)).to_have_count(0)
+        expect(page.locator('#enrich-rebuild-review')).to_be_disabled()
+        page.get_by_role('button', name='Marcar todas').click()
+        expect(page.locator('#enrich-rebuild-count')).to_have_text('2 séries · 4 arquivos')
         page.locator('#enrich-rebuild-review').click()
         expect(page.locator('#enrich-rebuild-neighbors li').first).to_contain_text('Tada-kun → antes de Tapestry')
         expect(page.locator('#enrich-rebuild-neighbors li').last).to_contain_text('Tsuki ga Kirei → antes de Tundra')
         expect(page.locator('#enrich-publish-review')).to_be_visible()
+        reads = calls.count('forumpage')
+        picks.get_by_role('checkbox', name='Tada-kun', exact=False).uncheck()
+        expect(page.locator('#enrich-rebuild-neighbors li')).to_have_count(1)
+        page.get_by_role('button', name='Limpar seleção').click()
+        expect(page.locator('#enrich-rebuild-review')).to_be_disabled()
+        expect(page.locator('#enrich-publish')).to_be_hidden()
+        page.get_by_role('button', name='Marcar todas').click()
+        page.locator('#enrich-publish-review').click()
+        expect(page.locator('#enrich-publish-files > li')).to_have_count(7)
+        expect(page.locator('#enrich-publish-files')).not_to_contain_text('#42')
+        assert calls.count('forumpage') == reads and len(lookups) == previous_count
+        page.get_by_role('dialog').get_by_role('button', name='Voltar').click()
         state['extra_intake'] = False
         state['replacement'] = False
 

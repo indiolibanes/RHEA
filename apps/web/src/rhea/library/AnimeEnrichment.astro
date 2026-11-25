@@ -1,6 +1,14 @@
 <details class="library-section" id="anime-enrichment">
   <summary><strong>Organizar com metadados</strong></summary>
   <p id="enrich-source" tabindex="-1" role="status"></p>
+  <section id="enrich-letter-picker" hidden>
+    <h3>Organizar por letra</h3>
+    <div class="library-actions">
+      <label>Letra alvo <select id="enrich-letter"></select></label>
+      <button id="enrich-open-letter" class="editorial-action rhea-primary" type="button">Escolher séries</button>
+    </div>
+    <p id="enrich-letter-status" role="status"></p>
+  </section>
   <ol class="library-steps" id="enrich-steps" aria-label="Etapas da organização" hidden>
     <li data-step="search">Consultar metadados</li>
     <li data-step="confirm">Confirmar obra</li>
@@ -65,30 +73,35 @@
     <p id="enrich-destination-status" role="status"></p>
     <p class="library-note" id="enrich-pilot-note" hidden>Tópico encontrado não significa pronto: o piloto só copia para tópicos vazios nos dois grupos. Se um deles já tiver conteúdo, a cópia não começa.</p>
     <ul id="enrich-destinations" hidden></ul>
-    <section id="enrich-rebuild" hidden>
-      <h4>Reconstruir a letra em outro tópico</h4>
-      <p id="enrich-rebuild-targets"></p>
-      <label id="enrich-rebuild-batch" class="library-check" hidden>
-        <input id="enrich-rebuild-all" type="checkbox" checked>
-        <span id="enrich-rebuild-batch-label">Incluir as outras obras desta letra em Requests</span>
-      </label>
-      <div class="library-actions"><button id="enrich-rebuild-review" class="editorial-action rhea-primary" type="button">Montar prévia da letra</button></div>
-      <p id="enrich-rebuild-status" role="status"></p>
-      <button id="enrich-rebuild-adjust" class="editorial-action" type="button" aria-expanded="false" aria-controls="enrich-rebuild-insert" hidden>Ajustar posição</button>
-      <div id="enrich-rebuild-insert" class="library-form" hidden>
-        <label>Onde entra a obra de Requests?
-          <select id="enrich-rebuild-anchor"><option value="">Escolha a posição no tópico</option></select>
-        </label>
-        <p>Confira a posição quando o histórico não identificar os limites entre as obras.</p>
-      </div>
-      <ol id="enrich-rebuild-neighbors" class="library-field-row" aria-label="Ordem no ponto de inserção" hidden></ol>
-      <ol class="library-order" id="enrich-rebuild-items"></ol>
-    </section>
     <div id="enrich-order" class="library-orders">
       <details><summary>Ordem na origem</summary><ol id="enrich-original" class="library-order"></ol></details>
       <details open><summary>Ordem por episódio</summary><ol id="enrich-sorted" class="library-order"></ol></details>
     </div>
   </div>
+  <section id="enrich-rebuild" hidden>
+    <h3>Reconstruir a letra em outro tópico</h3>
+    <p id="enrich-rebuild-targets"></p>
+    <fieldset id="enrich-rebuild-picks">
+      <legend id="enrich-rebuild-legend">Séries para incluir</legend>
+      <div class="library-actions">
+        <button id="enrich-rebuild-select-all" class="editorial-action" type="button">Marcar todas</button>
+        <button id="enrich-rebuild-select-none" class="editorial-action" type="button">Limpar seleção</button>
+      </div>
+      <div id="enrich-rebuild-options"></div>
+    </fieldset>
+    <p id="enrich-rebuild-count" role="status"></p>
+    <div class="library-actions"><button id="enrich-rebuild-review" class="editorial-action rhea-primary" type="button">Montar prévia da letra</button></div>
+    <p id="enrich-rebuild-status" role="status"></p>
+    <button id="enrich-rebuild-adjust" class="editorial-action" type="button" aria-expanded="false" aria-controls="enrich-rebuild-insert" hidden>Ajustar posição</button>
+    <div id="enrich-rebuild-insert" class="library-form" hidden>
+      <label>Onde entra a obra de Requests?
+        <select id="enrich-rebuild-anchor"><option value="">Escolha a posição no tópico</option></select>
+      </label>
+      <p>Confira a posição quando o histórico não identificar os limites entre as obras.</p>
+    </div>
+    <ol id="enrich-rebuild-neighbors" class="library-field-row" aria-label="Ordem no ponto de inserção" hidden></ol>
+    <ol class="library-order" id="enrich-rebuild-items"></ol>
+  </section>
   <div id="enrich-publish" hidden>
     <div class="library-actions">
       <button class="editorial-action rhea-primary" id="enrich-publish-review" type="button">Revisar publicação</button>

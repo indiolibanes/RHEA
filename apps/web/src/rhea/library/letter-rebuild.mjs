@@ -26,6 +26,7 @@ export function planLetterRebuild({ letter, currentPosts, intakeGroup, intakeTit
     }
   }
   const incoming = (intakeWorks ?? [{ ...intakeGroup, title: intakeTitle, detectedTitle: intakeGroup.title }])
+    .filter(group => letterFor(group.title) === letter)
     .map(group => ({ ...group, origin: 'intake', posts: sortAnimeEpisodes(group.posts) }));
   const titles = new Set(incoming.flatMap(group => [key(group.title), key(group.detectedTitle ?? group.title)]));
   const titleMatches = current.some(group => titles.has(key(group.title)));
@@ -47,7 +48,7 @@ export function planLetterRebuild({ letter, currentPosts, intakeGroup, intakeTit
 function automaticInsertions(posts, current, incoming, checks) {
   const old = [...posts].sort((a, b) => a.id - b.id);
   const anchors = [...current].sort((a, b) => startId(a) - startId(b));
-  if (checks.incomplete || checks.sameTitle || checks.outOfLetter) return { state: 'review' };
+  if (!incoming.length || checks.incomplete || checks.sameTitle || checks.outOfLetter) return { state: 'review' };
   let previousTitle;
   let last = 0;
   for (const group of anchors) {
