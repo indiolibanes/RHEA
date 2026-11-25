@@ -87,6 +87,10 @@ def respond(route):
         route.fulfill(json={'state': 'connected'})
     elif operation == 'forumtopics':
         backup = data.get('scope') == 'backup'
+        if state.get('topic_wait') and not backup:
+            state['topic_wait'] = False
+            route.fulfill(status=429, json={'state': 'rate_limited', 'retryAfter': 2})
+            return
         topics = [{'id': 8, 'title': 'Letra "T"'}] if backup else [
             {'id': 1, 'title': 'Requests'}, {'id': 12, 'title': 'Letter L'},
             {'id': 9, 'title': 'Letter T', 'closed': state['local_closed']}]
@@ -511,7 +515,53 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
     assert not errors, errors
     browser.close()
 
+
+def scenario_destination_wait(playwright):
+    # All topic names, files and Telegram responses here are synthetic.
+    state.update({'local_closed': False, 'replacement': False, 'topic_wait': False})
+    calls.clear()
+    browser = playwright.chromium.launch(executable_path=os.environ.get('RHEA_BROWSER_PATH'),
+                                          args=['--single-process'] if os.environ.get('RHEA_BROWSER_PATH') else [])
+    context = browser.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True)
+    context.route('**/api/rhea/**', respond)
+    page = context.new_page()
+    reach_enrichment(page)
+    expect(page.locator('#enrich-letter-status')).to_contain_text('letra detectada')
+    page.locator('#enrich-use-title').click()
+    before = calls.count('forumtopics')
+    state['topic_wait'] = True
+    page.locator('#enrich-check-destinations').click()
+    expect(page.locator('#enrich-destination-status')).to_contain_text('Telegram pediu uma pausa')
+    expect(page.locator('#enrich-sum-destinations')).to_have_text('Consulta pausada · Backup não conferido')
+    expect(page.locator('#enrich-destinations')).to_contain_text('Consulta pendente')
+    expect(page.locator('#enrich-check-destinations')).to_be_disabled()
+    assert calls.count('forumtopics') == before + 1, calls
+    # Metadata edits cannot shorten the Telegram wait.
+    page.locator('#enrich-use-title').click()
+    expect(page.locator('#enrich-check-destinations')).to_be_disabled()
+    expect(page.locator('#enrich-check-destinations')).to_be_enabled(timeout=5000)
+    assert calls.count('forumtopics') == before + 1, calls
+    state['replacement'] = True
+    page.locator('#enrich-check-destinations').click()
+    expect(page.locator('#enrich-destination-status')).to_contain_text('reconstrução foram encontrados')
+    expect(page.locator('#enrich-destinations')).to_contain_text('Letter T [NEW]')
+    assert not any(call.endswith(('preview', 'approve', 'next')) for call in calls), calls
+    # A complete index already showing both topics must not be read again to identify the pair.
+    reach_enrichment(page)
+    expect(page.locator('#enrich-letter-options')).to_contain_text('Destino: Letter T [NEW]')
+    before = calls.count('forumtopics')
+    page.locator('#enrich-use-title').click()
+    page.locator('#enrich-check-destinations').click()
+    expect(page.locator('#enrich-destination-status')).to_contain_text('reconstrução foram encontrados')
+    expect(page.locator('#enrich-destinations')).to_contain_text('Tópico atual (origem)')
+    assert calls.count('forumtopics') == before, calls
+    assert not any(call.endswith(('preview', 'approve', 'next')) for call in calls), calls
+    state['replacement'] = False
+    browser.close()
+
 with sync_playwright() as playwright:
+    if not baseline:
+        scenario_destination_wait(playwright)
     run(playwright, 'mobile-light', {'width': 390, 'height': 844}, 'light', True)
     run(playwright, 'mobile-dark', {'width': 390, 'height': 844}, 'dark', True)
     run(playwright, 'tablet-light', {'width': 820, 'height': 1180}, 'light', True)
