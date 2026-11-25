@@ -199,7 +199,7 @@ test('Teleproto RPCs target the pinned forum topic and reuse native files', asyn
       assert.equal(rpc.msgId, source.topicId);
       return getReplies(source, posts);
     }
-    assert.equal(options.maxRetryCount, 1);
+    assert.equal(options.maxRetryCount, 0);
     assert.equal(rpc.peer.channelId.toString(), destination.channelId);
     seen.push(rpc);
     const ids = rpc.multiMedia?.map(media => media.randomId) ?? [rpc.randomId];

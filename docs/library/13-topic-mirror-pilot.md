@@ -193,6 +193,15 @@ the existing alphabetical order, or an unidentified boundary requires review. Th
 adjust a single work's placement without changing existing publication order. A different letter
 has its own preview and destination. Reconstruction remains a separately approved operation.
 
-When Telegram returns a wait with a retry duration, the panel holds further execution requests
-and displays the remaining time. When the interval ends, the operator can choose **Retomar cópia**.
-The journal still stops an ambiguous send for manual verification.
+After **Executar cópia**, a Telegram wait with a retry duration pauses the copy and displays a
+countdown. The same tab resumes the approved run automatically after each wait. Keep the page open
+for automatic continuation. Choose **Pausar retomada automática** to wait and continue manually.
+If the browser closes, reopen the same work and review the plan to resume from the journal. Preview
+and approval still require user action. An explicit send rejection with a Telegram wait records the
+deadline in the journal and retries with the same Telegram random IDs, including after an adapter
+restart. A missing receipt with no explicit rejection still requires manual verification.
+
+Intermediate organization and reconstruction receipts use the fresh origin and destination
+snapshots already read during that step. Each send revalidates the topics before publication,
+and completion still includes a second verification pass. This reduces full-history requests
+without changing the published sequence or media references.

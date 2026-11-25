@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { Api } from 'teleproto';
+import { FloodWaitError } from 'teleproto/errors';
 import { mtprotoPage } from '../functions/api/rhea/telegram-mtproto.js';
 import { mtprotoControl } from './control.mjs';
 import { telegramClient } from './telegram.mjs';
@@ -28,6 +29,10 @@ async function setup(t) {
   const source = [rawPost(34, '01'), rawPost(33, '03'), rawPost(32, '01'), rawPost(31, '02')];
   const targets = { 8: [], 9: [] };
   const sends = [];
+  const reads = [];
+  const attempts = [];
+  let clock = 1000;
+  let wait = 0;
   let failReceipt = false;
   const messages = rows => ({ className: 'messages.Messages', messages: rows });
   const provider = () => ({
@@ -46,6 +51,7 @@ async function setup(t) {
         return { topics: [{ className: 'ForumTopic', id: query.topics[0], title: 'Letter T' }] };
       }
       if (query instanceof Api.messages.GetReplies) {
+        reads.push(query.msgId);
         if (query.msgId === 1) return messages(source);
         return messages([...targets[query.msgId]].reverse());
       }
@@ -54,6 +60,12 @@ async function setup(t) {
       const to = query.replyTo.replyToMsgId;
       assert.ok(to === 8 || to === 9);
       assert.equal(query.peer.channelId.toString(), to === 8 ? '11111' : '22222');
+      attempts.push(query.randomId);
+      if (wait) {
+        const seconds = wait;
+        wait = 0;
+        throw new FloodWaitError({ capture: seconds, request: query });
+      }
       const original = source.find(item => item.media.document.id.toString() === query.media.id.id.toString());
       const id = 100 + targets[to].length;
       targets[to].push({ ...original, id, peerId: { channelId: query.peer.channelId }, replyTo: { replyToMsgId: to } });
@@ -64,7 +76,7 @@ async function setup(t) {
   });
   const transport = telegramClient(config, provider);
   const start = () => mtprotoControl(config, { read: async () => 'enrolled-test-session' },
-    (_session, callback) => transport(null, callback));
+    (_session, callback) => transport(null, callback), () => clock);
   let adapter = start();
   const invoke = async (operation, input = selection) => {
     const response = await adapter(new Request('https://adapter.example/v1/organize' + operation, {
@@ -80,9 +92,29 @@ async function setup(t) {
     assert.equal((await invoke('approve', { ...selection, confirm: true, approval: preview.mirror.approval })).state, 'mirror_progress');
     assert.deepEqual(sends, []);
   }
-  return { invoke, approve, source, sends, targets, restart: () => { adapter = start(); },
+  return { invoke, approve, source, sends, targets, reads, attempts, restart: () => { adapter = start(); },
+    delaySend: seconds => { wait = seconds; }, advance: milliseconds => { clock += milliseconds; },
     loseReceipt: () => { failReceipt = true; } };
 }
+
+test('journals a Telegram send rejection and retries the same IDs only after the wait, including after restart', async t => {
+  const run = await setup(t);
+  await run.approve();
+  run.delaySend(90_000);
+  assert.deepEqual(await run.invoke('next'), { state: 'rate_limited', retryAfter: 90_000 });
+  assert.deepEqual(await run.invoke('next'), { state: 'rate_limited', retryAfter: 90_000 });
+  run.restart();
+  run.advance(89_999_999);
+  const readsBeforeRetry = run.reads.length;
+  assert.deepEqual(await run.invoke('next'), { state: 'rate_limited', retryAfter: 1 });
+  assert.equal(run.reads.length, readsBeforeRetry);
+  assert.equal(run.attempts.length, 1);
+  assert.deepEqual(run.sends, []);
+  run.advance(1);
+  assert.equal((await run.invoke('next')).state, 'mirror_progress');
+  assert.deepEqual(run.attempts, [run.attempts[0], run.attempts[0]]);
+  assert.deepEqual(run.sends, [[8, 32]]);
+});
 
 test('copies only the approved files from General in the selected order to both verified targets', async t => {
   const run = await setup(t);
@@ -91,7 +123,11 @@ test('copies only the approved files from General in the selected order to both 
   assert.equal((await run.invoke('next')).state, 'mirror_progress');
   run.restart();
   let result;
-  for (let i = 1; i < 12; i++) result = await run.invoke('next');
+  for (let i = 1; i < 12; i++) {
+    const priorReads = run.reads.length;
+    result = await run.invoke('next');
+    assert.deepEqual(run.reads.slice(priorReads), i === 11 ? [1, 9, 8, 9, 8, 1] : i < 6 ? [1, 8, 9] : [1, 9, 8]);
+  }
   assert.equal(result.state, 'mirror_done');
   assert.deepEqual(run.sends, [[8, 32], [8, 31], [8, 33], [9, 32], [9, 31], [9, 33]]);
   assert.deepEqual(result.mirror.copies.map(copy => copy.sourceId), selection.ids);

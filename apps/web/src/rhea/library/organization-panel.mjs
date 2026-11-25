@@ -18,6 +18,8 @@ export function organizationPublication(get, endpoint) {
   let approved = false;
   let retryUntil = 0;
   let retryTimer;
+  let resumeAfterWait = false;
+  let lastProgress;
 
   // Each destination reports on its own: verified copies of the total plus a text state, never color alone.
   function showProgress(local, backup, total, state) {
@@ -37,6 +39,8 @@ export function organizationPublication(get, endpoint) {
     active?.abort();
     active = selection = approval = reconstructionIds = undefined;
     clearInterval(retryTimer);
+    resumeAfterWait = false;
+    lastProgress = undefined;
     approved = false;
     paused = true;
     if (dialog.open) dialog.close();
@@ -47,23 +51,42 @@ export function organizationPublication(get, endpoint) {
     run.textContent = 'Executar cópia';
   }
 
-  function pauseForTelegram(result, action) {
-    if (!Number.isInteger(result.retryAfter) || result.retryAfter < 1 || result.retryAfter > 86400) return;
-    retryUntil = Date.now() + result.retryAfter * 1000;
+  function showCooldown(action) {
     clearInterval(retryTimer);
-    if (action === 'next') {
-      run.hidden = false;
-      run.textContent = 'Retomar cópia';
-    }
+    const copying = action === 'next';
+    run.hidden = !copying;
+    pause.hidden = !resumeAfterWait;
+    pause.textContent = 'Pausar retomada automática';
+    if (copying && lastProgress) renderProgress(lastProgress, 'paused');
+    status.textContent = copying && resumeAfterWait ?
+      'O Telegram pediu uma pausa. A cópia será retomada automaticamente nesta aba.' :
+      'O Telegram pediu uma pausa. Aguarde o intervalo para continuar.';
+    const countdownButton = copying ? run : review;
+    const actionLabel = copying ? 'Retomar cópia' : reconstructionIds ? 'Revisar reconstrução' : 'Revisar publicação';
     const tick = () => {
       const remaining = Math.max(0, Math.ceil((retryUntil - Date.now()) / 1000));
       review.disabled = run.disabled = remaining > 0 || Boolean(active);
-      status.textContent = remaining ? 'O Telegram pediu uma pausa. Aguarde ' + remaining + ' s para retomar.' :
-        'O intervalo terminou. Você pode ' + (action === 'next' ? 'retomar a cópia.' : 'repetir a revisão.');
-      if (!remaining) clearInterval(retryTimer);
+      countdownButton.textContent = remaining ? 'Aguarde ' + remaining + ' s' : actionLabel;
+      if (remaining) return;
+      clearInterval(retryTimer);
+      pause.hidden = true;
+      if (resumeAfterWait) {
+        resumeAfterWait = false;
+        status.textContent = 'Retomando a cópia…';
+        void handle('next', true);
+      } else {
+        status.textContent = 'O intervalo terminou. Você pode ' + (copying ? 'retomar a cópia.' : 'repetir a revisão.');
+      }
     };
-    tick();
     retryTimer = setInterval(tick, 1000);
+    tick();
+  }
+
+  function pauseForTelegram(result, action) {
+    if (!Number.isInteger(result.retryAfter) || result.retryAfter < 1) return;
+    retryUntil = Date.now() + result.retryAfter * 1000;
+    resumeAfterWait = action === 'next' && !paused;
+    showCooldown(action);
   }
 
   function prepare(value, rebuildIds) {
@@ -75,8 +98,7 @@ export function organizationPublication(get, endpoint) {
     get('publish-title').textContent = rebuildIds ? 'Aprovar reconstrução da letra' : 'Aprovar cópia para os dois tópicos';
     review.textContent = rebuildIds ? 'Revisar reconstrução' : 'Revisar publicação';
     container.hidden = false;
-    const remaining = Math.ceil((retryUntil - Date.now()) / 1000);
-    if (remaining > 0) pauseForTelegram({ retryAfter: remaining }, 'preview');
+    if (retryUntil > Date.now()) showCooldown('preview');
   }
 
   async function request(operation, signal, confirmation) {
@@ -85,6 +107,14 @@ export function organizationPublication(get, endpoint) {
       body: JSON.stringify({ ...selection, ...confirmation }),
     });
     return response.json();
+  }
+
+  function renderProgress(details, state) {
+    progress.hidden = false;
+    const local = (reconstructionIds ? details.copies : details.localCopies).length;
+    const backup = reconstructionIds ? 0 : details.copies.length;
+    showProgress(local, backup, details.total, state);
+    return { local, backup };
   }
 
   function display(result) {
@@ -130,11 +160,8 @@ export function organizationPublication(get, endpoint) {
         status.textContent = 'Não foi possível validar as confirmações dos dois destinos.';
         return;
       }
-      progress.hidden = false;
-      const local = (reconstructionIds ? details.copies : details.localCopies).length;
-      const backup = reconstructionIds ? 0 : details.copies.length;
-      showProgress(local, backup, details.total,
-        result.state === 'mirror_done' ? 'done' : paused ? 'paused' : 'running');
+      lastProgress = details;
+      const { local, backup } = renderProgress(details, result.state === 'mirror_done' ? 'done' : paused ? 'paused' : 'running');
       const counts = (reconstructionIds ? 'Tópico [NEW]: ' : 'Mesmo grupo: ') + local + ' de ' + details.total +
         ' verificadas.' + (reconstructionIds ? '' : ' Backup: ' + backup + ' de ' + details.total + ' verificadas.');
       status.textContent = result.state === 'mirror_done' ? 'Cópia concluída. ' + counts : counts;
@@ -152,15 +179,13 @@ export function organizationPublication(get, endpoint) {
       rate_limited: 'O Telegram pediu uma pausa. Aguarde antes de retomar.',
     };
     if (result.state === 'mirror_recovery' && details?.copies && (reconstructionIds || details.localCopies)) {
-      progress.hidden = false;
-      showProgress(reconstructionIds ? details.copies.length : details.localCopies.length,
-        reconstructionIds ? 0 : details.copies.length, details.total, 'recovery');
+      renderProgress(details, 'recovery');
     }
     status.textContent = reason && side ? side + ', ' + reason + (result.issue.postId ? ' Post #' + result.issue.postId + '.' : '') :
       messages[result.state] ?? 'Não foi possível confirmar a operação. Revise o progresso antes de retomar.';
   }
 
-  async function handle(action) {
+  async function handle(action, automatic = false) {
     if (!selection || active || Date.now() < retryUntil) return;
     if (action === 'preview') approved = false;
     const controller = new AbortController();
@@ -170,7 +195,9 @@ export function organizationPublication(get, endpoint) {
     try {
       if (action === 'next') {
         pause.hidden = false;
+        pause.textContent = 'Pausar após este lote';
         paused = false;
+        if (lastProgress) renderProgress(lastProgress, 'running');
         let remaining = reconstructionIds ? 2 * reconstructionIds.length : 4 * selection.ids.length;
         let result;
         do {
@@ -181,9 +208,6 @@ export function organizationPublication(get, endpoint) {
         } while (result.state === 'mirror_progress' && !paused && --remaining > 0);
         if (paused && result.state === 'mirror_progress') {
           status.textContent += ' Cópia pausada.';
-          const d = result.mirror;
-          if (d?.copies && (reconstructionIds || d.localCopies)) showProgress(
-            reconstructionIds ? d.copies.length : d.localCopies.length, reconstructionIds ? 0 : d.copies.length, d.total, 'paused');
         }
       } else {
         status.textContent = action === 'preview' ? 'Validando as publicações e os tópicos…' : 'Registrando sua aprovação…';
@@ -215,10 +239,9 @@ export function organizationPublication(get, endpoint) {
     } finally {
       if (active === controller) {
         active = undefined;
-        pause.hidden = true;
+        pause.hidden = !resumeAfterWait;
         review.disabled = run.disabled = Date.now() < retryUntil;
-        if (action === 'approve' && !run.hidden) run.focus();
-        else if (action !== 'approve' && !dialog.open && !run.hidden) run.focus();
+        if (!automatic && !dialog.open && !run.hidden && !run.disabled) run.focus();
       }
     }
   }
@@ -233,6 +256,13 @@ export function organizationPublication(get, endpoint) {
     void handle('approve');
   });
   run.addEventListener('click', () => handle('next'));
-  pause.addEventListener('click', () => { paused = true; });
+  pause.addEventListener('click', () => {
+    paused = true;
+    if (resumeAfterWait) {
+      resumeAfterWait = false;
+      pause.hidden = true;
+      status.textContent = 'Retomada automática pausada. Aguarde o intervalo para retomar manualmente.';
+    }
+  });
   return { clear, prepare };
 }

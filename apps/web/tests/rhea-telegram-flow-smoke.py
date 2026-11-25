@@ -68,7 +68,7 @@ base = f'http://127.0.0.1:{server.server_port}'
 GIB = 1_610_612_736  # 1.5 GiB per synthetic file
 calls = []
 lookups = []
-state = {'lookup': [], 'local_closed': True, 'replacement': False, 'rebuild_blocked': False, 'rebuild_pause': False, 'extra_intake': False}
+state = {'lookup': [], 'local_closed': True, 'replacement': False, 'rebuild_blocked': False, 'rebuild_waits': [], 'extra_intake': False}
 
 def respond(route):
     request = route.request
@@ -122,10 +122,9 @@ def respond(route):
         elif operation == 'rebuildapprove':
             assert data['confirm'] is True
             route.fulfill(json={'state': 'mirror_progress', 'mirror': {'total': 5, 'copies': []}})
-        elif state['rebuild_pause']:
+        elif state['rebuild_waits']:
             assert operation == 'rebuildnext'
-            state['rebuild_pause'] = False
-            route.fulfill(status=429, json={'state': 'rate_limited', 'retryAfter': 2})
+            route.fulfill(status=429, json={'state': 'rate_limited', 'retryAfter': state['rebuild_waits'].pop(0)})
         else:
             assert operation == 'rebuildnext'
             route.fulfill(json={'state': 'mirror_done', 'mirror': {'total': 5,
@@ -333,14 +332,19 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         page.locator('#enrich-publish-approve').click()
         expect(page.locator('#enrich-publish-run')).to_be_visible()
         assert 'rebuildnext' not in calls
-        state['rebuild_pause'] = True
+        state['rebuild_waits'] = [2, 2, 2]
         page.locator('#enrich-publish-run').click()
-        expect(page.locator('#enrich-publish-status')).to_contain_text('O Telegram pediu uma pausa.')
+        expect(page.locator('#enrich-publish-status')).to_contain_text('será retomada automaticamente nesta aba')
         expect(page.locator('#enrich-publish-run')).to_be_disabled()
+        assert calls.count('rebuildnext') == 1
+        page.get_by_role('button', name='Pausar retomada automática').click()
+        expect(page.locator('#enrich-publish-status')).to_contain_text('Retomada automática pausada')
         expect(page.locator('#enrich-publish-run')).to_be_enabled(timeout=5000)
         assert calls.count('rebuildnext') == 1
         page.get_by_role('button', name='Retomar cópia').click()
-        expect(page.locator('#enrich-publish-status')).to_contain_text('Tópico [NEW]: 5 de 5')
+        expect(page.locator('#enrich-publish-status')).to_contain_text('será retomada automaticamente nesta aba')
+        expect(page.locator('#enrich-publish-status')).to_contain_text('Tópico [NEW]: 5 de 5', timeout=10000)
+        assert calls.count('rebuildnext') == 4
         expect(page.locator('#enrich-progress-backup').locator('..')).to_be_hidden()
         state['extra_intake'] = True
         reach_enrichment(page, expected='Tada-kun')

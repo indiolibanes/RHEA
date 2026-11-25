@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { FloodWaitError, SlowModeWaitError } from 'teleproto/errors';
 import { forumId } from '../src/rhea/library/forum-contract.mjs';
 import { mirrorLimit } from '../src/rhea/library/mirror-contract.mjs';
 import { rebuildLimit } from '../src/rhea/library/organization-contract.mjs';
@@ -24,16 +25,21 @@ function readLog(lines, scope, dual, ordered, limit) {
   let step = 0;
   let intent;
   let receipt;
+  let retryAt = 0;
   for (const event of events) {
     const local = dual && step < header.units.length;
     const unit = header.units[dual && !local ? step - header.units.length : step];
     if (!unit || event?.step !== step) return null;
     const targetCopies = local ? localCopies : copies;
     const last = targetCopies.at(-1)?.destinationId ?? 0;
-    if (event.type === 'intent' && !intent && Array.isArray(event.ids) && event.ids.length === unit.length &&
+    if (event.type === 'intent' && (!intent || retryAt) && Array.isArray(event.ids) && event.ids.length === unit.length &&
+        (!intent || event.ids.every((id, i) => id === intent.ids[i])) &&
         new Set(event.ids).size === unit.length && event.ids.every(id => typeof id === 'string' && /^[1-9][0-9]{0,18}$/.test(id))) {
       intent = event;
-    } else if (event.type === 'receipt' && intent && !receipt && Array.isArray(event.ids) && event.ids.length === unit.length &&
+      retryAt = 0;
+    } else if (event.type === 'deferred' && intent && !receipt && !retryAt && Number.isSafeInteger(event.until) && event.until > 0) {
+      retryAt = event.until;
+    } else if (event.type === 'receipt' && intent && !receipt && !retryAt && Array.isArray(event.ids) && event.ids.length === unit.length &&
         event.ids.every((id, i) => forumId(id) && id > (i ? event.ids[i - 1] : last))) {
       receipt = event;
     } else if (event.type === 'verified' && receipt) {
@@ -44,7 +50,7 @@ function readLog(lines, scope, dual, ordered, limit) {
       return null;
     }
   }
-  return { ...header, total: ids.length, step, copies, localCopies, intent, receipt };
+  return { ...header, total: ids.length, step, copies, localCopies, intent, receipt, retryAt };
 }
 
 async function append(handle, event) {
@@ -105,7 +111,7 @@ export function mirrorControl(config, now = Date.now) {
     if (log === null) return { state: 'mirror_idle' };
     if (!log) return { state: 'mirror_recovery' };
     const state = log.copies.length === log.total ? 'mirror_done' :
-      log.intent && !log.receipt ? 'mirror_recovery' : 'mirror_progress';
+      log.intent && !log.receipt && !log.retryAt ? 'mirror_recovery' : 'mirror_progress';
     return progress(state, log);
   }
 
@@ -165,19 +171,34 @@ export function mirrorControl(config, now = Date.now) {
     const file = await open(journal, 'a');
     try {
       if (received) {
-        if ((!local && !await transport.verifyMedia(current.slice(verified.length))) ||
-            !verifyDestination(posts, await read(), mappings) || !await otherMatches()) return { state: 'mirror_changed' };
-        const latest = await transport.readSource();
-        if (!latest || digest(fingerprint(latest)) !== digest(fingerprint(posts)) ||
-            (ordered && digest(transport.sourceRevision) !== digest(plan.revision))) return { state: 'mirror_changed' };
+        if (!local && !ordered && !await transport.verifyMedia(current.slice(verified.length))) return { state: 'mirror_changed' };
+        // Ordered runs verify metadata without downloading. Intermediate receipts already have fresh
+        // source and destination snapshots. Keep a second pass at completion and after media probes.
+        if (!ordered || step + 1 === units.length * (local ? 2 : 1)) {
+          if (!verifyDestination(posts, await read(), mappings) || !await otherMatches()) return { state: 'mirror_changed' };
+          const latest = await transport.readSource();
+          if (!latest || digest(fingerprint(latest)) !== digest(fingerprint(posts)) ||
+              (ordered && digest(transport.sourceRevision) !== digest(plan.revision))) return { state: 'mirror_changed' };
+        }
         await append(file, { type: 'verified', step });
         return status({ ...log, intent: undefined, receipt: undefined, ...(onLocal ? { localCopies: mappings } : { copies: mappings }) });
       }
       const targetParent = unit[0].parent === null ? null : verified.find(item => item.sourceId === unit[0].parent)?.destinationId;
       if (targetParent === undefined) return { state: 'mirror_changed' };
-      const ids = unit.map(() => (randomBytes(8).readBigUInt64BE() >> 1n) || 1n);
+      const ids = log.retryAt ? log.intent.ids.map(id => BigInt(id)) : unit.map(() => (randomBytes(8).readBigUInt64BE() >> 1n) || 1n);
       await append(file, { type: 'intent', step, ids: ids.map(String) });
-      const receipt = await copy(unit, ids, targetParent);
+      let receipt;
+      try {
+        receipt = await copy(unit, ids, targetParent);
+      } catch (error) {
+        // An explicit RPC rejection permits a retry with the same Telegram random IDs.
+        // A missing response leaves the intent pending for manual recovery.
+        if ((error instanceof FloodWaitError || error instanceof SlowModeWaitError) &&
+            Number.isInteger(error.seconds) && error.seconds > 0) {
+          await append(file, { type: 'deferred', step, until: now() + error.seconds * 1000 });
+        }
+        throw error;
+      }
       const last = verified.at(-1)?.destinationId ?? 0;
       if (!Array.isArray(receipt) || receipt.length !== unit.length ||
           receipt.some((id, i) => !forumId(id) || id <= (i ? receipt[i - 1] : last))) {
@@ -199,6 +220,8 @@ export function mirrorControl(config, now = Date.now) {
       if (operation === 'mirrorstatus' || !['mirror_idle', 'mirror_progress'].includes(result.state)) return result;
       if (operation === 'mirrornext') {
         if (!previous) return result;
+        const retryAfter = Math.ceil((previous.retryAt - now()) / 1000);
+        if (retryAfter > 0) return { state: 'rate_limited', retryAfter };
         const plan = await inspect(client);
         if (plan.evidence !== previous.evidence ||
             digest(plan.units.map(idsOf)) !== digest(previous.units)) return { state: 'mirror_changed' };

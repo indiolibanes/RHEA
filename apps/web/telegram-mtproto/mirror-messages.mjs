@@ -316,7 +316,7 @@ export async function openMirror(config, privateChat, peerFor, invoke, download)
         request = post.contents.kind === 'text' ? new Api.messages.SendMessage({ ...single, noWebpage: true }) :
           new Api.messages.SendMedia({ ...single, media: inputMedia(post) });
       }
-      const result = await invoke(request, { maxRetryCount: 1 });
+      const result = await invoke(request, { maxRetryCount: 0 });
       const mapped = new Map(result.updates?.filter(item => item.className === 'UpdateMessageID')
         .map(item => [item.randomId?.toString(), item.id]));
       return randomIds.map(id => mapped.get(id.toString()));
