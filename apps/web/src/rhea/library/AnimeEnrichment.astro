@@ -94,14 +94,27 @@
     <p id="enrich-rebuild-lookup" role="status"></p>
     <div class="library-actions"><button id="enrich-rebuild-review" class="editorial-action rhea-primary" type="button">Montar prévia da letra</button></div>
     <p id="enrich-rebuild-status" role="status"></p>
-    <button id="enrich-rebuild-adjust" class="editorial-action" type="button" aria-expanded="false" aria-controls="enrich-rebuild-insert" hidden>Ajustar posição</button>
-    <div id="enrich-rebuild-insert" class="library-form" hidden>
-      <label>Onde entra a obra de Requests?
-        <select id="enrich-rebuild-anchor"><option value="">Escolha a posição no tópico</option></select>
-      </label>
-      <p>Confira a posição quando o histórico não identificar os limites entre as obras.</p>
-    </div>
-    <ol id="enrich-rebuild-neighbors" class="library-field-row" aria-label="Ordem no ponto de inserção" hidden></ol>
+    <ul class="library-chips" id="enrich-rebuild-summary" aria-label="Resumo da letra" hidden></ul>
+    <dl class="library-limits" id="enrich-rebuild-limits" aria-label="Limites do piloto" hidden>
+      <div><dt>Requests nesta reconstrução</dt><dd id="enrich-limit-intake"></dd></div>
+      <div><dt>Letra combinada</dt><dd id="enrich-limit-total"></dd></div>
+    </dl>
+    <section id="enrich-position" class="library-position" aria-labelledby="enrich-position-title" hidden>
+      <h4 id="enrich-position-title" tabindex="-1">Posição na letra</h4>
+      <p id="enrich-position-badge" class="library-badge" role="status"></p>
+      <ol id="enrich-rebuild-neighbors" class="library-position-map" aria-label="Ordem no ponto de inserção"></ol>
+      <p id="enrich-position-reasons"></p>
+      <div class="library-actions">
+        <button id="enrich-position-confirm" class="editorial-action rhea-primary" type="button" hidden>Usar esta posição</button>
+        <button id="enrich-rebuild-adjust" class="editorial-action" type="button" aria-expanded="false" aria-controls="enrich-rebuild-insert" hidden>Mudar posição</button>
+      </div>
+      <div id="enrich-rebuild-insert" class="library-form" hidden>
+        <label>Onde entra a obra de Requests?
+          <select id="enrich-rebuild-anchor"><option value="">Escolha a posição no tópico</option></select>
+        </label>
+        <p>Escolha a obra ou a publicação que fica logo depois da nova obra.</p>
+      </div>
+    </section>
     <ol class="library-order" id="enrich-rebuild-items"></ol>
   </section>
   <div id="enrich-publish" hidden>
