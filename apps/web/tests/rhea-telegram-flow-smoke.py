@@ -70,7 +70,7 @@ GIB = 1_610_612_736  # 1.5 GiB per synthetic file
 calls = []
 lookups = []
 state = {'lookup': [], 'local_closed': True, 'replacement': False, 'rebuild_blocked': False, 'rebuild_waits': [],
-         'extra_intake': False, 'special': False, 'forum_id': '22222'}
+         'extra_intake': False, 'k_round': False, 'special': False, 'forum_id': '22222'}
 
 def respond(route):
     request = route.request
@@ -92,9 +92,22 @@ def respond(route):
             {'id': 9, 'title': 'Letter T', 'closed': state['local_closed']}]
         if not backup and state['replacement']:
             topics.append({'id': 81, 'title': 'Letter T [NEW]'})
+        next_cursor = None
+        if not backup and state['k_round']:
+            if data['cursor'] is None:
+                next_cursor = 'fixture-next-topics'
+            else:
+                assert data['cursor'] == 'fixture-next-topics'
+                topics = [{'id': 11, 'title': 'Letter – “K”', 'closed': True}]
         route.fulfill(json={'state': 'forum_topics', 'forum': {
-            'next': None, 'channelId': '11111' if backup else state['forum_id'], 'topics': topics, **({'scope': 'backup'} if backup else {})}})
+            'next': next_cursor, 'channelId': '11111' if backup else state['forum_id'], 'topics': topics, **({'scope': 'backup'} if backup else {})}})
     elif operation == 'forumpage':
+        if data['topicId'] == 11:
+            route.fulfill(json={'state': 'forum_page', 'forum': {'next': None, 'topicId': 11, 'channelId': '22222', 'posts': [
+                {'id': 17, 'kind': 'document', 'filename': '[Fixture] Kumo Station - 01.mkv'},
+                {'id': 16, 'kind': 'cover', 'heading': 'Kumo Station'},
+            ]}})
+            return
         if data['topicId'] == 9:
             route.fulfill(json={'state': 'forum_page', 'forum': {'next': None, 'topicId': 9, 'channelId': '22222', 'posts': [
                 {'id': 19, 'kind': 'document', 'filename': '[Fixture] Tundra - 01.mkv'},
@@ -109,6 +122,8 @@ def respond(route):
         ] if state['extra_intake'] else []
         if state['special']:
             extra.append({'id': 40, 'kind': 'document', 'filename': '[Fixture] Tsuki ga Kirei - OVA [1080p].mkv'})
+        if state['k_round']:
+            extra.append({'id': 43, 'kind': 'document', 'filename': 'Kestrel Circuit - 01.mkv'})
         route.fulfill(json={'state': 'forum_page', 'forum': {'next': None, 'topicId': 1, 'channelId': state['forum_id'], 'posts': [
             *extra, {'id': 37, 'kind': 'document', 'filename': '[Fixture]_Tsuki_ga_Kirei_01_[1280x720].mkv', 'sizeBytes': GIB},
             {'id': 30, 'kind': 'document', 'filename': '[Fixture]_Tsuki_ga_Kirei_10_[1280x720][synthetic_release_tag_that_is_long_enough_to_force_wrapping_on_a_phone].mkv', 'sizeBytes': GIB}]}})
@@ -400,19 +415,24 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         expect(page.locator('#enrich-progress-backup').locator('..')).to_be_hidden()
         state['extra_intake'] = True
         reach_enrichment(page, expected='Amber Archive')
-        expect(page.locator('#enrich-letter option')).to_have_text(['A', 'T'])
-        page.locator('#enrich-letter').select_option('T')
+        cards = page.locator('#enrich-letter-options li')
+        expect(cards.locator('strong')).to_have_text(['Letra A · 1 série', 'Letra T · 2 séries'])
+        expect(cards.first).to_contain_text('Sem tópico atual')
+        expect(cards.last).to_contain_text('Tópico atual: Letter T')
+        expect(cards.last).to_contain_text('Destino: Letter T [NEW]')
+        assert calls[-2:] == ['forumtopics', 'forumpage'], calls[-3:]
         previous_count = len(lookups)
-        page.get_by_role('button', name='Escolher séries').click()
+        state['lookup'] = [(200, {'state': 'candidates', 'candidates': [{**candidate, 'titles': ['Tada-kun']}]}),
+                           (200, {'state': 'candidates', 'candidates': [candidate]})]
+        page.get_by_role('button', name='Revisar letra T').click()
         expect(page.locator('#enrich-rebuild-legend')).to_contain_text('Séries da letra T')
         picks = page.locator('#enrich-rebuild-options')
         expect(picks.get_by_role('checkbox')).to_have_count(2)
-        expect(picks.get_by_role('checkbox', name='Tsuki ga Kirei · 3 arquivos')).to_be_visible()
+        expect(picks.get_by_role('checkbox', name='Tsuki ga Kirei · 3 arquivos', exact=False)).to_be_visible()
         expect(picks.get_by_role('checkbox', name='Amber Archive', exact=False)).to_have_count(0)
-        expect(page.locator('#enrich-rebuild-review')).to_be_disabled()
-        page.get_by_role('button', name='Marcar todas').click()
         expect(page.locator('#enrich-rebuild-count')).to_have_text('2 séries · 4 arquivos')
-        page.locator('#enrich-rebuild-review').click()
+        expect(page.locator('#enrich-rebuild-options small').first).to_contain_text('12 episódios')
+        expect(page.locator('#enrich-rebuild-options small').last).to_contain_text('Confira a edição')
         expect(page.locator('#enrich-rebuild-neighbors li').first).to_contain_text('Tada-kun → antes de Tapestry')
         expect(page.locator('#enrich-rebuild-neighbors li').last).to_contain_text('Tsuki ga Kirei → antes de Tundra')
         expect(page.locator('#enrich-publish-review')).to_be_visible()
@@ -426,10 +446,29 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         page.locator('#enrich-publish-review').click()
         expect(page.locator('#enrich-publish-files > li')).to_have_count(7)
         expect(page.locator('#enrich-publish-files')).not_to_contain_text('#42')
-        assert calls.count('forumpage') == reads and len(lookups) == previous_count
+        assert calls.count('forumpage') == reads
+        assert lookups[previous_count:] == [{'title': 'Tada-kun'}, {'title': 'Tsuki ga Kirei'}]
         page.get_by_role('dialog').get_by_role('button', name='Voltar').click()
         state['extra_intake'] = False
         state['replacement'] = False
+
+        # A closed current topic is paired automatically before a replacement has been created.
+        state['k_round'] = True
+        topic_reads = calls.count('forumtopics')
+        reach_enrichment(page, expected='Kestrel Circuit')
+        expect(cards.first).to_contain_text('Tópico atual: Letter – “K”')
+        expect(cards.first).to_contain_text('Destino [NEW] ausente')
+        assert calls.count('forumtopics') == topic_reads + 2  # Initial inventory and its remaining topic page.
+        state['lookup'] = [(503, {'state': 'provider_refused'})]
+        page.get_by_role('button', name='Revisar letra K').click()
+        expect(page.locator('#enrich-current-inventory')).to_contain_text('2 publicações lidas')
+        expect(page.locator('#enrich-rebuild-items')).to_contain_text('Kumo Station')
+        expect(page.locator('#enrich-rebuild-items summary').first).to_contain_text('Kestrel Circuit')
+        expect(page.locator('#enrich-rebuild-items summary').last).to_contain_text('Kumo Station')
+        expect(page.locator('#enrich-rebuild-lookup')).to_contain_text('O AniList recusou')
+        expect(page.locator('#enrich-rebuild-status')).to_contain_text('crie um tópico [NEW]')
+        expect(page.locator('#enrich-publish')).to_be_hidden()
+        state['k_round'] = False
 
     # Correct a standalone extra with no metadata provider or publish operation.
     state['special'] = True

@@ -13,6 +13,20 @@ export function letterRebuildTopics(letter, topics, intakeTopicId) {
   };
 }
 
+export function intakeLetterBatches(groups) {
+  const letters = new Map();
+  for (const group of groups) {
+    const letter = letterFor(group.title);
+    if (letter === '#') continue;
+    if (!letters.has(letter)) letters.set(letter, { letter, series: new Set(), files: 0 });
+    const entry = letters.get(letter);
+    entry.series.add(key(group.title));
+    entry.files += group.posts.length;
+  }
+  return [...letters.values()].sort((a, b) => a.letter.localeCompare(b.letter))
+    .map(({ letter, series, files }) => ({ letter, series: series.size, files }));
+}
+
 export function planLetterRebuild({ letter, currentPosts, intakeGroup, intakeTitle, intakeWorks, reference, complete }) {
   const existing = groupTopicDocuments(currentPosts, reference);
   const current = existing.groups.map(group => ({ ...group, origin: 'current' }));

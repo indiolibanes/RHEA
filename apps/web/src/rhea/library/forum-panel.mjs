@@ -42,7 +42,7 @@ export function forumEnrichmentSnapshot() {
   if (!selected) return undefined;
   const topic = topics.get(Number(topicSelect.value));
   return { title: topic?.title ?? 'Tópico carregado', topicId: topic?.id, channelId, posts: [...selected.posts.values()],
-    topics: [...topics.values()], complete: selected.next === null, reference };
+    topics: [...topics.values()], topicsCursor: cursor, complete: selected.next === null, reference };
 }
 
 function notifyInventoryChanged() {

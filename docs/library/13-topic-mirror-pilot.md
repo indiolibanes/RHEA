@@ -157,7 +157,8 @@ files from a Requests topic with up to 60 entries. The target must be empty at a
 verifies copies by Telegram message ID and media metadata. It retains the originals and creates
 new destination links, with the existing captions and filenames. Any uncertain receipt stops the
 run. Reopen the same work, target and insertion point to verify or resume known receipts. This pilot
-keeps one reconstruction journal per deployment. It does not publish to a backup forum.
+keeps one active reconstruction journal per deployment and archives verified runs before starting
+a new letter. It does not publish to a backup forum.
 
 A protected **Configurar MyAnimeList** form can supply a registered Client ID for the current tab.
 The client retains it in memory, sends it only to the protected RHEA lookup, and clears it when
@@ -191,11 +192,19 @@ headings, titled covers, known numbered filename formats, and exact user-supplie
 are considered. A cover with an unconfirmed label can appear for review without assigning its
 unknown files to a work. Posts remain visible when their title or episode cannot be determined.
 
-In **Organizar por letra**, choose an initial found in the loaded Requests inventory and select
-**Escolher séries**. Mark the series to include, individually or with **Marcar todas**. Each selection
-includes the detected seasons of that series. Requests entries for other initials remain outside the
-plan. An incomplete Requests inventory must be fully loaded before publication review. An external
-metadata lookup is optional.
+When opening the organizer from Requests, **Planos por letra** lists every detected initial A–Z
+and matches each one to the corresponding current topic and replacement. Review one of the
+proposed plans to load that letter's history. All its detected series start selected and can be
+unchecked. Each selection includes its detected seasons. Entries with different initials go
+into their own plans. A closed current topic can still be read. The preview remains available
+while the replacement topic is missing. A letter with no current topic shows the Requests
+selection in its preview. Publication requires both topics.
+An incomplete Requests inventory must be fully loaded before publication review.
+
+Selecting a series in **Organizar por letra** queries the active metadata provider using its
+detected title. A unique exact title match is shown alongside the selection. Ambiguous matches and
+numbered later seasons can be reviewed using the per-work search. The preview remains available
+if the provider refuses or limits the request.
 
 Each selected work is inserted before the next confidently identified work, or at the end. The
 planner preserves the current letter's chronology and sorts incoming episodes. The display lists the proposed

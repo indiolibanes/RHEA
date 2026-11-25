@@ -1,13 +1,13 @@
 <details class="library-section" id="anime-enrichment">
   <summary><strong>Organizar com metadados</strong></summary>
   <p id="enrich-source" tabindex="-1" role="status"></p>
-  <section id="enrich-letter-picker" hidden>
-    <h3>Organizar por letra</h3>
-    <div class="library-actions">
-      <label>Letra alvo <select id="enrich-letter"></select></label>
-      <button id="enrich-open-letter" class="editorial-action rhea-primary" type="button">Escolher séries</button>
-    </div>
+  <section id="enrich-letter-plans" hidden aria-labelledby="enrich-letter-title">
+    <h3 id="enrich-letter-title" tabindex="-1">Planos por letra</h3>
     <p id="enrich-letter-status" role="status"></p>
+    <ul id="enrich-letter-options" class="library-letter-plans"></ul>
+    <div class="library-actions">
+      <button id="enrich-refresh-letters" class="editorial-action" type="button">Atualizar tópicos</button>
+    </div>
   </section>
   <ol class="library-steps" id="enrich-steps" aria-label="Etapas da organização" hidden>
     <li data-step="search">Consultar metadados</li>
@@ -79,8 +79,9 @@
     </div>
   </div>
   <section id="enrich-rebuild" hidden>
-    <h3>Reconstruir a letra em outro tópico</h3>
+    <h3 id="enrich-rebuild-title" tabindex="-1">Reconstruir a letra em outro tópico</h3>
     <p id="enrich-rebuild-targets"></p>
+    <p id="enrich-current-inventory" role="status"></p>
     <fieldset id="enrich-rebuild-picks">
       <legend id="enrich-rebuild-legend">Séries para incluir</legend>
       <div class="library-actions">
@@ -90,6 +91,7 @@
       <div id="enrich-rebuild-options"></div>
     </fieldset>
     <p id="enrich-rebuild-count" role="status"></p>
+    <p id="enrich-rebuild-lookup" role="status"></p>
     <div class="library-actions"><button id="enrich-rebuild-review" class="editorial-action rhea-primary" type="button">Montar prévia da letra</button></div>
     <p id="enrich-rebuild-status" role="status"></p>
     <button id="enrich-rebuild-adjust" class="editorial-action" type="button" aria-expanded="false" aria-controls="enrich-rebuild-insert" hidden>Ajustar posição</button>

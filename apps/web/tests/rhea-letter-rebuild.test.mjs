@@ -1,9 +1,22 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { letterInsertionOptions, letterRebuildTopics, planLetterRebuild } from '../src/rhea/library/letter-rebuild.mjs';
+import { intakeLetterBatches, letterInsertionOptions, letterRebuildTopics, planLetterRebuild } from '../src/rhea/library/letter-rebuild.mjs';
 import { manualAnimeMetadata } from '../src/rhea/library/manual-anime-metadata.mjs';
 import { forumCatalogSnapshot } from '../src/rhea/library/live-catalog.mjs';
 import { buildCatalog } from '../src/rhea/library/catalog.mjs';
+
+test('detects every intake initial and counts a series once across seasons', () => {
+  const groups = [
+    { title: 'Zenith', posts: [{ id: 7 }] },
+    { title: 'Élan', posts: [{ id: 1 }] },
+    { title: 'élan', posts: [{ id: 2 }, { id: 3 }] },
+    { title: '霧', posts: [{ id: 4 }] },
+    { title: 'Kumo', posts: [{ id: 5 }] },
+  ];
+  assert.deepEqual(intakeLetterBatches(groups), [
+    { letter: 'E', series: 1, files: 3 }, { letter: 'K', series: 1, files: 1 }, { letter: 'Z', series: 1, files: 1 },
+  ]);
+});
 
 test('suggests the kind of an explicitly marked extra without assigning its series', () => {
   const posts = [
