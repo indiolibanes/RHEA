@@ -191,9 +191,14 @@ headings, titled covers, known numbered filename formats, and exact user-supplie
 are considered. A cover with an unconfirmed label can appear for review without assigning its
 unknown files to a work. Posts remain visible when their title or episode cannot be determined.
 
-The reconstruction can plan all detected Requests works of the selected letter together. Each is
-inserted before the next confidently identified work, or at the end, while preserving the current
-letter's chronology and episode order of incoming documents. The display lists the proposed
+In **Organizar por letra**, choose an initial found in the loaded Requests inventory and select
+**Escolher séries**. Mark the series to include, individually or with **Marcar todas**. Each selection
+includes the detected seasons of that series. Requests entries for other initials remain outside the
+plan. An incomplete Requests inventory must be fully loaded before publication review. An external
+metadata lookup is optional.
+
+Each selected work is inserted before the next confidently identified work, or at the end. The
+planner preserves the current letter's chronology and sorts incoming episodes. The display lists the proposed
 positions for review before approval. Partial history, a possibly repeated title, a reversal in
 the existing alphabetical order, or an unidentified boundary requires review. The operator can
 adjust a single work's placement without changing existing publication order. A different letter

@@ -77,14 +77,16 @@ test('uses cover titles and safe numbered formats in the same catalog and plans 
   const snapshot = forumCatalogSnapshot({ title: 'Letter T', channelId: '123', topicId: 10, posts, complete: true });
   assert.deepEqual(buildCatalog(snapshot).entries.map(item => item.title), ['Tales Archive', 'Towa no Yuugure', 'Tundra Files']);
   const incoming = [{ title: 'Tsuki ga Kirei', posts: [{ id: 31, episode: 2 }, { id: 32, episode: 1 }] },
-    { title: 'Tada-kun', posts: [{ id: 41, episode: 1 }] }];
+    { title: 'Tada-kun', posts: [{ id: 41, episode: 1 }] }, { title: 'Amber Archive', posts: [{ id: 45, episode: 1 }] }];
   const plan = planLetterRebuild({ letter: 'T', currentPosts: posts, intakeWorks: incoming, complete: true });
   assert.equal(plan.checks.unassigned, 0);
+  assert.deepEqual(plan.groups.filter(group => group.origin === 'intake').map(group => group.title), ['Tada-kun', 'Tsuki ga Kirei']);
   assert.deepEqual(plan.insertion, { state: 'ready', slots: [
     { beforeId: 11, works: ['Tada-kun'], ids: [41], nextTitle: 'Tales Archive' },
     { beforeId: 15, works: ['Tsuki ga Kirei'], ids: [32, 31], nextTitle: 'Tundra Files' },
   ] });
   assert.equal(planLetterRebuild({ letter: 'T', currentPosts: posts, intakeWorks: incoming, complete: false }).insertion.state, 'review');
+  assert.equal(planLetterRebuild({ letter: 'L', currentPosts: [], intakeWorks: incoming, complete: true }).insertion.state, 'review');
 });
 
 test('includes a cover-only work and requires review if a title at the insertion boundary is weak', () => {
