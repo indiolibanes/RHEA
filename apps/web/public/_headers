@@ -9,3 +9,7 @@
   Cache-Control: no-store
 /rhea/
   Cache-Control: no-store
+/rhea/mega
+  Cache-Control: no-store
+/rhea/mega/
+  Cache-Control: no-store

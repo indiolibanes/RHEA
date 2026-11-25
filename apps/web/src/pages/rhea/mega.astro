@@ -1,0 +1,82 @@
+---
+import '../../styles/fonts.css';
+import '../../rhea/tokens.css';
+import '../../rhea/styles.css';
+import '../../rhea/tones.css';
+import '../../rhea/autoral.css';
+import '../../rhea/lamps.css';
+import '../../rhea/mega/styles.css';
+import RheaFace from '../../rhea/RheaFace.astro';
+import { MEGA_API_ORIGIN } from '../../rhea/mega/folder-link.mjs';
+
+const links = [['/rhea/arquivos', 'Drive'], ['/rhea/mega', 'MEGA'], ['/rhea/library', 'Telegram'], ['/rhea#assistente', 'Assistente']];
+Astro.csp?.insertDirective(`connect-src 'self' ${MEGA_API_ORIGIN}`);
+---
+<!doctype html>
+<html lang="pt-BR" data-mode="autoral" data-tone="floresta" data-theme="dark" data-glass="off">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
+  <meta name="referrer" content="no-referrer">
+  <title>MEGA · RHEA</title>
+  <script is:inline src="/rhea-ui/settings.js"></script>
+  <script>
+    import '../../rhea/mega/explorer.mjs';
+  </script>
+</head>
+<body>
+  <a class="skip" href="#conteudo">Pular para o conteúdo</a>
+  <div class="shell">
+    <aside class="sidebar prism-surface">
+      <a class="brand" href="/rhea" aria-label="Voltar à RHEA"><RheaFace rows={7} /><span><strong>RHEA</strong></span></a>
+      <nav class="side-nav" aria-label="Navegação da RHEA">
+        {links.map(([href, label]) => <a href={href} aria-current={label === 'MEGA' ? 'page' : undefined}>{label}</a>)}
+      </nav>
+    </aside>
+    <div class="workspace">
+      <header class="mobile-head prism-surface">
+        <div class="mobile-masthead">
+          <a class="brand" href="/rhea" aria-label="Voltar à RHEA"><RheaFace rows={7} /><span><strong>RHEA</strong></span></a>
+        </div>
+        <nav class="section-nav" aria-label="Navegação da RHEA">
+          {links.map(([href, label]) => <a href={href} aria-current={label === 'MEGA' ? 'page' : undefined}>{label}</a>)}
+        </nav>
+      </header>
+      <main class="mega-main" id="conteudo" tabindex="-1">
+        <header class="mega-hero">
+          <h1>MEGA</h1>
+          <p>Explore uma pasta compartilhada e abra seus arquivos no MEGA.</p>
+        </header>
+        <section class="mega-panel" aria-label="Explorador do MEGA">
+          <form id="mega-form" autocomplete="off" novalidate>
+            <label for="mega-link">Link da pasta compartilhada</label>
+            <div class="mega-field">
+              <input type="url" id="mega-link" maxlength="240" placeholder="https://mega.nz/folder/…" aria-describedby="mega-link-hint mega-status" spellcheck="false" autocapitalize="off" autocomplete="off" required disabled>
+              <button type="submit" id="mega-load" class="mega-primary" disabled>Abrir pasta</button>
+              <button type="button" id="mega-cancel" class="editorial-action" hidden>Cancelar</button>
+            </div>
+            <p class="meta muted" id="mega-link-hint">Cole o link completo com a chave. Quem tiver esse link pode acessar a pasta. A RHEA usa o link apenas nesta página.</p>
+            <noscript><p>Ative o JavaScript para abrir a pasta.</p></noscript>
+          </form>
+          <div id="mega-explorer" hidden>
+            <div class="section-line">
+              <h2 id="mega-folder-name" tabindex="-1"></h2>
+              <div class="rhea-controls">
+                <a class="editorial-action" id="mega-open" target="_blank" rel="noopener noreferrer">Abrir pasta no MEGA ↗</a>
+                <button type="button" id="mega-disconnect" class="editorial-action">Desconectar</button>
+              </div>
+            </div>
+            <nav class="rhea-controls mega-crumbs" id="mega-breadcrumbs" aria-label="Caminho da pasta"></nav>
+            <label for="mega-search">Buscar nesta pasta</label>
+            <input id="mega-search" type="search" maxlength="120" autocomplete="off" aria-controls="mega-files">
+          </div>
+          <p class="meta mega-status" id="mega-status" role="status"></p>
+          <ul class="file-list mega-files" id="mega-files" aria-label="Itens nesta pasta"></ul>
+          <button class="editorial-action" id="mega-more" type="button" hidden>Mostrar mais</button>
+        </section>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

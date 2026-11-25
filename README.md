@@ -25,6 +25,7 @@ RHEA is software you deploy in your own infrastructure—not a hosted service th
 | Area | Available in this repository | Important boundary |
 | --- | --- | --- |
 | **Google Drive workspace** | Browse, search, preview, download, upload and organize files in the app's dedicated Drive tree. | Only files authorized under the app folder; requires your own Google OAuth and Cloudflare deployment. |
+| **MEGA workspace** | Open a shared folder link, browse subfolders and search within the current folder. Files open in the official MEGA client. | Read-only in RHEA. The link and decrypted names are held in the browser while the page is open. |
 | **Remote MCP gateway** | OAuth discovery, Streamable HTTP tools, per-assistant read/propose/organize permissions and revocation. | Assistants receive scoped tool access, not Google credentials. Write tools depend on the approved grant and the client's configured capabilities. |
 | **Telegram Library** | A–Z series catalog, episode grouping, duplicate indicators, local corrections and reordering previews, using demo fixtures or an authorized MTProto snapshot. | Live history is restricted to a configured private test channel; current reads are capped at 500 posts and may be partial. Catalog corrections are session-local. |
 | **Telegram staging copy pilot** | Preview and explicitly approve a copy of exactly three eligible test posts to a separate empty private channel; verify the resulting messages. | Requires additional staging configuration. No automatic production reflow, in-place cleanup or source deletion. |
@@ -57,6 +58,8 @@ The opt-in [forum mirror pilot](docs/library/13-topic-mirror-pilot.md) adds a pr
 | [Android prototype](apps/android) | Experimental mobile interface. |
 
 The main workspace is served at `/rhea`, with the standalone Library at `/rhea/library` and protected web APIs under `/api/rhea/*`. A separately deployed HTTPS Worker serves the remote MCP endpoint at `/mcp`.
+
+The **MEGA** tab at `/rhea/mega` accepts a complete, unprotected folder share link, including its decryption key. Anyone with that link can access the shared folder. The browser sends the folder handle directly to MEGA's API and uses the key locally. No MEGA account credentials, server setup or MCP grant are needed. For a smoke test, share a folder with disposable files in MEGA, paste its link, navigate a subfolder, open a file and disconnect.
 
 **Each self-hosted installation has its own URLs and credentials.** In the protected workspace, use the displayed MCP URL when connecting an assistant. Do not assume that the public project-page URL is an MCP endpoint. Existing connections may retain the former **Horologiarius Relay** name; tool availability depends on the current gateway deployment, client allowlist and granted permissions.
 
