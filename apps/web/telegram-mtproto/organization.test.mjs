@@ -218,6 +218,8 @@ test('rebuilds a paginated letter with all unclassified posts and preserves the 
   const old = ids.map(id => ({ ...rawPost(id, id), replyTo: { replyToMsgId: 8 }, message: 'Original caption ' + id }));
   const incoming = [rawPost(31, '02'), rawPost(32, '01')];
   const destination = [];
+  const nextDestination = [];
+  const nextLetter = [{ ...rawPost(164, '01'), replyTo: { replyToMsgId: 18 } }];
   const sends = [];
   const oldOffsets = new Set();
   let oldPageGap = 0;
@@ -230,12 +232,13 @@ test('rebuilds a paginated letter with all unclassified posts and preserves the 
       } };
       if (query instanceof Api.messages.GetForumTopicsByID) {
         const [id] = query.topics;
-        return { topics: [{ className: 'ForumTopic', id, title: id === 8 ? 'Letter T' : 'Letter T [NEW]' }] };
+        return { topics: [{ className: 'ForumTopic', id, closed: id === 8,
+          title: { 8: 'Letter – “K”', 9: 'Letter K [NEW]', 18: 'Letter T', 19: 'Letter T [NEW]' }[id] }] };
       }
       if (query instanceof Api.messages.GetReplies) {
         assert.equal(query.peer.channelId.toString(), '11111');
         if (query.msgId === 8) oldOffsets.add(query.offsetId);
-        const rows = query.msgId === 8 ? old : query.msgId === 1 ? incoming : destination;
+        const rows = { 8: old, 1: incoming, 9: destination, 18: nextLetter, 19: nextDestination }[query.msgId];
         const sorted = [...rows].reverse().filter(post => !query.offsetId || post.id < query.offsetId);
         const offsetIdOffset = rows.length - sorted.length + (query.msgId === 8 ? oldPageGap : 0);
         return { className: 'messages.ChannelMessages', count: rows.length, offsetIdOffset, messages: sorted.slice(0, query.limit) };
@@ -254,7 +257,8 @@ test('rebuilds a paginated letter with all unclassified posts and preserves the 
   const transport = telegramClient(config, provider);
   const start = () => mtprotoControl(config, { read: async () => 'test' }, (_session, fn) => transport(null, fn));
   let adapter = start();
-  let input = { sourceTopicId: 1, currentTopicId: 8, replacementTopicId: 9, beforeId: 160, letter: 'T', ids: [32, 31] };
+  let input = { sourceTopicId: 1, currentTopicId: 8, replacementTopicId: 9, beforeId: 160, letter: 'K', ids: [32, 31] };
+  const nextInput = { sourceTopicId: 1, currentTopicId: 18, replacementTopicId: 19, beforeId: null, letter: 'T', ids: [32] };
   const invoke = async (op, body = input) => {
     const response = await adapter(new Request('https://adapter.example/v1/rebuild' + op, {
       method: 'POST', headers: { Authorization: 'Bearer ' + config.key, 'X-Rhea-Access-Subject': config.actor },
@@ -288,6 +292,7 @@ test('rebuilds a paginated letter with all unclassified posts and preserves the 
   assert.ok(oldOffsets.has(104) && oldOffsets.has(100));
   const approval = await invoke('approve', { ...input, confirm: true, approval: preview.mirror.approval });
   assert.equal(approval.state, 'mirror_progress');
+  assert.equal((await invoke('preview', nextInput)).state, 'mirror_recovery');
   assert.deepEqual(sends, []);
   old.at(-1).message = 'Concurrent edit';
   assert.equal((await invoke('next')).state, 'mirror_changed');
@@ -302,6 +307,13 @@ test('rebuilds a paginated letter with all unclassified posts and preserves the 
   assert.deepEqual(sends, sequence);
   assert.deepEqual(result.mirror.copies.map(receipt => receipt.sourceId), sequence);
   assert.equal((await invoke('next')).state, 'mirror_done');
+  const nextPreview = await invoke('preview', nextInput);
+  assert.equal(nextPreview.state, 'mirror_preview');
+  assert.deepEqual(nextPreview.mirror.posts.map(post => post.id), [164, 32]);
+  assert.equal((await invoke('approve', { ...nextInput, confirm: true, approval: nextPreview.mirror.approval })).state, 'mirror_progress');
+  adapter = start();
+  assert.equal((await invoke('status', input)).state, 'mirror_done');
+  assert.equal((await invoke('status', nextInput)).state, 'mirror_progress');
   assert.equal(old.length, 64);
   assert.equal(incoming.length, 2);
 });

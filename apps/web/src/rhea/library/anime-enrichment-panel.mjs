@@ -24,6 +24,8 @@ let rebuildRead;
 let rebuildSelection;
 let rebuildPosts;
 let rebuildInventory;
+let rebuildLookup;
+const letterMetadata = new Map();
 let cooldown;
 const retryAt = new Map();
 const currentProvider = () => get('provider').value;
@@ -208,7 +210,7 @@ async function checkForum(letter, scope, signal) {
   const seen = new Set();
   let channelId;
   let cursor = null;
-  for (let page = 0; page < 3; page++) {
+  for (let page = 0; page < 12; page++) {
     const response = await fetch(root.dataset.telegramEndpoint + '?op=forumtopics', {
       method: 'POST', credentials: 'same-origin', redirect: 'error', cache: 'no-store', signal,
       headers: { 'Content-Type': 'application/json' },
@@ -243,11 +245,14 @@ async function checkForum(letter, scope, signal) {
 
 function clearRebuild() {
   rebuildRead?.abort();
+  rebuildLookup?.abort();
+  rebuildLookup = undefined;
   rebuildRead = rebuildSelection = rebuildPosts = rebuildInventory = undefined;
   get('rebuild').hidden = true;
   get('rebuild-insert').hidden = true;
   get('rebuild-adjust').hidden = true;
   rebuildOptions.replaceChildren();
+  get('current-inventory').textContent = get('rebuild-lookup').textContent = '';
   get('rebuild-neighbors').hidden = true;
   get('rebuild-neighbors').replaceChildren();
   get('rebuild-review').disabled = false;
@@ -258,6 +263,7 @@ function clearRebuild() {
 function prepareReconstruction(slots) {
   const old = rebuildPosts.map(post => post.id);
   const { current, target, letter } = rebuildSelection;
+  if (!current || !target) return;
   const combined = [];
   let start = 0;
   for (const slot of slots) {
@@ -323,8 +329,8 @@ async function readCurrentLetter({ channelId, current }, signal) {
   return { posts: [...posts.values()], complete: false };
 }
 
-get('rebuild-review').addEventListener('click', async () => {
-  if (!rebuildSelection || rebuildRead || !selectedWorks().length) return;
+async function loadCurrentLetter() {
+  if (!rebuildSelection || rebuildRead) return;
   const request = new AbortController();
   const selection = rebuildSelection;
   rebuildRead = request;
@@ -335,14 +341,17 @@ get('rebuild-review').addEventListener('click', async () => {
   get('rebuild-neighbors').hidden = true;
   get('rebuild-review').disabled = true;
   get('rebuild-items').replaceChildren();
-  get('rebuild-status').textContent = 'Lendo as publicações do tópico atual…';
+  get('current-inventory').textContent = selection.current ? 'Lendo ' + selection.current.title + '…' :
+    'Esta letra ainda não tem tópico atual. A prévia mostra apenas a seleção de Requests.';
   try {
-    const inventory = await readCurrentLetter(selection, request.signal);
+    const inventory = selection.current ? await readCurrentLetter(selection, request.signal) : { posts: [], complete: true };
     if (request.signal.aborted) return;
     rebuildInventory = inventory;
+    if (selection.current) get('current-inventory').textContent = selection.current.title + ' · ' + inventory.posts.length +
+      ' publicações lidas' + (inventory.complete ? '.' : ' · leitura parcial.');
     renderRebuildPlan(inventory);
   } catch (error) {
-    if (!request.signal.aborted) get('rebuild-status').textContent = error.retryAfter ?
+    if (!request.signal.aborted) get('current-inventory').textContent = error.retryAfter ?
       'O Telegram pediu uma pausa. Aguarde ' + error.retryAfter + ' s antes de repetir a leitura.' :
       'A leitura do tópico atual falhou. Confira o acesso e tente novamente.';
   } finally {
@@ -351,6 +360,11 @@ get('rebuild-review').addEventListener('click', async () => {
       updateRebuildCount();
     }
   }
+}
+
+get('rebuild-review').addEventListener('click', () => {
+  if (rebuildInventory) renderRebuildPlan(rebuildInventory);
+  else void loadCurrentLetter();
 });
 
 function selectedWorks() {
@@ -379,20 +393,75 @@ function startRebuild(local, letter, confirmed) {
     if (!choices.has(id)) choices.set(id, []);
     choices.get(id).push(item);
   }
-  rebuildSelection = { channelId: local.channelId, current: local.topic, target: local.replacement.topic, letter, choices };
+  const current = local.topic;
+  const target = local.replacement.topic;
+  rebuildSelection = { channelId: local.channelId, current, target, letter, choices, automaticLookup: !confirmed };
   if ([...get('letter').options].some(option => option.value === letter)) get('letter').value = letter;
   get('letter-status').textContent = '';
-  get('rebuild-targets').textContent = local.topic.title + ' + ' + source.title + ' → ' + local.replacement.topic.title;
+  get('rebuild-targets').textContent = [current?.title, source.title].filter(Boolean).join(' + ') + ' → ' +
+    (target?.title ?? 'Letter ' + letter + ' [NEW]');
   get('rebuild-legend').textContent = 'Séries da letra ' + letter + ' em ' + source.title;
   rebuildOptions.replaceChildren(...[...choices].map(([id, works]) => {
     const files = works.reduce((total, work) => total + work.posts.length, 0);
     const label = node('label');
     label.append(Object.assign(node('input'), { type: 'checkbox', value: id, checked: Boolean(confirmed) }),
-      node('span', works[0].title + ' · ' + files + (files === 1 ? ' arquivo' : ' arquivos')));
+      node('span', works[0].title + ' · ' + files + (files === 1 ? ' arquivo' : ' arquivos')), node('small'));
     return label;
   }));
   get('rebuild').hidden = false;
   updateRebuildCount();
+  void loadCurrentLetter();
+  void lookupSelectedSeries();
+}
+
+async function lookupSelectedSeries() {
+  rebuildLookup?.abort();
+  const context = rebuildSelection;
+  if (!context?.automaticLookup) return;
+  const request = new AbortController();
+  rebuildLookup = request;
+  const feedback = get('rebuild-lookup');
+  const provider = currentProvider();
+  const inputs = [...rebuildOptions.querySelectorAll('input:checked')];
+  feedback.textContent = '';
+  for (const input of rebuildOptions.querySelectorAll('input:not(:checked)')) input.parentElement.querySelector('small').replaceChildren();
+  for (const input of inputs) {
+    const title = context.choices.get(input.value)[0].title;
+    const tag = input.parentElement.querySelector('small');
+    if (title.length < 2 || title.length > 120 || /https?:\/\/|[\r\n]|\.(?:mkv|mp4|zip)$/iu.test(title)) continue;
+    const wait = Math.ceil(((retryAt.get(provider) ?? 0) - Date.now()) / 1000);
+    if (wait > 0) {
+      feedback.textContent = lookupMessage({ state: 'rate_limited', retryAfter: wait }, provider);
+      break;
+    }
+    const key = JSON.stringify([provider, titleKey(title)]);
+    let result = letterMetadata.get(key);
+    if (!result) {
+      tag.textContent = 'Consultando ' + animeProviders[provider] + '…';
+      try { result = await lookupAnime(root.dataset.animeMetadataEndpoint, title, request.signal, provider); }
+      catch { if (request.signal.aborted) return; result = { state: 'network' }; }
+      if (request.signal.aborted) return;
+      if (result.state === 'candidates') letterMetadata.set(key, result);
+    }
+    if (result.state !== 'candidates') {
+      tag.replaceChildren();
+      if (result.retryAfter) retryAt.set(provider, Date.now() + result.retryAfter * 1000);
+      feedback.textContent = lookupMessage(result, provider) ?? 'Não foi possível consultar os metadados.';
+      break;
+    }
+    const matches = result.candidates.filter(candidate =>
+      candidate.titles?.some(value => titleKey(value) === titleKey(title)));
+    tag.replaceChildren();
+    if (matches.length === 1 && !context.choices.get(input.value).some(work => work.season > 1)) {
+      const match = matches[0];
+      tag.textContent = [animeFormats[match.format], match.year, match.episodes && match.episodes + ' episódios',
+        match.studios?.[0], match.genres?.slice(0, 2).join(', ')].filter(Boolean).join(' · ');
+      if (match.url) tag.append(' ', providerLink(animeProviders[provider], match.url));
+    } else {
+      tag.textContent = result.candidates.length ? 'Confira a edição na busca por obra.' : 'Sem ficha encontrada.';
+    }
+  }
+  if (rebuildLookup === request) rebuildLookup = undefined;
 }
 
 function renderRebuildPlan({ posts, complete }) {
@@ -401,17 +470,13 @@ function renderRebuildPlan({ posts, complete }) {
   get('rebuild-adjust').setAttribute('aria-expanded', 'false');
   const selection = rebuildSelection;
   const intakeWorks = selectedWorks();
-  if (!intakeWorks.length) {
-    rebuildPosts = undefined;
-    get('rebuild-status').textContent = '';
-    get('rebuild-items').replaceChildren();
-    return;
-  }
   const count = intakeWorks.reduce((total, item) => total + item.posts.length, 0);
   const plan = planLetterRebuild({ letter: selection.letter, currentPosts: posts, intakeWorks,
     reference: source.reference, complete: complete && source.complete });
   const { checks } = plan;
-  const blocker = checks.incomplete ? 'Termine a leitura dos dois tópicos antes de publicar.' :
+  const blocker = !intakeWorks.length ? 'Marque as séries de Requests que deseja acrescentar.' :
+    !selection.current || !selection.target ? 'Para copiar, confira o tópico atual e crie um tópico [NEW] vazio para esta letra.' :
+    checks.incomplete ? 'Termine a leitura dos dois tópicos antes de publicar.' :
     posts.length + count > rebuildLimit ? 'O piloto aceita até ' + rebuildLimit + ' publicações por reconstrução.' :
       count > rebuildIntakeLimit ? 'Selecione até ' + rebuildIntakeLimit + ' arquivos de Requests nesta reconstrução.' :
     checks.protectedGroups || posts.some(post => post.protected) ? 'Há publicações protegidas pelo Telegram.' :
@@ -478,6 +543,7 @@ get('rebuild-adjust').addEventListener('click', () => {
 function refreshRebuildPicks() {
   updateRebuildCount();
   if (rebuildInventory) renderRebuildPlan(rebuildInventory);
+  void lookupSelectedSeries();
 }
 
 rebuildOptions.addEventListener('change', refreshRebuildPicks);
@@ -512,7 +578,8 @@ get('open-letter').addEventListener('click', async () => {
   try {
     const local = await checkForum(letter, undefined, request.signal);
     if (request.signal.aborted) return;
-    if (local.topic && ['found', 'closed'].includes(local.state) && local.replacement?.state === 'found') {
+    if (local.replacement && (local.state === 'missing' || (local.topic && ['found', 'closed'].includes(local.state))) &&
+        ['found', 'missing'].includes(local.replacement.state)) {
       status.textContent = '';
       startRebuild(local, letter);
       rebuildOptions.querySelector('input')?.focus();

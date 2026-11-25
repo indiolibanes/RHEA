@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { open } from 'node:fs/promises';
+import { open, rename } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { FloodWaitError, SlowModeWaitError } from 'teleproto/errors';
 import { forumId } from '../src/rhea/library/forum-contract.mjs';
@@ -96,23 +96,36 @@ export function mirrorControl(config, now = Date.now) {
     ...(rebuild?.insertions ? [rebuild.insertions] : [])]);
   const journal = join(dirname(config.file), rebuild ? 'letter-rebuild-pilot.jsonl' :
     ordered ? 'organization-pilot.jsonl' : 'mirror-' + target + '.jsonl');
+  const archive = scope => join(dirname(journal), 'letter-rebuild-' + scope + '.jsonl');
   let pending;
   let active = false;
 
-  async function readJournal() {
+  async function readJournalFile(path, expectedScope) {
     let file;
     try {
-      file = await open(journal, 'r');
+      file = await open(path, 'r');
       const { size } = await file.stat();
       if (size < 1 || size > (rebuild ? 262144 : 16384)) return false;
       const contents = await file.readFile('utf8');
       if (!contents.endsWith('\n')) return false;
-      return readLog(contents.trimEnd().split('\n').map(line => JSON.parse(line)), scope, Boolean(local), Boolean(ordered), limit) ?? false;
+      const lines = contents.trimEnd().split('\n').map(line => JSON.parse(line));
+      const recordedScope = lines[0]?.scope;
+      if (!/^[a-f0-9]{64}$/.test(recordedScope ?? '')) return false;
+      return readLog(lines, expectedScope ?? recordedScope, Boolean(local), Boolean(ordered), limit) ?? false;
     } catch (error) {
       return error.code === 'ENOENT' ? null : false;
     } finally {
       await file?.close();
     }
+  }
+
+  async function readJournal() {
+    const current = await readJournalFile(journal, rebuild ? undefined : scope);
+    if (!rebuild || current === false || current?.scope === scope) return current;
+    const saved = await readJournalFile(archive(scope), scope);
+    if (saved !== null) return saved;
+    if (current && status(current).state !== 'mirror_done') return false;
+    return null;
   }
 
   function status(log) {
@@ -145,6 +158,13 @@ export function mirrorControl(config, now = Date.now) {
   async function approve(preview, plan) {
     let file;
     try {
+      if (rebuild) {
+        const previous = await readJournalFile(journal);
+        if (previous !== null) {
+          if (!previous || previous.scope === scope || status(previous).state !== 'mirror_done') return { state: 'mirror_recovery' };
+          await rename(journal, archive(previous.scope));
+        }
+      }
       file = await open(journal, 'wx', 0o600);
       await append(file, { type: 'approved', scope, evidence: plan.evidence, units: plan.units.map(idsOf), at: now(),
         approval: digest(preview.approval) });

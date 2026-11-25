@@ -95,7 +95,7 @@ export function alphabeticDestination(letter, topics, sourceTopicId, role = 'let
   const matches = topics.filter(topic => {
     if (!forumId(topic.id) || topic.id === 1 || topic.hidden || typeof topic.title !== 'string') return false;
     const label = titleKey(topic.title).replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
-    const match = /^(?:(?:letter|letra) )?(?:([a-z])|"([a-z])"|'([a-z])')( \[new\])?$/.exec(label);
+    const match = /^(?:(?:letter|letra)(?:\s*[-–—:]\s*| ))?(?:([a-z])|"([a-z])"|'([a-z])')( *\[ *new *\])?$/.exec(label);
     return match && (match[1] ?? match[2] ?? match[3]).toUpperCase() === letter &&
       (match[4] ? 'replacement' : 'letter') === role;
   });

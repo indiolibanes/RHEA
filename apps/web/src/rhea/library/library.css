@@ -17,7 +17,9 @@
 #enrich-rebuild-picks { min-inline-size: 0; margin: 0; border: 1px solid var(--color-outline-variant); border-radius: .5rem; }
 #enrich-letter { min-block-size: 2.75rem; min-inline-size: 4rem; }
 #enrich-rebuild-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); }
-.library #enrich-rebuild-options label { display: flex; align-items: center; gap: .5rem; min-block-size: 44px; cursor: pointer; }
+.library #enrich-rebuild-options label { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .25rem .5rem; min-block-size: 44px; cursor: pointer; }
+#enrich-rebuild-options small { grid-column: 2; }
+#enrich-rebuild-options small:empty { display: none; }
 #enrich-rebuild-options input { inline-size: 1.15rem; block-size: 1.15rem; flex: none; }
 .library-search { width: min(100%, 20rem); }
 .library-alphabet { display: flex; flex-wrap: wrap; gap: .2rem; margin-top: 1rem; }
