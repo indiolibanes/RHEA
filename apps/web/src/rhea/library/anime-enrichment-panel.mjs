@@ -1,7 +1,7 @@
 import { alphabeticDestination, episodeLabel, groupTopicDocuments, proposeAnimePreview, sortAnimeEpisodes } from './anime-enrichment.mjs';
 import { aniListIdFromLink, animeFormats, animeProviders, lookupAnime, lookupMessage, providerFallback, retryableLookup } from './anime-lookup.mjs';
 import { manualAnimeMetadata } from './manual-anime-metadata.mjs';
-import { letterInsertionOptions, letterRebuildTopics, planLetterRebuild } from './letter-rebuild.mjs';
+import { intakeLetterBatches, letterInsertionOptions, letterRebuildTopics, planLetterRebuild } from './letter-rebuild.mjs';
 import { letterFor, titleKey } from './catalog.mjs';
 import { rebuildIntakeLimit, rebuildLimit } from './organization-contract.mjs';
 import { forumEnrichmentSnapshot } from './forum-panel.mjs';
@@ -19,6 +19,7 @@ let source;
 let groups = [];
 let active;
 let destinationRead;
+let letterDiscovery;
 let preview;
 let rebuildRead;
 let rebuildSelection;
@@ -97,8 +98,7 @@ function clearChoice() {
   get('fetch-link').disabled = false;
   destinationRead?.abort();
   destinationRead = undefined;
-  get('open-letter').disabled = false;
-  get('letter-status').textContent = '';
+  get('check-destinations').disabled = false;
   preview = undefined;
   updateSearchButton();
   status.textContent = '';
@@ -130,13 +130,13 @@ function selectGroup() {
 }
 
 function load(input) {
+  letterDiscovery?.abort();
+  letterDiscovery = undefined;
   source = input;
   const result = input ? groupTopicDocuments(input.posts, input.reference) : { groups: [], unassigned: 0 };
   groups = result.groups;
-  const letters = [...new Set(groups.map(item => letterFor(item.title)).filter(letter => letter !== '#'))].sort();
-  get('letter').replaceChildren(...letters.map(letter => new Option(letter, letter)));
-  get('letter-picker').hidden = !letters.length;
-  get('letter-status').textContent = '';
+  get('letter-plans').hidden = true;
+  get('letter-options').replaceChildren();
   select.replaceChildren(...groups.map(item => Object.assign(node('option', item.title +
     (item.season !== undefined ? ' · Temporada ' + item.season : ' · Temporada a conferir')), { value: item.key })));
   get('form').hidden = !groups.length;
@@ -148,6 +148,7 @@ function load(input) {
     input.complete ? '' : 'Inventário parcial',
   ].filter(Boolean).join(' · ') : 'Escolha um tópico em Arquivos por tópico e toque em Organizar arquivos deste tópico.';
   selectGroup();
+  if (input) void discoverLetters();
 }
 
 function providerLink(text, url) {
@@ -205,11 +206,11 @@ function show(candidate, manual = false) {
   get('review-title').focus();
 }
 
-async function checkForum(letter, scope, signal) {
-  const topics = [];
-  const seen = new Set();
-  let channelId;
-  let cursor = null;
+async function readForumTopics(scope, signal, existing) {
+  const topics = [...(existing?.topics ?? [])];
+  const seen = new Set(topics.map(topic => topic.id));
+  let channelId = existing?.channelId;
+  let cursor = existing?.topicsCursor ?? null;
   for (let page = 0; page < 12; page++) {
     const response = await fetch(root.dataset.telegramEndpoint + '?op=forumtopics', {
       method: 'POST', credentials: 'same-origin', redirect: 'error', cache: 'no-store', signal,
@@ -233,15 +234,88 @@ async function checkForum(letter, scope, signal) {
       seen.add(topic.id);
       topics.push(topic);
     }
-    if (forum.next === null) {
-      if (scope) return { channelId, ...alphabeticDestination(letter, topics) };
-      const { current, replacement } = letterRebuildTopics(letter, topics, source.topicId);
-      return { channelId, ...current, replacement };
-    }
+    if (forum.next === null) return { channelId, topics };
+    if (!forum.next || forum.next === cursor) return { state: 'changed' };
     cursor = forum.next;
   }
   return { state: 'incomplete' };
 }
+
+async function checkForum(letter, scope, signal) {
+  const index = await readForumTopics(scope, signal);
+  if (!index.topics) return index;
+  if (scope) return { channelId: index.channelId, ...alphabeticDestination(letter, index.topics) };
+  const { current, replacement } = letterRebuildTopics(letter, index.topics, source.topicId);
+  return { channelId: index.channelId, ...current, replacement };
+}
+
+async function discoverLetters(refresh = false) {
+  const intake = source;
+  const batches = intakeLetterBatches(groups);
+  const section = get('letter-plans');
+  const options = get('letter-options');
+  const status = get('letter-status');
+  const retry = get('refresh-letters');
+  section.hidden = !batches.length;
+  if (!intake || !batches.length) return;
+  letterDiscovery?.abort();
+  const request = new AbortController();
+  letterDiscovery = request;
+  options.replaceChildren();
+  retry.disabled = true;
+  status.textContent = 'Identificando os tópicos das letras encontradas em ' + intake.title + '…';
+  try {
+    const index = !refresh && intake.topicsCursor === null ? intake :
+      await readForumTopics(undefined, request.signal, refresh ? undefined : intake);
+    if (request.signal.aborted) return;
+    if (!index.topics) {
+      status.textContent = index.state === 'rate_limited' ?
+        'O Telegram pediu uma pausa. Atualize os tópicos mais tarde.' : 'Não foi possível conferir os tópicos. Tente atualizar.';
+      return;
+    }
+    const cards = batches.map(({ letter, series, files }) => {
+      const { current, replacement } = letterRebuildTopics(letter, index.topics, intake.topicId);
+      const row = node('li');
+      const currentLabel = current.topic?.title ? 'Tópico atual: ' + current.topic.title :
+        current.state === 'missing' ? 'Sem tópico atual' : 'Confira qual é o tópico atual';
+      const targetLabel = replacement.state === 'found' ? 'Destino: ' + replacement.topic.title :
+        replacement.state === 'missing' ? 'Destino [NEW] ausente' :
+          replacement.state === 'closed' ? 'Destino [NEW] fechado' : 'Confira qual é o destino [NEW]';
+      const button = node('button', 'Revisar letra ' + letter);
+      button.type = 'button';
+      button.className = 'editorial-action';
+      button.disabled = !['found', 'closed', 'missing'].includes(current.state);
+      button.addEventListener('click', () => {
+        publication.clear();
+        clearRebuild();
+        startRebuild({ channelId: index.channelId, ...current, replacement }, letter);
+        get('rebuild-title').focus();
+      });
+      row.append(node('strong', 'Letra ' + letter + ' · ' + series + (series === 1 ? ' série' : ' séries')),
+        node('span', files + (files === 1 ? ' arquivo em ' : ' arquivos em ') + intake.title),
+        node('span', currentLabel), node('span', targetLabel), button);
+      return row;
+    });
+    options.replaceChildren(...cards);
+    status.textContent = (batches.length === 1 ? '1 letra detectada.' : batches.length + ' letras detectadas.') +
+      (intake.complete ? '' : ' A lista cobre as páginas lidas. Carregue o restante do tópico antes de publicar.');
+  } catch {
+    if (!request.signal.aborted) status.textContent = 'Não foi possível conferir os tópicos. Tente atualizar.';
+  } finally {
+    if (letterDiscovery === request) {
+      letterDiscovery = undefined;
+      retry.disabled = false;
+    }
+  }
+}
+
+get('refresh-letters').addEventListener('click', () => {
+  if (rebuildSelection) {
+    publication.clear();
+    clearRebuild();
+  }
+  void discoverLetters(true);
+});
 
 function clearRebuild() {
   rebuildRead?.abort();
@@ -394,17 +468,15 @@ function startRebuild(local, letter, confirmed) {
     choices.get(id).push(item);
   }
   const current = local.topic;
-  const target = local.replacement.topic;
+  const target = local.replacement.state === 'found' ? local.replacement.topic : undefined;
   rebuildSelection = { channelId: local.channelId, current, target, letter, choices, automaticLookup: !confirmed };
-  if ([...get('letter').options].some(option => option.value === letter)) get('letter').value = letter;
-  get('letter-status').textContent = '';
   get('rebuild-targets').textContent = [current?.title, source.title].filter(Boolean).join(' + ') + ' → ' +
     (target?.title ?? 'Letter ' + letter + ' [NEW]');
   get('rebuild-legend').textContent = 'Séries da letra ' + letter + ' em ' + source.title;
   rebuildOptions.replaceChildren(...[...choices].map(([id, works]) => {
     const files = works.reduce((total, work) => total + work.posts.length, 0);
     const label = node('label');
-    label.append(Object.assign(node('input'), { type: 'checkbox', value: id, checked: Boolean(confirmed) }),
+    label.append(Object.assign(node('input'), { type: 'checkbox', value: id, checked: true }),
       node('span', works[0].title + ' · ' + files + (files === 1 ? ' arquivo' : ' arquivos')), node('small'));
     return label;
   }));
@@ -554,54 +626,6 @@ for (const [button, checked] of [['rebuild-select-all', true], ['rebuild-select-
   });
 }
 
-get('letter').addEventListener('change', () => {
-  destinationRead?.abort();
-  destinationRead = undefined;
-  get('check-destinations').disabled = false;
-  get('open-letter').disabled = false;
-  get('letter-status').textContent = '';
-  publication.clear();
-  clearRebuild();
-});
-
-get('open-letter').addEventListener('click', async () => {
-  const letter = get('letter').value;
-  if (!source || !letter || destinationRead) return;
-  const request = new AbortController();
-  destinationRead = request;
-  const button = get('open-letter');
-  const status = get('letter-status');
-  button.disabled = true;
-  publication.clear();
-  clearRebuild();
-  status.textContent = 'Procurando os tópicos da letra ' + letter + '…';
-  try {
-    const local = await checkForum(letter, undefined, request.signal);
-    if (request.signal.aborted) return;
-    if (local.replacement && (local.state === 'missing' || (local.topic && ['found', 'closed'].includes(local.state))) &&
-        ['found', 'missing'].includes(local.replacement.state)) {
-      status.textContent = '';
-      startRebuild(local, letter);
-      rebuildOptions.querySelector('input')?.focus();
-      return;
-    }
-    status.textContent = local.replacement?.state === 'missing' ?
-      'Crie o tópico vazio Letter ' + letter + ' [NEW] no mesmo grupo e tente novamente.' :
-      local.replacement?.state === 'closed' ? 'Reabra o tópico Letter ' + letter + ' [NEW] e tente novamente.' :
-      local.replacement?.state === 'ambiguous' ? 'Há mais de um tópico [NEW] ativo para a letra ' + letter + '.' :
-      local.replacement ? 'Confira o tópico atual Letter ' + letter + ' e escolha um tópico de origem diferente.' :
-      local.state === 'rate_limited' ? 'O Telegram pediu uma pausa. Confira os tópicos mais tarde.' :
-      'Não foi possível conferir os tópicos da letra ' + letter + '.';
-  } catch {
-    if (!request.signal.aborted) status.textContent = 'Não foi possível conferir os tópicos. Tente novamente.';
-  } finally {
-    if (destinationRead === request) {
-      destinationRead = undefined;
-      button.disabled = false;
-    }
-  }
-});
-
 function destinationLine(label, target, letter) {
   const messages = {
     missing: 'Não há tópico Letter ' + letter + ' neste grupo. Crie o tópico e confira novamente.',
@@ -713,7 +737,8 @@ function candidateChoices(items) {
 root.querySelector('#forum-organize').addEventListener('click', () => {
   root.querySelector('#anime-enrichment').open = true;
   load(forumEnrichmentSnapshot());
-  (get('letter-picker').hidden ? group() ? title : get('source') : get('letter')).focus();
+  if (get('letter-plans').hidden) (group() ? title : get('source')).focus();
+  else get('letter-title').focus();
 });
 
 get('use-title').addEventListener('click', () => {

@@ -192,12 +192,13 @@ headings, titled covers, known numbered filename formats, and exact user-supplie
 are considered. A cover with an unconfirmed label can appear for review without assigning its
 unknown files to a work. Posts remain visible when their title or episode cannot be determined.
 
-In **Organizar por letra**, choose an initial found in the loaded Requests inventory and select
-**Escolher séries**. Mark the series to include, individually or with **Marcar todas**. Each selection
-includes the detected seasons of that series. Requests entries for other initials remain outside the
-plan. RHEA reads the existing letter immediately, including a closed source topic. The combined
-preview remains available while the empty replacement topic is missing. If the current letter is
-missing, the preview shows the selected Requests entries and publication requires both topics.
+When opening the organizer from Requests, **Planos por letra** lists every detected initial A–Z
+and matches each one to the corresponding current topic and replacement. Review one of the
+proposed plans to load that letter's history. All its detected series start selected and can be
+unchecked. Each selection includes its detected seasons. Entries with different initials go
+into their own plans. A closed current topic can still be read. The preview remains available
+while the replacement topic is missing. A letter with no current topic shows the Requests
+selection in its preview. Publication requires both topics.
 An incomplete Requests inventory must be fully loaded before publication review.
 
 Selecting a series in **Organizar por letra** queries the active metadata provider using its

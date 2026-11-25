@@ -92,10 +92,15 @@ def respond(route):
             {'id': 9, 'title': 'Letter T', 'closed': state['local_closed']}]
         if not backup and state['replacement']:
             topics.append({'id': 81, 'title': 'Letter T [NEW]'})
+        next_cursor = None
         if not backup and state['k_round']:
-            topics.append({'id': 11, 'title': 'Letter – “K”', 'closed': True})
+            if data['cursor'] is None:
+                next_cursor = 'fixture-next-topics'
+            else:
+                assert data['cursor'] == 'fixture-next-topics'
+                topics = [{'id': 11, 'title': 'Letter – “K”', 'closed': True}]
         route.fulfill(json={'state': 'forum_topics', 'forum': {
-            'next': None, 'channelId': '11111' if backup else state['forum_id'], 'topics': topics, **({'scope': 'backup'} if backup else {})}})
+            'next': next_cursor, 'channelId': '11111' if backup else state['forum_id'], 'topics': topics, **({'scope': 'backup'} if backup else {})}})
     elif operation == 'forumpage':
         if data['topicId'] == 11:
             route.fulfill(json={'state': 'forum_page', 'forum': {'next': None, 'topicId': 11, 'channelId': '22222', 'posts': [
@@ -410,19 +415,21 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         expect(page.locator('#enrich-progress-backup').locator('..')).to_be_hidden()
         state['extra_intake'] = True
         reach_enrichment(page, expected='Amber Archive')
-        expect(page.locator('#enrich-letter option')).to_have_text(['A', 'T'])
-        page.locator('#enrich-letter').select_option('T')
+        cards = page.locator('#enrich-letter-options li')
+        expect(cards.locator('strong')).to_have_text(['Letra A · 1 série', 'Letra T · 2 séries'])
+        expect(cards.first).to_contain_text('Sem tópico atual')
+        expect(cards.last).to_contain_text('Tópico atual: Letter T')
+        expect(cards.last).to_contain_text('Destino: Letter T [NEW]')
+        assert calls[-2:] == ['forumtopics', 'forumpage'], calls[-3:]
         previous_count = len(lookups)
         state['lookup'] = [(200, {'state': 'candidates', 'candidates': [{**candidate, 'titles': ['Tada-kun']}]}),
                            (200, {'state': 'candidates', 'candidates': [candidate]})]
-        page.get_by_role('button', name='Escolher séries').click()
+        page.get_by_role('button', name='Revisar letra T').click()
         expect(page.locator('#enrich-rebuild-legend')).to_contain_text('Séries da letra T')
         picks = page.locator('#enrich-rebuild-options')
         expect(picks.get_by_role('checkbox')).to_have_count(2)
         expect(picks.get_by_role('checkbox', name='Tsuki ga Kirei · 3 arquivos', exact=False)).to_be_visible()
         expect(picks.get_by_role('checkbox', name='Amber Archive', exact=False)).to_have_count(0)
-        expect(page.locator('#enrich-rebuild-review')).to_be_disabled()
-        page.get_by_role('button', name='Marcar todas').click()
         expect(page.locator('#enrich-rebuild-count')).to_have_text('2 séries · 4 arquivos')
         expect(page.locator('#enrich-rebuild-options small').first).to_contain_text('12 episódios')
         expect(page.locator('#enrich-rebuild-options small').last).to_contain_text('Confira a edição')
@@ -445,15 +452,17 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         state['extra_intake'] = False
         state['replacement'] = False
 
-        # A closed existing letter is included even before a replacement topic is created.
+        # A closed current topic is paired automatically before a replacement has been created.
         state['k_round'] = True
+        topic_reads = calls.count('forumtopics')
         reach_enrichment(page, expected='Kestrel Circuit')
-        page.locator('#enrich-letter').select_option('K')
+        expect(cards.first).to_contain_text('Tópico atual: Letter – “K”')
+        expect(cards.first).to_contain_text('Destino [NEW] ausente')
+        assert calls.count('forumtopics') == topic_reads + 2  # Initial inventory and its remaining topic page.
         state['lookup'] = [(503, {'state': 'provider_refused'})]
-        page.get_by_role('button', name='Escolher séries').click()
+        page.get_by_role('button', name='Revisar letra K').click()
         expect(page.locator('#enrich-current-inventory')).to_contain_text('2 publicações lidas')
         expect(page.locator('#enrich-rebuild-items')).to_contain_text('Kumo Station')
-        page.locator('#enrich-rebuild-options input').check()
         expect(page.locator('#enrich-rebuild-items summary').first).to_contain_text('Kestrel Circuit')
         expect(page.locator('#enrich-rebuild-items summary').last).to_contain_text('Kumo Station')
         expect(page.locator('#enrich-rebuild-lookup')).to_contain_text('O AniList recusou')
