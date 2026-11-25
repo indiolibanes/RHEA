@@ -4,6 +4,7 @@ import { manualAnimeMetadata } from './manual-anime-metadata.mjs';
 import { intakeLetterBatches, letterInsertionOptions, letterRebuildTopics, planLetterRebuild } from './letter-rebuild.mjs';
 import { letterFor, titleKey } from './catalog.mjs';
 import { rebuildIntakeLimit, rebuildLimit } from './organization-contract.mjs';
+import { discoveredRebuildPair, telegramReadCooldown } from './destination-check.mjs';
 import { forumEnrichmentSnapshot } from './forum-panel.mjs';
 import { organizationPublication } from './organization-panel.mjs';
 import { mirrorLimit } from './mirror-contract.mjs';
@@ -20,6 +21,44 @@ let groups = [];
 let active;
 let destinationRead;
 let letterDiscovery;
+let discoveredIndex;
+let discoveryRead;
+const telegramCooldown = telegramReadCooldown();
+let destinationWaitTimer;
+
+function telegramWait() {
+  return telegramCooldown.remaining();
+}
+
+function updateDestinationButton() {
+  const wasWaiting = destinationWaitTimer !== undefined;
+  clearTimeout(destinationWaitTimer);
+  destinationWaitTimer = undefined;
+  const left = telegramWait();
+  const button = get('check-destinations');
+  button.disabled = Boolean(destinationRead) || left > 0;
+  button.textContent = left ? 'Conferir destinos em ' + left + ' s' : 'Conferir destinos';
+  if (left) destinationWaitTimer = setTimeout(updateDestinationButton, 1000);
+  else if (wasWaiting) {
+    for (const id of ['destination-status', 'current-inventory', 'letter-status']) {
+      const message = get(id);
+      if (message.textContent.startsWith('O Telegram pediu uma pausa.')) {
+        message.textContent = 'Pausa encerrada. Confira novamente quando estiver pronto.';
+      }
+    }
+  }
+}
+
+function recordTelegramWait(data) {
+  const result = telegramCooldown.record(data);
+  updateDestinationButton();
+  return result;
+}
+
+function telegramWaitMessage() {
+  return 'O Telegram pediu uma pausa. ' + (telegramWait() ?
+    'Aguarde ' + telegramWait() + ' s antes de conferir novamente.' : 'Confira novamente mais tarde.');
+}
 let preview;
 let rebuildRead;
 let rebuildSelection;
@@ -98,7 +137,7 @@ function clearChoice() {
   get('fetch-link').disabled = false;
   destinationRead?.abort();
   destinationRead = undefined;
-  get('check-destinations').disabled = false;
+  updateDestinationButton();
   preview = undefined;
   updateSearchButton();
   status.textContent = '';
@@ -132,6 +171,7 @@ function selectGroup() {
 function load(input) {
   letterDiscovery?.abort();
   letterDiscovery = undefined;
+  discoveryRead = discoveredIndex = undefined;
   source = input;
   const result = input ? groupTopicDocuments(input.posts, input.reference) : { groups: [], unassigned: 0 };
   groups = result.groups;
@@ -200,13 +240,15 @@ function show(candidate, manual = false) {
     (plan.sizedCount ? ' · ' + formatSize(plan.totalBytes) : ''), plan.letter === '#' ? 'Indefinida' : plan.letter,
     'Ainda não conferidos');
   setStep('destinations');
-  get('check-destinations').disabled = false;
+  updateDestinationButton();
   get('check-destinations').hidden = plan.letter === '#';
   get('result').hidden = false;
   get('review-title').focus();
 }
 
 async function readForumTopics(scope, signal, existing) {
+  if (existing?.topicsCursor === null) return { channelId: existing.channelId, topics: existing.topics };
+  if (telegramWait()) return { state: 'rate_limited', retryAfter: telegramWait() };
   const topics = [...(existing?.topics ?? [])];
   const seen = new Set(topics.map(topic => topic.id));
   let channelId = existing?.channelId;
@@ -219,7 +261,8 @@ async function readForumTopics(scope, signal, existing) {
     });
     const data = await response.json();
     if (data.state === 'forum_disabled' && scope) return { state: 'unconfigured' };
-    if (data.state === 'rate_limited' || data.state === 'busy' || data.state === 'disconnected' ||
+    if (data.state === 'rate_limited') return recordTelegramWait(data);
+    if (data.state === 'busy' || data.state === 'disconnected' ||
         data.state === 'access_required' || data.state === 'not_allowed' || data.state === 'forum_unavailable') {
       return { state: data.state };
     }
@@ -242,9 +285,20 @@ async function readForumTopics(scope, signal, existing) {
 }
 
 async function checkForum(letter, scope, signal) {
+  // A complete, already read list can establish the current/[NEW] pair without another Telegram RPC.
+  // Only use a positive pair for the read-only preview; negative results need a fresh check.
+  if (!scope) {
+    const cached = discoveryRead ? await discoveryRead.catch(() => undefined) : discoveredIndex;
+    if (signal.aborted) return { state: 'unavailable' };
+    const pair = discoveredRebuildPair(letter, cached, source);
+    if (pair) return pair;
+    if (cached?.state === 'rate_limited' && telegramWait()) return cached;
+  }
   const index = await readForumTopics(scope, signal);
+  if (signal.aborted) return { state: 'unavailable' };
   if (!index.topics) return index;
   if (scope) return { channelId: index.channelId, ...alphabeticDestination(letter, index.topics) };
+  discoveredIndex = index;
   const { current, replacement } = letterRebuildTopics(letter, index.topics, source.topicId);
   return { channelId: index.channelId, ...current, replacement };
 }
@@ -259,18 +313,21 @@ async function discoverLetters(refresh = false) {
   section.hidden = !batches.length;
   if (!intake || !batches.length) return;
   letterDiscovery?.abort();
+  discoveredIndex = undefined;
   const request = new AbortController();
   letterDiscovery = request;
   options.replaceChildren();
   retry.disabled = true;
   status.textContent = 'Identificando os tópicos das letras encontradas em ' + intake.title + '…';
   try {
-    const index = !refresh && intake.topicsCursor === null ? intake :
-      await readForumTopics(undefined, request.signal, refresh ? undefined : intake);
+    const pending = readForumTopics(undefined, request.signal, refresh ? undefined : intake);
+    discoveryRead = pending;
+    const index = await pending;
     if (request.signal.aborted) return;
+    if (index.topics) discoveredIndex = index;
     if (!index.topics) {
       status.textContent = index.state === 'rate_limited' ?
-        'O Telegram pediu uma pausa. Atualize os tópicos mais tarde.' : 'Não foi possível conferir os tópicos. Tente atualizar.';
+        telegramWaitMessage() : 'Não foi possível conferir os tópicos. Tente atualizar.';
       return;
     }
     const cards = batches.map(({ letter, series, files }) => {
@@ -303,7 +360,7 @@ async function discoverLetters(refresh = false) {
     if (!request.signal.aborted) status.textContent = 'Não foi possível conferir os tópicos. Tente atualizar.';
   } finally {
     if (letterDiscovery === request) {
-      letterDiscovery = undefined;
+      letterDiscovery = discoveryRead = undefined;
       retry.disabled = false;
     }
   }
@@ -380,6 +437,7 @@ get('rebuild-anchor').addEventListener('change', event => {
 });
 
 async function readCurrentLetter({ channelId, current }, signal) {
+  if (telegramWait()) throw Object.assign(new Error('Telegram requested a wait.'), { retryAfter: telegramWait() });
   const posts = new Map();
   let cursor = null;
   for (let page = 0; page < 20; page++) {
@@ -390,8 +448,8 @@ async function readCurrentLetter({ channelId, current }, signal) {
     });
     const data = await response.json();
     const forum = data.forum;
-    if (data.state === 'rate_limited' && Number.isInteger(data.retryAfter) && data.retryAfter > 0) {
-      throw Object.assign(new Error('Telegram requested a wait.'), { retryAfter: data.retryAfter });
+    if (data.state === 'rate_limited') {
+      throw Object.assign(new Error('Telegram requested a wait.'), recordTelegramWait(data));
     }
     if (!response.ok || data.state !== 'forum_page' || forum?.channelId !== channelId || forum.topicId !== current.id ||
         !Array.isArray(forum.posts) || forum.posts.some(post => posts.has(post.id)) ||
@@ -425,8 +483,8 @@ async function loadCurrentLetter() {
       ' publicações lidas' + (inventory.complete ? '.' : ' · leitura parcial.');
     renderRebuildPlan(inventory);
   } catch (error) {
-    if (!request.signal.aborted) get('current-inventory').textContent = error.retryAfter ?
-      'O Telegram pediu uma pausa. Aguarde ' + error.retryAfter + ' s antes de repetir a leitura.' :
+    if (!request.signal.aborted) get('current-inventory').textContent = (error.retryAfter || error.state === 'rate_limited') ?
+      telegramWaitMessage() :
       'A leitura do tópico atual falhou. Confira o acesso e tente novamente.';
   } finally {
     if (rebuildRead === request) {
@@ -637,7 +695,8 @@ function destinationLine(label, target, letter) {
     unavailable: 'Não foi possível conferir o supergrupo.',
     forum_unavailable: 'O Telegram não confirmou o grupo privado. Confira o convite e a participação da conta conectada.',
     busy: 'O leitor está ocupado. Aguarde e confira novamente.',
-    rate_limited: 'O Telegram pediu uma pausa. Confira novamente mais tarde.',
+    rate_limited: telegramWaitMessage(),
+    not_checked: 'Consulta pendente; não foi realizada durante a pausa do Telegram.',
     disconnected: 'Conecte o Telegram na seção acima e confira novamente.',
     access_required: 'Sua sessão expirou. Entre no Private novamente.',
     not_allowed: 'O Private não autorizou a leitura. Confira a conta conectada.',
@@ -652,7 +711,7 @@ function destinationLine(label, target, letter) {
 }
 
 get('check-destinations').addEventListener('click', async () => {
-  if (!preview || destinationRead) return;
+  if (!preview || destinationRead || telegramWait()) return;
   const request = new AbortController();
   destinationRead = request;
   const button = get('check-destinations');
@@ -660,7 +719,7 @@ get('check-destinations').addEventListener('click', async () => {
   const results = get('destinations');
   button.disabled = true;
   results.hidden = true;
-  feedback.textContent = 'Conferindo tópicos dos dois grupos…';
+  feedback.textContent = 'Conferindo os tópicos de destino…';
   const { letter } = preview;
   publication.clear();
   clearRebuild();
@@ -668,13 +727,23 @@ get('check-destinations').addEventListener('click', async () => {
   try {
     const local = await lookup(undefined);
     if (request.signal.aborted) return;
+    if (local.state === 'rate_limited') {
+      results.replaceChildren(destinationLine('No mesmo grupo', local, letter),
+        destinationLine('No backup', { state: 'not_checked' }, letter));
+      results.hidden = false;
+      get('pilot-note').hidden = true;
+      get('sum-destinations').textContent = 'Consulta pausada · Backup não conferido';
+      feedback.textContent = telegramWaitMessage();
+      return;
+    }
     if (local.topic && ['found', 'closed'].includes(local.state) && local.replacement?.state === 'found') {
       startRebuild(local, letter, { group: group(), preview });
-      results.replaceChildren(destinationLine('Destino da reconstrução', { ...local.replacement, channelId: local.channelId }, letter));
+      results.replaceChildren(destinationLine('Tópico atual (origem)', { ...local, state: 'found' }, letter),
+        destinationLine('Destino da reconstrução', { ...local.replacement, channelId: local.channelId }, letter));
       results.hidden = false;
       get('pilot-note').hidden = true;
       get('sum-destinations').textContent = local.replacement.topic.title;
-      feedback.textContent = 'Os tópicos da reconstrução foram encontrados. Confira a ordem antes de planejar a cópia.';
+      feedback.textContent = 'Os tópicos da reconstrução foram encontrados. Confira a ordem antes de planejar a cópia. O backup não faz parte desta reconstrução.';
       return;
     }
     if (['closed', 'ambiguous'].includes(local.replacement?.state)) {
@@ -687,6 +756,12 @@ get('check-destinations').addEventListener('click', async () => {
     results.replaceChildren(destinationLine('No mesmo grupo', local, letter), destinationLine('No backup', backup, letter));
     results.hidden = false;
     get('pilot-note').hidden = false;
+    if (backup.state === 'rate_limited') {
+      get('pilot-note').hidden = true;
+      get('sum-destinations').textContent = 'Mesmo grupo: ' + (local.topic?.title ?? 'não confirmado') + ' · Backup: consulta pausada';
+      feedback.textContent = telegramWaitMessage();
+      return;
+    }
     const found = Number(local.state === 'found') + Number(backup.state === 'found');
     const word = target => target.state === 'found' ? 'encontrado' : target.state === 'closed' ? 'fechado' :
       target.state === 'ambiguous' ? 'ambíguo' : target.state === 'missing' ? 'ausente' : 'indisponível';
@@ -712,7 +787,7 @@ get('check-destinations').addEventListener('click', async () => {
   } finally {
     if (destinationRead === request) {
       destinationRead = undefined;
-      button.disabled = false;
+      updateDestinationButton();
     }
   }
 });
