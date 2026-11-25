@@ -15,12 +15,36 @@ const slotKey = ({ season, episode, part }) => [season, episode, part ?? 0].join
 
 export const sortAnimeEpisodes = posts => [...posts].sort(order);
 
+// Underscore releases such as "#Group_Title_Words_12_Final_BD_1920x1080_HEVC_10Bit_6C697CD8.mkv":
+// strip the group tag and the technical tail, then read the last number as the episode.
+const releaseTail = /^(?:\d{3,4}x\d{3,4}|\d{3,4}p|bd(?:rip)?|blu-?ray|web(?:-?dl|rip)?|dvd(?:rip)?|hevc|x26[45]|h\.?26[45]|avc|\d{1,2}bit|flac|aac|ac3|eac3|opus|dual|multi|final|end|[0-9a-f]{8})$/iu;
+
+function underscoreRelease(normalized) {
+  const base = normalized.replace(/\.(?:mkv|mp4|avi|webm)$/iu, '');
+  if (/[\[\]()]/u.test(base) || !base.includes('_')) return null;
+  const tokens = base.replace(/^#[^_\s]+[_\s]+/u, '').split(/[_\s]+/u).filter(Boolean);
+  while (tokens.length > 2 && releaseTail.test(tokens.at(-1))) tokens.pop();
+  const episode = /^(?:E|EP)?(\d{1,3})(?:v[1-9])?$/iu.exec(tokens.at(-1) ?? '');
+  const title = tokens.slice(0, -1).join(' ');
+  if (!episode || !/\p{L}/u.test(title) || /(?:^|\s)[ST]?\d{1,3}$/iu.test(title)) return null;
+  return { title, episode: Number(episode[1]) };
+}
+
+// A film or special without an episode number: "Title (1984) [1080p].mkv".
+const yearTitled = /^(?:\[[^\[\]]+\][ ._-]*)*([^\[\]()]+?)[ ._-]*[(\[](?:19|20)\d{2}[)\]]/iu;
+
 function numberedFansubEpisode(filename) {
   const normalized = filename.normalize('NFKC');
   if (/\d+[ ._-]*[-–+&][ ._-]*(?:EP?)?\d/iu.test(normalized)) return null;
   const match = numberedFansubTitle.exec(normalized) ?? numberedTitle.exec(normalized);
-  if (!match || !/\p{L}/u.test(match[1]) || /(?:^|[ ._-])[ST]?\d{1,3}$/i.test(match[1])) return null;
+  if (!match) return underscoreRelease(normalized);
+  if (!/\p{L}/u.test(match[1]) || /(?:^|[ ._-])[ST]?\d{1,3}$/i.test(match[1])) return null;
   return { title: match[1].replace(/[_.]+/g, ' ').trim(), episode: Number(match[2]) };
+}
+
+function yearTitle(filename) {
+  const title = yearTitled.exec(filename.normalize('NFKC'))?.[1]?.replace(/[_.]+/g, ' ').trim();
+  return title && /\p{L}/u.test(title) && title.length <= 120 ? title : undefined;
 }
 
 function coverHeading(value) {
@@ -55,7 +79,8 @@ export function groupTopicDocuments(posts, reference) {
     const metadata = parseEpisodeLabel(filename);
     const numbered = metadata.episode === undefined ? numberedFansubEpisode(filename) : null;
     if (numbered) metadata.episode = numbered.episode;
-    const detected = numbered?.title || (metadata.episode !== undefined && titleFromFilename(filename));
+    const detected = numbered?.title || (metadata.episode !== undefined && titleFromFilename(filename)) ||
+      (metadata.episode === undefined && !section && yearTitle(filename));
     const title = (explicit || captionTitle || detected || section?.title || '').trim();
     if (metadata.episode === undefined && section && titleKey(title) === titleKey(section.title)) {
       const number = episodeOnly.exec(filename.normalize('NFKC'))?.[1];

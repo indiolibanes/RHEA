@@ -94,21 +94,22 @@ test('uses cover titles and safe numbered formats in the same catalog and plans 
   const plan = planLetterRebuild({ letter: 'T', currentPosts: posts, intakeWorks: incoming, complete: true });
   assert.equal(plan.checks.unassigned, 0);
   assert.deepEqual(plan.groups.filter(group => group.origin === 'intake').map(group => group.title), ['Tada-kun', 'Tsuki ga Kirei']);
-  assert.deepEqual(plan.insertion, { state: 'ready', slots: [
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.insertion)), { state: 'ready', reasons: [], uncovered: 0, slots: [
     { beforeId: 11, works: ['Tada-kun'], ids: [41], nextTitle: 'Tales Archive' },
-    { beforeId: 15, works: ['Tsuki ga Kirei'], ids: [32, 31], nextTitle: 'Tundra Files' },
+    { beforeId: 15, works: ['Tsuki ga Kirei'], ids: [32, 31], previousTitle: 'Towa no Yuugure', nextTitle: 'Tundra Files' },
   ] });
   assert.equal(planLetterRebuild({ letter: 'T', currentPosts: posts, intakeWorks: incoming, complete: false }).insertion.state, 'review');
   assert.equal(planLetterRebuild({ letter: 'L', currentPosts: [], intakeWorks: incoming, complete: true }).insertion.state, 'review');
 });
 
-test('includes a cover-only work and requires review if a title at the insertion boundary is weak', () => {
+test('includes a cover-only work and asks for confirmation if a title at the insertion boundary is weak', () => {
   const plan = planLetterRebuild({ letter: 'T', complete: true,
     currentPosts: [{ id: 32, kind: 'cover', caption: 'Towa no Yuugure' }], intakeWorks: [
       { title: 'Tada-kun', posts: [{ id: 29, episode: 1 }] },
     ] });
   assert.deepEqual(plan.groups.map(item => item.title), ['Tada-kun', 'Towa no Yuugure']);
-  assert.equal(plan.insertion.state, 'review');
+  assert.equal(plan.insertion.state, 'suggest');
+  assert.deepEqual(plan.insertion.reasons, ['untrusted_header']);
 });
 
 test('keeps more than ten titled covers visible in both catalog and reconstruction', () => {
