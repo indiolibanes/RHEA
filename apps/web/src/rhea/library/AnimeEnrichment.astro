@@ -22,7 +22,11 @@
     <div class="library-actions library-field-row"><button class="editorial-action" id="enrich-fetch-link" type="button">Buscar pelo link</button></div>
     <details class="library-field-row">
       <summary>Usar uma captura como referência</summary>
-      <label>Captura da ficha pública <input id="enrich-capture" type="file" accept="image/png,image/jpeg,image/webp"></label>
+      <div class="library-actions">
+        <button class="editorial-action" id="enrich-paste-image" type="button">Colar imagem</button>
+      </div>
+      <label>Área de colagem <textarea id="enrich-paste-area" rows="1" placeholder="Toque e segure para colar ou use Ctrl+V" autocomplete="off" spellcheck="false"></textarea></label>
+      <label>Ou escolher um arquivo <input id="enrich-capture" type="file" accept="image/png,image/jpeg,image/webp"></label>
       <p id="enrich-capture-status" class="library-note" role="status">A imagem fica neste aparelho para você consultar enquanto preenche os campos.</p>
       <canvas id="enrich-capture-preview" role="img" aria-label="Captura da ficha de anime carregada como referência" hidden></canvas>
     </details>

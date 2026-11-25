@@ -167,6 +167,14 @@ function postLine(post, referenceMatch, topicId) {
   if (post.sizeBytes !== undefined) line.append(element('p', 'Tamanho do arquivo · ' + formatSize(post.sizeBytes, { exact: true })));
   if (post.protected) line.append(element('p', 'Conteúdo protegido'));
   line.append(link);
+  if (post.filename) {
+    const edit = element('button', 'Editar no catálogo');
+    edit.type = 'button';
+    edit.className = 'editorial-action';
+    edit.setAttribute('aria-label', 'Editar no catálogo · Post #' + post.id);
+    edit.addEventListener('click', () => root.dispatchEvent(new CustomEvent('rhea:catalog-edit', { detail: post.id })));
+    line.append(' ', edit);
+  }
   return line;
 }
 

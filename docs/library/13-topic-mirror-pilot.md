@@ -169,8 +169,14 @@ For persistent server-side configuration, continue to use the `RHEA_MAL_CLIENT_I
 Use **Usar link ou preencher metadados → Buscar pelo link** with an official AniList anime page.
 RHEA sends the numeric anime ID to the official API and presents the result for confirmation.
 A direct ID avoids title ambiguity, but the API can still refuse the request. You can open the
-same public entry and transcribe it, or display a screenshot locally as a reference. The screenshot
-is never sent to a provider and does not perform automatic text recognition.
+same public entry and transcribe it, or display a screenshot locally as a reference. Paste a copied
+image into the capture area or choose an image file. The screenshot stays in memory on the device
+and is not used for automatic text recognition.
+
+In the topic inventory or catalog, choose **Editar no catálogo** on a document. Select the series
+and type, then save. Numbering and display labels are optional. Corrections are stored per
+Telegram chat and post in the current browser. After reloading, read the topic again to see them.
+Clearing site data removes these corrections. They affect the catalog view only.
 
 For a reconstruction, choose the following work from the recognized titles, choose a specific
 publication, or append at the end. RHEA shows the neighboring publications and avoids offering an

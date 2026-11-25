@@ -40,7 +40,7 @@ export function catalogSnapshot(inventory) {
       Object.assign(post, { seriesId: example.seriesId, season: example.season, episode: example.episode, part: example.part });
     }
   }
-  return { sourceId: 'authorized-channel', revision: inventory.revision, complete: inventory.complete,
+  return { sourceId: 'authorized-channel', channelId: inventory.channelId, revision: inventory.revision, complete: inventory.complete,
     series: [...series.values()], messages, correctionIds: messages.map(post => post.id) };
 }
 
@@ -62,6 +62,6 @@ export function forumCatalogSnapshot({ title, topicId, channelId, posts, complet
   const messages = posts.map(post => ({ ...post,
     ...(post.kind === 'document' && { kind: extraKind(post.filename) }), ...assignments.get(post.id),
     link: topicId === 1 ? privateMessageLink(channelId, post.id) : privateMessageLink(channelId, topicId) + '/' + post.id }));
-  return { sourceId: 'forum-topic', title, complete, series: [...entries.values()],
+  return { sourceId: 'forum-topic', channelId, title, complete, series: [...entries.values()],
     messages, correctionIds: messages.map(post => post.id) };
 }

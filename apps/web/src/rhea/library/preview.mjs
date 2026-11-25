@@ -19,18 +19,25 @@ let selected = '';
 
 const alphabet = [...document.querySelectorAll('[data-letter]')];
 
+function selectCorrection(id) {
+  if (!snapshot.correctionIds.includes(id)) return;
+  get('correction-id').value = String(id);
+  populateCorrection();
+  const row = messages.get(id);
+  get('correction-file').textContent = row.filename || 'Post #' + id;
+  get('correction-file').hidden = get('correction-choose-post').hidden = false;
+  get('correction-post-select').hidden = true;
+  get('correction-feedback').textContent = '';
+  get('correcoes').scrollIntoView({ block: 'start' });
+  get('correction-series').focus({ preventScroll: true });
+}
+
 function correctionButton(id) {
   const button = element('button', 'Editar no catálogo');
   button.type = 'button';
   button.className = 'editorial-action catalog-correction';
   button.setAttribute('aria-label', 'Editar no catálogo · Post #' + id);
-  button.addEventListener('click', () => {
-    get('correction-id').value = String(id);
-    populateCorrection();
-    get('correction-feedback').textContent = '';
-    get('correcoes').scrollIntoView({ block: 'start' });
-    get('correction-series').focus({ preventScroll: true });
-  });
+  button.addEventListener('click', () => selectCorrection(id));
   return button;
 }
 
@@ -137,13 +144,53 @@ function chooseLetter(letter) {
   renderCatalog();
 }
 
+function correctionKey(channelId, id) {
+  return 'rhea:telegram:catalog:v1:' + channelId + ':' + id;
+}
+
+function loadCorrections({ channelId, series, correctionIds }) {
+  const overrides = {};
+  if (!channelId) return overrides;
+  const byTitle = new Map(series.map(item => [item.title, item.id]));
+  for (const id of correctionIds) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(correctionKey(channelId, id)));
+      if (!editionTypes.includes(saved?.kind) ||
+          (saved.seriesTitle !== null && (typeof saved.seriesTitle !== 'string' || !saved.seriesTitle.trim() ||
+            saved.seriesTitle.length > 160))) continue;
+      if (saved.seriesTitle !== null && !byTitle.has(saved.seriesTitle)) {
+        const seriesId = 'saved-series-' + id;
+        series.push({ id: seriesId, title: saved.seriesTitle });
+        byTitle.set(saved.seriesTitle, seriesId);
+      }
+      const patch = { seriesId: byTitle.get(saved.seriesTitle) ?? null, kind: saved.kind };
+      if (typeof saved.label === 'string' && saved.label.length <= 160) patch.label = saved.label;
+      for (const name of ['season', 'episode', 'part']) {
+        const value = saved[name];
+        if (value === null || (Number.isFinite(value) && value >= (name === 'part' ? 1 : 0) &&
+            value <= 99999 && (name === 'episode' || Number.isInteger(value)))) patch[name] = value;
+      }
+      overrides[id] = patch;
+    } catch { /* A missing or unreadable browser record leaves the original metadata visible. */ }
+  }
+  return overrides;
+}
+
+function showPostPicker() {
+  get('correction-file').hidden = get('correction-choose-post').hidden = true;
+  get('correction-post-select').hidden = false;
+}
+
 export function setCatalogSnapshot(current = { sourceId: 'empty', series: [], messages: [], correctionIds: [] }) {
-  snapshot = { ...current, overrides: {} };
+  snapshot = { ...current, series: [...current.series] };
+  snapshot.overrides = loadCorrections(snapshot);
+  showPostPicker();
+  get('correction-feedback').textContent = '';
   if (selected && !snapshot.series.some(entry => letterFor(entry.title) === selected)) selected = '';
   get('demo-title').textContent = snapshot.sourceId === 'forum-topic' ? 'Catálogo · ' + snapshot.title :
     snapshot.sourceId === 'empty' ? 'Catálogo do Telegram' : 'Canal de teste autorizado';
   get('inventory-source').textContent = snapshot.sourceId === 'empty' ? 'Carregue um tópico para ver as obras do seu acervo.' :
-    snapshot.complete ? 'Histórico consultado no Telegram. As correções valem nesta sessão.' :
+    snapshot.complete ? 'Histórico consultado no Telegram.' :
       'Inventário parcial do Telegram. O catálogo mostra os posts lidos.';
   const byId = new Map(snapshot.messages.map(post => [post.id, post]));
   get('correction-id').replaceChildren(...snapshot.correctionIds.map(id => {
@@ -160,12 +207,17 @@ for (const kind of editionTypes) get('correction-kind').append(new Option(kindLa
 for (const button of alphabet) button.addEventListener('click', () => chooseLetter(button.dataset.letter));
 get('library-query').addEventListener('input', renderCatalog);
 get('correction-id').addEventListener('change', populateCorrection);
+get('correction-choose-post').addEventListener('click', () => {
+  showPostPicker();
+  get('correction-id').focus();
+});
+library.addEventListener('rhea:catalog-edit', event => selectCorrection(event.detail));
 get('correction-form').addEventListener('submit', event => {
   event.preventDefault();
   const id = get('correction-id').value;
-  if (!messages.has(Number(id))) return;
+  if (!snapshot.channelId || !messages.has(Number(id))) return;
   const advanced = get('correction-details').open;
-  snapshot.overrides[id] = {
+  const patch = {
     ...snapshot.overrides[id],
     seriesId: get('correction-series').value || null, kind: get('correction-kind').value,
     ...(advanced && {
@@ -176,14 +228,29 @@ get('correction-form').addEventListener('submit', event => {
       })),
     }),
   };
+  const series = snapshot.series.find(item => item.id === patch.seriesId);
+  const { seriesId, ...saved } = patch;
+  try {
+    localStorage.setItem(correctionKey(snapshot.channelId, id), JSON.stringify({ ...saved, seriesTitle: series?.title ?? null }));
+  } catch {
+    get('correction-feedback').textContent = 'Não foi possível salvar. Verifique se o navegador permite guardar dados deste site.';
+    return;
+  }
+  snapshot.overrides[id] = patch;
   refresh();
   const row = messages.get(Number(id));
-  const series = snapshot.series.find(item => item.id === row.seriesId);
-  get('correction-feedback').textContent = series ? 'Post #' + id + ' vinculado a ' + series.title + ' como ' + kindLabels[row.kind] + '.' :
-    'Post #' + id + ' salvo como ' + kindLabels[row.kind] + ' sem série vinculada.';
+  get('correction-feedback').textContent = series ? 'Salvo neste navegador. ' + series.title + ' · ' + kindLabels[row.kind] + '.' :
+    'Salvo neste navegador. ' + kindLabels[row.kind] + ' sem série vinculada.';
 });
 get('correction-reset').addEventListener('click', () => {
-  delete snapshot.overrides[get('correction-id').value];
+  const id = get('correction-id').value;
+  try {
+    localStorage.removeItem(correctionKey(snapshot.channelId, id));
+  } catch {
+    get('correction-feedback').textContent = 'O navegador não permitiu remover a correção.';
+    return;
+  }
+  delete snapshot.overrides[id];
   refresh();
   get('correction-feedback').textContent = 'Correção removida do catálogo.';
 });
