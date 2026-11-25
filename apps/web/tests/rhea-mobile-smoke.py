@@ -4,6 +4,7 @@ import functools
 from pathlib import Path
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
 from playwright.sync_api import sync_playwright, expect
 
 class QuietServer(SimpleHTTPRequestHandler):
@@ -28,6 +29,30 @@ reservations = {}
 files = []
 seen = set()
 root = {'id': 'rhea-root', 'name': 'RHEA', 'mimeType': 'application/vnd.google-apps.folder', 'size': None}
+
+mega_key = 'AAECAwQFBgcICQoLDA0ODw'
+mega_link = f'https://mega.nz/folder/AAAAAAAA#{mega_key}'
+mega_requests = []
+# Synthetic MEGA nodes with AES-encrypted keys and attributes, decoded by the shipped browser SDK.
+mega_nodes = [
+    {'h': 'RRRRRRRR', 't': 1, 'k': 'RRRRRRRR:w1KAV1QjfzEawP_04-A-eA',
+     'a': 'iTiP41hAEoDWNpb3zNaW3pJ9j8jd4mDkIRsJiSmAnKo'},
+    {'h': 'BBBBBBBB', 'p': 'RRRRRRRR', 't': 1, 'k': 'RRRRRRRR:vYYv-5etL7j4uJH2Ay82yw',
+     'a': 'jRcM0AcWMGvqAlsawV8m__b8M92asuuvI-wnWzOARyU'},
+    {'h': 'CCCCCCCC', 'p': 'BBBBBBBB', 't': 0, 's': 2048,
+     'k': 'RRRRRRRR:waeroaI6lAZYB6CMyO7QbupeYa6BZ8qgWGOI65p8t1U',
+     'a': 'WdV0a8IabllM_3IoL-QiFcVilMoyi20uO20sOss7oeenxObY7DPWbOD5RUjsFu23'},
+]
+
+def mock_mega(route):
+    request = route.request
+    url = urlsplit(request.url)
+    query = parse_qs(url.query)
+    assert url.path == '/cs' and set(query) == {'id', 'n'} and query['n'] == ['AAAAAAAA']
+    assert request.method == 'POST' and request.post_data_json == [{'a': 'f', 'c': 1, 'ca': 1, 'r': 1}]
+    assert 'referer' not in request.headers and 'cookie' not in request.headers
+    mega_requests.append(request.url)
+    route.fulfill(json=[{'f': mega_nodes}], headers={'Access-Control-Allow-Origin': '*'})
 
 def mock(route):
     global files, status_pending, mcp_granted, mirror_steps
@@ -197,6 +222,7 @@ with sync_playwright() as playwright:
     context = browser.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True, device_scale_factor=2)
     context.grant_permissions(['clipboard-read', 'clipboard-write'], origin=base)
     context.route('**/api/rhea/**', mock)
+    context.route('https://g.api.mega.co.nz/**', mock_mega)
     page = context.new_page()
     errors = []
     page.on('pageerror', lambda error: errors.append(str(error)))
@@ -387,9 +413,50 @@ with sync_playwright() as playwright:
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
     assert requests == drive_requests_before_library + ['telegram', 'telegram', 'anime-metadata', 'anime-metadata', 'anime-metadata']
+
+    page.get_by_role('link', name='MEGA', exact=True).click()
+    expect(page.get_by_role('heading', name='MEGA', exact=True)).to_be_visible()
+    expect(page.get_by_role('link', name='MEGA', exact=True)).to_have_attribute('aria-current', 'page')
+    policy = page.locator('meta[http-equiv="content-security-policy"]').get_attribute('content')
+    assert "connect-src 'self' https://g.api.mega.co.nz" in policy
+    link_field = page.get_by_label('Link da pasta compartilhada')
+    open_folder = page.get_by_role('button', name='Abrir pasta', exact=True)
+    link_field.fill(mega_link.replace('mega.nz', 'example.test'))
+    open_folder.click()
+    expect(page.locator('#mega-status')).to_contain_text('Use o link completo')
+    assert mega_requests == []
+    link_field.fill(mega_link.replace(mega_key, 'A' * 22))
+    open_folder.click()
+    expect(page.locator('#mega-status')).to_contain_text('Não foi possível abrir a pasta')
+    link_field.fill(mega_link)
+    open_folder.click()
+    expect(page.get_by_role('heading', name='Pasta de teste')).to_be_focused()
+    expect(link_field).to_have_value('')
+    page.get_by_role('button', name='Mídia', exact=True).click()
+    expect(page.locator('#mega-open')).to_have_attribute('href', mega_link + '/folder/BBBBBBBB')
+    file_link = page.get_by_role('link', name='Abrir <b>Vídeo de teste</b>.mp4 no MEGA', exact=True)
+    expect(file_link).to_have_attribute('href', mega_link + '/file/CCCCCCCC')
+    assert file_link.locator('b').count() == 0
+    search = page.get_by_label('Buscar nesta pasta')
+    search.fill('video')
+    expect(file_link).to_be_visible()
+    search.fill('ausente')
+    expect(page.locator('#mega-status')).to_have_text('Nenhum item encontrado.')
+    page.get_by_role('button', name='Pasta de teste', exact=True).click()
+    expect(page.get_by_role('button', name='Mídia', exact=True)).to_be_visible()
+    assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+    page.get_by_role('button', name='Desconectar', exact=True).click()
+    expect(link_field).to_be_focused()
+    expect(page.locator('#mega-files li')).to_have_count(0)
+    assert page.locator('#mega-open').get_attribute('href') is None
+    assert len(mega_requests) == 2 and all(mega_key not in url for url in mega_requests)
+    assert mega_key not in page.url
+    assert page.evaluate("Object.keys(localStorage).every(key => !key.startsWith('rhea.mega'))")
+    assert requests == drive_requests_before_library + ['telegram', 'telegram', 'anime-metadata', 'anime-metadata', 'anime-metadata']
     assert not errors, errors
     print(json.dumps({'viewport': '390x844 Chromium touch mobile', 'selected': 10, 'uploaded': 9,
                       'isolatedFailures': 1, 'indexedDBReload': 'passed', 'createFolder': 'passed',
                       'grid': 'passed', 'mcpCopyActions': 'passed', 'drive404Session': 'passed',
                       'persistentReload': 'passed', 'assistantRestorationAndRevocation': 'passed',
-                      'rheaBranding': 'passed', 'telegramLibraryPreview': 'passed', 'telegramMtprotoEnrollment': 'passed', 'horizontalOverflow': False, 'jsErrors': errors}))
+                      'rheaBranding': 'passed', 'telegramLibraryPreview': 'passed', 'telegramMtprotoEnrollment': 'passed',
+                      'megaSharedFolder': 'passed', 'horizontalOverflow': False, 'jsErrors': errors}))

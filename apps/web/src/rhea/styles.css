@@ -157,6 +157,27 @@ footer { border-top: var(--rule); padding: .65rem clamp(1.1rem, 4vw, 4rem); colo
   .file-row h3 { font-size: 1.25rem; }
   .file-row { grid-template-columns: minmax(0, 1fr) auto; gap: .34rem .5rem; }
 }
+
+[data-theme='light'] {
+  --mega-nav-text: #8e2035;
+  --mega-nav-tint: rgb(181 31 59 / 9%);
+  --mega-nav-active: rgb(181 31 59 / 17%);
+}
+
+:is(.side-nav, .section-nav) a[href='/rhea/mega'] {
+  color: var(--mega-nav-text, #ffc3cc);
+  background: var(--mega-nav-tint, rgb(226 59 88 / 13%));
+  border-radius: var(--radius-action);
+}
+
+.section-nav a[href='/rhea/mega'] { padding-inline: .5rem; }
+
+:is(.side-nav, .section-nav) a[href='/rhea/mega']:is(:hover, :focus-visible, [aria-current]) {
+  color: var(--mega-nav-text, #ffc3cc);
+  border-color: currentColor;
+  background: var(--mega-nav-active, rgb(226 59 88 / 23%));
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }

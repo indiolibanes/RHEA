@@ -1,0 +1,64 @@
+.mega-main {
+  --mega-red: #c92b4c;
+  --mega-ink: #ffdbe1;
+  --mega-border: rgb(247 105 133 / 40%);
+  --mega-wash: rgb(140 20 47 / 29%);
+  --mega-glow: rgb(205 44 76 / 22%);
+  --color-accent: #ffafbd;
+  --color-text-heading: var(--mega-ink);
+  padding-block: clamp(2rem, 7vw, 6rem);
+}
+
+[data-theme='light'] .mega-main {
+  --mega-ink: #531322;
+  --mega-border: rgb(144 31 53 / 33%);
+  --mega-wash: rgb(222 86 118 / 12%);
+  --mega-glow: rgb(230 100 123 / 19%);
+  --color-accent: #901f35;
+}
+
+.mega-hero h1 { font-size: clamp(3.25rem, 10vw, 6rem); }
+.mega-hero p { margin-block-start: .45rem; }
+
+.mega-panel {
+  position: relative;
+  padding: clamp(1rem, 3.5vw, 2.5rem);
+  border: 1px solid var(--mega-border);
+  border-radius: clamp(.85rem, 2vw, 1.4rem);
+  background: linear-gradient(130deg, var(--mega-glow), transparent 72%), var(--mega-wash);
+  box-shadow: inset 0 1px rgb(255 255 255 / 8%);
+  backdrop-filter: blur(12px);
+  --rule: 1px solid var(--mega-border);
+}
+
+.mega-panel label { display: block; font-weight: 700; }
+.mega-field { display: flex; flex-wrap: wrap; gap: .55rem; margin-block: .4rem .6rem; }
+.mega-field input { flex: 1 1 16rem; min-inline-size: 0; }
+.mega-panel .mega-primary { background: var(--mega-red); border-color: transparent; color: #fff; font-weight: 700; }
+.mega-panel .mega-primary:hover:not(:disabled) { background: #af2340; }
+.mega-panel .mega-primary:disabled { opacity: .72; }
+.mega-panel input[aria-invalid='true'] { border-color: var(--color-accent); }
+.mega-panel h2 { min-inline-size: 0; }
+.mega-crumbs span { align-self: center; }
+.mega-crumbs > * + * { border-inline-start: var(--rule); padding-inline-start: .65rem; }
+.mega-panel input[type='search'] { margin-block-start: .3rem; inline-size: min(100%, 25rem); }
+.mega-status:not(:empty) { margin-block-start: .85rem; }
+.mega-files { margin-block: .65rem; }
+
+.mega-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .25rem .9rem;
+  border-block-end: var(--rule);
+  padding: .3rem 0;
+}
+
+.mega-row .editorial-action { justify-self: start; color: var(--mega-ink); }
+.mega-row small { text-align: end; }
+
+@media (max-width: 480px) {
+  .mega-field input { flex-basis: 100%; }
+  .mega-row { grid-template-columns: minmax(0, 1fr); padding-block: .25rem .5rem; }
+  .mega-row small { padding-inline-start: .45rem; text-align: start; }
+}
