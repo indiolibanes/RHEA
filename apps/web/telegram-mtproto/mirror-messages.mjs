@@ -1,17 +1,18 @@
 import { Api } from 'teleproto';
 import { forumId, forumPageSize } from '../src/rhea/library/forum-contract.mjs';
 import { mirrorLimit, mirrorTestTopic } from '../src/rhea/library/mirror-contract.mjs';
-import { rebuildLimit } from '../src/rhea/library/organization-contract.mjs';
+import { rebuildIntakeScan, rebuildLimit } from '../src/rhea/library/organization-contract.mjs';
 import { alphabeticDestination } from '../src/rhea/library/anime-enrichment.mjs';
 import { belongsToGeneral } from './forum.mjs';
 
 export class MirrorPreflightError extends Error {
   constructor(side, code, postId, detail) {
     super('Mirror preflight could not be verified.');
-    this.issue = postId === undefined ? { side, code } : { side, code, postId, detail };
+    this.issue = postId === undefined ? { side, code, ...(detail && { detail }) } : { side, code, postId, detail };
   }
 }
 
+const albumMargin = 10; // An album holds at most ten posts, so one starting below the oldest selected file fits in this margin.
 const unavailablePeer = new Set(['CHANNEL_PRIVATE', 'CHANNEL_INVALID', 'INVITE_HASH_INVALID', 'INVITE_HASH_EXPIRED']);
 const fixtureBytes = 25 * 1024 ** 2;
 const largeFixtureBytes = 4 * 1024 ** 3;
@@ -137,12 +138,14 @@ function inputMedia(post) {
   return new Api.InputMediaPhoto({ spoiler, id: inputPhoto(photo) });
 }
 
-function organizedSource(result, channelId, topicId, orderedIds, reject) {
+// `paged` histories were read newest-first across several verified pages and stop shortly after the oldest
+// selected file, so they cannot be compared with the topic's total count. Single-page reads keep the old rules.
+function organizedSource(result, channelId, topicId, orderedIds, reject, paged = false) {
   const history = result?.messages;
   const count = result?.className === 'messages.Messages' ? history?.length : result?.count;
   if (result?.inexact || result?.offsetIdOffset > 0 || !Number.isInteger(count) || count < 0 ||
-      !Array.isArray(history) || count > forumPageSize || history.length > forumPageSize ||
-      count > history.length + 1) return reject('history_limit');
+      !Array.isArray(history) || (!paged && (count > forumPageSize || history.length > forumPageSize ||
+        count > history.length + 1))) return reject('history_limit');
   const selected = new Set(orderedIds);
   const albums = new Map();
   const posts = new Map();
@@ -171,7 +174,45 @@ function organizedSource(result, channelId, topicId, orderedIds, reject) {
       JSON.stringify(unit.map(post => post.id)) !== JSON.stringify(albums.get(unit[0].album)))) {
     return reject('album_or_reply');
   }
-  return { posts: ordered, revision: history.map(item => [item.id, item.editDate ?? null]) };
+  // A multi-page revision covers only the selected files and their albums, so unrelated new Requests posts
+  // do not invalidate a run that can last several minutes. Single-page runs keep the original whole-history revision.
+  const selectedAlbums = new Set(ordered.map(post => post.album).filter(album => album !== null));
+  const covered = paged ? history.filter(item => selected.has(item.id) ||
+    (item.groupedId != null && selectedAlbums.has(item.groupedId.toString()))) : history;
+  return { posts: ordered, revision: covered.map(item => [item.id, item.editDate ?? null]) };
+}
+
+// Reads a topic newest-first in pages of forumPageSize and verifies each page: strictly descending ids,
+// consistent offsets, a stable total and no inexact results. `stop` decides when enough was read.
+async function verifiedPages(page, topicId, { budget, countLimit, stop }, reject) {
+  const rows = [];
+  let count;
+  for (let offset = 0, pages = 0; pages < Math.ceil(budget / forumPageSize) + 1; pages++) {
+    const result = await page(offset, forumPageSize);
+    const messages = result?.messages;
+    if (!Array.isArray(messages) || messages.length > forumPageSize || result.inexact ||
+        (messages.length && result.offsetIdOffset != null &&
+          (!Number.isInteger(result.offsetIdOffset) || result.offsetIdOffset < 0 ||
+            Math.abs(result.offsetIdOffset - rows.length) > 1)) ||
+        messages.some((item, i) => !forumId(item?.id) || (i ? item.id >= messages[i - 1].id : offset && item.id >= offset))) {
+      return reject('history_unverified');
+    }
+    if (Number.isInteger(result.count)) {
+      if (countLimit !== undefined && result.count > countLimit) return reject('history_limit');
+      if (count !== undefined && count !== result.count) return reject('history_unverified');
+      count = result.count;
+    } else if (result.className !== 'messages.Messages') return reject('history_unverified');
+    rows.push(...messages);
+    if (countLimit !== undefined && rows.length > countLimit) return reject('history_limit');
+    // A short page is the last one: Telegram returns fewer than the requested limit only at the end of the history.
+    const end = messages.length < forumPageSize || messages.at(-1).id <= topicId;
+    if (end || stop(rows, messages)) {
+      if (end && count !== undefined && Math.abs(count - rows.length) > 1) return reject('history_unverified');
+      return { rows, count, complete: end };
+    }
+    offset = messages.at(-1).id;
+  }
+  return reject('history_limit', undefined, 'scan_budget');
 }
 
 export async function openMirror(config, privateChat, peerFor, invoke, download) {
@@ -217,10 +258,14 @@ export async function openMirror(config, privateChat, peerFor, invoke, download)
       (await resolve(new Api.messages.GetForumTopicsByID({ peer, topics: [topicId] }), 'topic_missing'))
         .topics?.find(item => item.className === 'ForumTopic' && item.id === topicId);
     if (!entry) reject('topic_missing');
-    if (entry.hidden || (entry.closed && !(rebuild && side !== 'destination'))) reject('topic_closed');
+    // Only read-only sides of a reconstruction may be closed; every topic that receives posts must be open.
+    if (entry.hidden || (entry.closed && !(rebuild && (side === 'source' || side === 'intake')))) reject('topic_closed');
     if (rebuild) {
-      if (side !== 'intake' && alphabeticDestination(rebuild.letter, [{ ...entry, closed: false }], undefined,
-        side === 'destination' ? 'replacement' : 'letter').state !== 'found') reject('topic_name');
+      // With a backup, `local` is the [NEW] topic in the titular group and `destination` is the backup's Letter topic.
+      const role = side === 'local' || (side === 'destination' && !dual) ? 'replacement' : 'letter';
+      if (side !== 'intake' && alphabeticDestination(rebuild.letter, [{ ...entry, closed: false }], undefined, role).state !== 'found') {
+        reject('topic_name');
+      }
     } else if (organization) {
       if (side !== 'source' && alphabeticDestination(organization.letter, [entry]).state !== 'found') reject('topic_name');
     } else if (entry.title !== names[side]) reject(dual && side !== 'source' ? 'dual_topic_name' : 'topic_name');
@@ -232,33 +277,21 @@ export async function openMirror(config, privateChat, peerFor, invoke, download)
           peer, msgId: topicId, offsetId, limit, offsetDate: 0, addOffset: 0, maxId: 0, minId: 0, hash: 0,
         }), 'history_unverified');
         if (rebuild && !ordered && !requireEmpty) {
-          const rows = [];
-          let count;
-          for (let offset = 0, pages = 0; pages < Math.ceil((rebuildLimit + 1) / forumPageSize) + 1; pages++) {
-            const result = await page(offset, forumPageSize);
-            const messages = result?.messages;
-            if (!Array.isArray(messages) || messages.length > forumPageSize || result.inexact ||
-                (messages.length && result.offsetIdOffset != null &&
-                  (!Number.isInteger(result.offsetIdOffset) || result.offsetIdOffset < 0 ||
-                    Math.abs(result.offsetIdOffset - rows.length) > 1)) ||
-                messages.some((item, i) => !forumId(item?.id) || (i ? item.id >= messages[i - 1].id : offset && item.id >= offset))) {
-              return reject('history_unverified');
-            }
-            if (Number.isInteger(result.count)) {
-              if (result.count > rebuildLimit + 1) return reject('history_limit');
-              if (count !== undefined && count !== result.count) return reject('history_unverified');
-              count = result.count;
-            } else if (result.className !== 'messages.Messages') return reject('history_unverified');
-            rows.push(...messages);
-            if (rows.length > rebuildLimit + 1) return reject('history_limit');
-            if (!messages.length || messages.at(-1).id === topicId) {
-              if (count !== undefined && Math.abs(count - rows.length) > 1) return reject('history_unverified');
-              return topicSnapshot({ className: 'messages.Messages', messages: rows }, scope.channelId, topicId,
-                (code, id, detail) => reject(code, id, detail === 'file_size' ? 'large_file_size' : detail), byteLimit, rebuildLimit);
-            }
-            offset = messages.at(-1).id;
-          }
-          return reject('history_limit');
+          const { rows } = await verifiedPages(page, topicId, { budget: rebuildLimit + 1, countLimit: rebuildLimit + 1,
+            stop: () => false }, reject);
+          return topicSnapshot({ className: 'messages.Messages', messages: rows }, scope.channelId, topicId,
+            (code, id, detail) => reject(code, id, detail === 'file_size' ? 'large_file_size' : detail), byteLimit, rebuildLimit);
+        }
+        if (ordered && (rebuild ?? organization).ids.length) {
+          // Selected files can sit anywhere in a long Requests history. Read newest-first until the oldest
+          // selected file plus a margin for an album that starts below it, within an explicit scan budget.
+          const floor = Math.min(...(rebuild ?? organization).ids);
+          const stop = rows => rows.filter(item => item.id < floor).length > albumMargin;
+          const { rows, count, complete } = await verifiedPages(page, topicId, { budget: rebuildIntakeScan, stop }, reject);
+          const snapshot = organizedSource({ className: 'messages.ChannelMessages', count: count ?? rows.length, messages: rows },
+            scope.channelId, topicId, (rebuild ?? organization).ids, reject, !complete || rows.length > forumPageSize);
+          sourceRevision = snapshot.revision;
+          return snapshot.posts;
         }
         const result = await page(0, ordered ? forumPageSize + 1 : mirrorLimit + 2);
         if (ordered) {

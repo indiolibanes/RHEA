@@ -6,7 +6,7 @@ const operations = new Set(['mirrorstatus', 'mirrorpreview', 'mirrorapprove', 'm
 const issueCodes = new Set(['account_unverified', 'group_unavailable', 'group_not_forum',
   'group_not_owned', 'group_protected', 'topic_missing', 'topic_name', 'dual_topic_name', 'topic_closed',
   'history_unverified', 'history_limit', 'unsupported_post', 'album_or_reply', 'insertion_splits_album',
-  'source_empty', 'destination_not_empty', 'selection_changed']);
+  'source_empty', 'destination_not_empty', 'selection_changed', 'backup_unconfigured']);
 
 const postDetails = new Set(['service_event', 'reply', 'protected_or_temporary', 'forwarded_or_bot',
   'text_format', 'media_type', 'media_reference', 'filename', 'file_size', 'large_file_size']);
@@ -16,8 +16,10 @@ export function mirrorIssue(issue) {
   if (issue.code === 'account_unverified') return issue.side === 'account' ? { side: 'account', code: issue.code } : undefined;
   if (!['source', 'destination', 'local'].includes(issue.side) ||
       (issue.code === 'source_empty' && issue.side !== 'source') ||
-      (issue.code === 'destination_not_empty' && issue.side === 'source')) return undefined;
+      (issue.code === 'destination_not_empty' && issue.side === 'source') ||
+      (issue.code === 'backup_unconfigured' && issue.side !== 'destination')) return undefined;
   const result = { side: issue.side, code: issue.code };
+  if (issue.code === 'history_limit' && issue.side === 'source' && issue.detail === 'scan_budget') return { ...result, detail: issue.detail };
   if (issue.code === 'insertion_splits_album' && issue.side === 'source' && forumId(issue.postId)) {
     return { ...result, postId: issue.postId };
   }

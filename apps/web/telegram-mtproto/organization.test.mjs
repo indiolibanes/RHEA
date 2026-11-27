@@ -289,7 +289,8 @@ test('rebuilds a paginated letter with all unclassified posts and preserves the 
   assert.equal(preview.mirror.total, 66);
   const sequence = [...ids.slice(0, 60), 32, ...ids.slice(60, 62), 31, ...ids.slice(62)];
   assert.deepEqual(preview.mirror.posts.map(post => post.id), sequence);
-  assert.ok(oldOffsets.has(104) && oldOffsets.has(100));
+  // The second page is short, so it is the last one: no extra empty page is requested.
+  assert.ok(oldOffsets.has(104) && !oldOffsets.has(100));
   const approval = await invoke('approve', { ...input, confirm: true, approval: preview.mirror.approval });
   assert.equal(approval.state, 'mirror_progress');
   assert.equal((await invoke('preview', nextInput)).state, 'mirror_recovery');
