@@ -140,12 +140,19 @@ export function mtprotoControl(config, store, withClient, now = Date.now) {
       if (rebuild ? !config.rebuildEnabled : !config.organizationEnabled) return { state: 'mirror_disabled' };
       const { sourceTopicId, localTopicId, backupTopicId, letter, ids } = input;
       const { currentTopicId, replacementTopicId, beforeId, insertions } = input;
+      // A reconstruction may also request the backup group's Letter topic as a second, independently verified destination.
+      if (rebuild && backupTopicId !== undefined && !config.backupForum) {
+        return { state: 'mirror_ineligible', issue: { side: 'destination', code: 'backup_unconfigured' } };
+      }
       const key = JSON.stringify([rebuild, sourceTopicId, localTopicId, backupTopicId, currentTopicId, replacementTopicId, beforeId, letter, ids, insertions]);
       if (organization?.key !== key) {
         const scope = rebuild ? {
           source: { ...config.forum, topicId: currentTopicId },
           intake: { ...config.forum, topicId: sourceTopicId },
-          destination: { ...config.forum, topicId: replacementTopicId },
+          ...(backupTopicId === undefined ? { destination: { ...config.forum, topicId: replacementTopicId } } : {
+            local: { ...config.forum, topicId: replacementTopicId },
+            destination: { ...config.backupForum, topicId: backupTopicId },
+          }),
           rebuild: { letter, ids, beforeId, insertions },
         } : {
           source: { ...config.forum, topicId: sourceTopicId },

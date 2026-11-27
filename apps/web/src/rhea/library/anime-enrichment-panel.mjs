@@ -393,6 +393,8 @@ function clearRebuild() {
   rebuildLookup = undefined;
   rebuildRead = rebuildSelection = rebuildPosts = rebuildInventory = undefined;
   get('rebuild').hidden = true;
+  get('backup').hidden = true;
+  backupRead?.abort();
   clearPosition();
   rebuildOptions.replaceChildren();
   get('current-inventory').textContent = get('rebuild-lookup').textContent = '';
@@ -414,8 +416,9 @@ function prepareReconstruction(slots) {
     start = before;
   }
   combined.push(...old.slice(start));
+  const backup = rebuildSelection.includeBackup && rebuildSelection.backup?.state === 'found' ? rebuildSelection.backup.topic : undefined;
   publication.prepare({ currentTopicId: current.id, replacementTopicId: target.id, sourceTopicId: source.topicId,
-    letter, beforeId: slots.length === 1 ? slots[0].beforeId : null, ids: slots.flatMap(slot => slot.ids),
+    ...(backup && { backupTopicId: backup.id }), letter, beforeId: slots.length === 1 ? slots[0].beforeId : null, ids: slots.flatMap(slot => slot.ids),
     ...(slots.length > 1 && { insertions: slots.map(({ beforeId, ids }) => ({ beforeId, ids })) }) }, combined);
   setStep('review');
 }
@@ -572,6 +575,56 @@ function updateRebuildCount() {
   return works;
 }
 
+// The backup group's Letter topic is a second, independently verified destination of the reconstruction.
+let backupRead;
+async function loadBackup(context) {
+  backupRead?.abort();
+  const request = new AbortController();
+  backupRead = request;
+  context.backup = { state: 'checking' };
+  showBackup(context);
+  const result = await checkForum(context.letter, 'backup', request.signal).catch(() => ({ state: 'unavailable' }));
+  if (request.signal.aborted || rebuildSelection !== context) return;
+  context.backup = result;
+  showBackup(context);
+  if (rebuildInventory) renderRebuildPlan(rebuildInventory);
+}
+
+function backupBlocker(context) {
+  if (!context.includeBackup) return '';
+  const state = context.backup?.state;
+  if (state === 'unconfigured') return '';
+  if (!state || state === 'checking') return 'Conferindo o tópico Letter ' + context.letter + ' no grupo de backup…';
+  return state === 'found' ? '' : 'Backup: ' + destinationMessage(state, context.letter) + ' Ou desmarque a cópia no backup.';
+}
+
+function showBackup(context) {
+  const state = context.backup?.state;
+  const box = get('backup');
+  const input = get('backup-include');
+  const status = get('backup-status');
+  box.hidden = false;
+  input.disabled = state === 'unconfigured';
+  if (state === 'unconfigured') input.checked = context.includeBackup = false;
+  status.textContent = state === 'unconfigured' ? 'O grupo de backup não está configurado no Railway. Esta reconstrução afetará só o grupo titular.' :
+    !context.includeBackup ? 'A cópia no backup foi desmarcada: só o grupo titular será reconstruído.' :
+    !state || state === 'checking' ? 'Conferindo o tópico Letter ' + context.letter + ' no grupo de backup…' :
+    state === 'found' ? 'Backup encontrado: ' + context.backup.topic.title + '. Ele será validado de novo, sem escrever, na revisão e antes de cada cópia.' :
+    destinationMessage(state, context.letter);
+  get('backup-retry').hidden = !(context.includeBackup && !['found', 'checking', 'unconfigured'].includes(state ?? 'checking'));
+}
+
+get('backup-include').addEventListener('change', event => {
+  if (!rebuildSelection) return;
+  rebuildSelection.includeBackup = event.target.checked;
+  showBackup(rebuildSelection);
+  publication.clear();
+  if (rebuildInventory) renderRebuildPlan(rebuildInventory);
+});
+get('backup-retry').addEventListener('click', () => {
+  if (rebuildSelection && !telegramWait()) void loadBackup(rebuildSelection);
+});
+
 function startRebuild(local, letter, confirmed) {
   const choices = new Map();
   for (const group of groups) {
@@ -585,7 +638,9 @@ function startRebuild(local, letter, confirmed) {
   }
   const current = local.topic;
   const target = local.replacement.state === 'found' ? local.replacement.topic : undefined;
-  rebuildSelection = { channelId: local.channelId, current, target, letter, choices, automaticLookup: !confirmed };
+  rebuildSelection = { channelId: local.channelId, current, target, letter, choices, automaticLookup: !confirmed, includeBackup: true };
+  get('backup-include').checked = true;
+  void loadBackup(rebuildSelection);
   get('rebuild-targets').textContent = [current?.title, source.title].filter(Boolean).join(' + ') + ' → ' +
     (target?.title ?? 'Letter ' + letter + ' [NEW]');
   get('rebuild-legend').textContent = 'Séries da letra ' + letter + ' em ' + source.title;
@@ -662,8 +717,10 @@ function renderRebuildPlan({ posts, complete }) {
   const plan = planLetterRebuild({ letter: selection.letter, currentPosts: posts, intakeWorks,
     reference: source.reference, complete: complete && source.complete });
   const { checks, insertion } = plan;
+  const backupIssue = backupBlocker(selection);
   const blocker = !intakeWorks.length ? 'Marque as séries de Requests que deseja acrescentar.' :
     !selection.current || !selection.target ? 'Para copiar, confira o tópico atual e crie um tópico [NEW] vazio para esta letra.' :
+    backupIssue ? backupIssue :
     checks.incomplete ? 'Termine a leitura dos dois tópicos antes de publicar.' :
     posts.length + count > rebuildLimit ? 'A letra combinada passa de ' + rebuildLimit + ' publicações, o limite do piloto. Veja os limites abaixo.' :
       count > rebuildIntakeLimit ? 'Selecione até ' + rebuildIntakeLimit + ' arquivos de Requests nesta reconstrução.' :
@@ -752,7 +809,7 @@ for (const [button, checked] of [['rebuild-select-all', true], ['rebuild-select-
   });
 }
 
-function destinationLine(label, target, letter) {
+function destinationMessage(state, letter) {
   const messages = {
     missing: 'Não há tópico Letter ' + letter + ' neste grupo. Crie o tópico e confira novamente.',
     closed: 'O tópico Letter ' + letter + ' está fechado. Reabra-o e confira novamente.',
@@ -771,10 +828,14 @@ function destinationLine(label, target, letter) {
     changed: 'A lista de tópicos mudou durante a consulta. Confira novamente.',
     incomplete: 'A lista excede o limite de conferência.',
   };
+  return messages[state] ?? messages.unavailable;
+}
+
+function destinationLine(label, target, letter) {
   const line = node('li', label + ' · ');
   line.append(target.state === 'found' ?
     providerLink(target.topic.title, 'https://t.me/c/' + target.channelId + '/' + target.topic.id) :
-    document.createTextNode(messages[target.state] ?? messages.unavailable));
+    document.createTextNode(destinationMessage(target.state, letter)));
   return line;
 }
 
@@ -811,7 +872,7 @@ get('check-destinations').addEventListener('click', async () => {
       results.hidden = false;
       get('pilot-note').hidden = true;
       get('sum-destinations').textContent = local.replacement.topic.title;
-      feedback.textContent = 'Os tópicos da reconstrução foram encontrados. Confira a ordem antes de planejar a cópia. O backup não faz parte desta reconstrução.';
+      feedback.textContent = 'Os tópicos da reconstrução foram encontrados. Confira a ordem antes de planejar a cópia. O tópico do backup é conferido logo abaixo, na etapa da reconstrução.';
       return;
     }
     if (['closed', 'ambiguous'].includes(local.replacement?.state)) {

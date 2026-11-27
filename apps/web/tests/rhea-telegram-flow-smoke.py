@@ -69,7 +69,7 @@ base = f'http://127.0.0.1:{server.server_port}'
 GIB = 1_610_612_736  # 1.5 GiB per synthetic file
 calls = []
 lookups = []
-state = {'lookup': [], 'local_closed': True, 'replacement': False, 'rebuild_blocked': False, 'rebuild_waits': [],
+state = {'backup': 'ok', 'lookup': [], 'local_closed': True, 'replacement': False, 'rebuild_blocked': False, 'rebuild_waits': [],
          'extra_intake': False, 'k_round': False, 'special': False, 'forum_id': '22222'}
 
 def respond(route):
@@ -91,7 +91,11 @@ def respond(route):
             state['topic_wait'] = False
             route.fulfill(status=429, json={'state': 'rate_limited', 'retryAfter': 2})
             return
-        topics = [{'id': 8, 'title': 'Letra "T"'}] if backup else [
+        if backup and state['backup'] == 'unconfigured':
+            route.fulfill(status=409, json={'state': 'forum_disabled'})
+            return
+        topics = {'ok': [{'id': 8, 'title': 'Letra "T"'}], 'missing': [], 'closed': [{'id': 8, 'title': 'Letra "T"', 'closed': True}],
+                  'duplicated': [{'id': 8, 'title': 'Letra "T"'}, {'id': 9, 'title': 'Letter T'}]}.get(state['backup'], []) if backup else [
             {'id': 1, 'title': 'Requests'}, {'id': 12, 'title': 'Letter L'},
             {'id': 9, 'title': 'Letter T', 'closed': state['local_closed']}]
         if not backup and state['replacement']:
@@ -132,15 +136,21 @@ def respond(route):
             *extra, {'id': 37, 'kind': 'document', 'filename': '[Fixture]_Tsuki_ga_Kirei_01_[1280x720].mkv', 'sizeBytes': GIB},
             {'id': 30, 'kind': 'document', 'filename': '[Fixture]_Tsuki_ga_Kirei_10_[1280x720][synthetic_release_tag_that_is_long_enough_to_force_wrapping_on_a_phone].mkv', 'sizeBytes': GIB}]}})
     elif operation.startswith('rebuild'):
+        # The backup group's Letter topic (id 8) is the second destination whenever the plan includes it.
+        dual = data.get('backupTopicId') == 8
+        assert dual or 'backupTopicId' not in data, data
+        names = {'source': 'Letter T + Requests', 'destination': 'Fixture backup / Letter T',
+                 'localDestination': 'Fixture group / Letter T [NEW]'} if dual else {
+                 'source': 'Letter T + Requests', 'destination': 'Letter T [NEW]'}
+        copies = lambda order, n: [{'sourceId': id, 'destinationId': 100 + i} for i, id in enumerate(order[:n])]
         if state['extra_intake']:
             assert operation == 'rebuildpreview'
-            assert data == {'sourceTopicId': 1, 'currentTopicId': 9, 'replacementTopicId': 81, 'beforeId': None,
+            assert data == {'sourceTopicId': 1, 'currentTopicId': 9, 'replacementTopicId': 81, 'backupTopicId': 8, 'beforeId': None,
                             'letter': 'T', 'ids': [39, 41, 37, 30],
                             'insertions': [{'beforeId': 15, 'ids': [39]}, {'beforeId': 19, 'ids': [41, 37, 30]}]}
             order = [39, 15, 16, 41, 37, 30, 19]
             route.fulfill(json={'state': 'mirror_preview', 'mirror': {'total': len(order), 'approval': 'a' * 43,
-                'source': 'Letter T + Requests', 'destination': 'Letter T [NEW]',
-                'posts': [{'id': id, 'label': 'Fixture'} for id in order]}})
+                **names, 'posts': [{'id': id, 'label': 'Fixture'} for id in order]}})
             return
         assert {key: data[key] for key in ['sourceTopicId', 'currentTopicId', 'replacementTopicId', 'beforeId', 'ids']} == {
             'sourceTopicId': 1, 'currentTopicId': 9, 'replacementTopicId': 81, 'beforeId': 19, 'ids': [37, 30],
@@ -152,11 +162,10 @@ def respond(route):
             }})
         elif operation == 'rebuildpreview':
             route.fulfill(json={'state': 'mirror_preview', 'mirror': {'total': 5, 'approval': 'a' * 43,
-                'source': 'Letter T + Requests', 'destination': 'Letter T [NEW]',
-                'posts': [{'id': id, 'label': 'Fixture'} for id in order]}})
+                **names, 'posts': [{'id': id, 'label': 'Fixture'} for id in order]}})
         elif operation == 'rebuildapprove':
             assert data['confirm'] is True
-            route.fulfill(json={'state': 'mirror_progress', 'mirror': {'total': 5, 'copies': []}})
+            route.fulfill(json={'state': 'mirror_progress', 'mirror': {'total': 5, 'copies': [], **({'localCopies': []} if dual else {})}})
         elif state['rebuild_waits']:
             assert operation == 'rebuildnext'
             wait = state['rebuild_waits'].pop(0)
@@ -164,8 +173,8 @@ def respond(route):
                                            'retryAt': int(time.time() * 1000) + wait * 1000})
         else:
             assert operation == 'rebuildnext'
-            route.fulfill(json={'state': 'mirror_done', 'mirror': {'total': 5,
-                'copies': [{'sourceId': id, 'destinationId': 100 + i} for i, id in enumerate(order)]}})
+            route.fulfill(json={'state': 'mirror_done', 'mirror': {'total': 5, 'copies': copies(order, 5),
+                **({'localCopies': copies(order, 5)} if dual else {})}})
     elif operation == 'organizepreview':
         route.fulfill(json={'state': 'mirror_preview', 'mirror': {
             'approval': 'a' * 43, 'localDestination': 'Fixture group / Letter T', 'destination': 'Fixture backup / Letter T',
@@ -379,7 +388,7 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         expect(page.locator('#enrich-rebuild-neighbors li').nth(1)).to_contain_text('Tsuki ga Kirei')
         expect(page.locator('#enrich-rebuild-neighbors li').nth(2)).to_contain_text('Tundra')
         expect(page.locator('#enrich-limit-intake')).to_contain_text('de 60')
-        expect(page.locator('#enrich-limit-total')).to_contain_text('de 240')
+        expect(page.locator('#enrich-limit-total')).to_contain_text('de 480')
         state['rebuild_blocked'] = True
         page.get_by_role('button', name='Revisar reconstrução').click()
         expect(page.locator('#enrich-publish-status')).to_contain_text('a leitura ficou incompleta')
@@ -406,7 +415,7 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         saved_copy = "JSON.parse(localStorage.getItem('rhea:telegram:copy:v1:/api/rhea/telegram-mtproto'))"
         checkpoint = page.evaluate(saved_copy)
         assert set(checkpoint) == {'selection', 'retryAt', 'automatic'}
-        assert set(checkpoint['selection']) == {'currentTopicId', 'sourceTopicId', 'replacementTopicId', 'beforeId', 'letter', 'ids'}
+        assert set(checkpoint['selection']) == {'currentTopicId', 'sourceTopicId', 'replacementTopicId', 'backupTopicId', 'beforeId', 'letter', 'ids'}
         assert checkpoint['automatic'] is True
         page.reload()
         page.clock.set_system_time((checkpoint['retryAt'] - 210_000) / 1000)
@@ -422,7 +431,10 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         expect(page.locator('#enrich-publish-status')).to_contain_text('Tópico [NEW]: 5 de 5', timeout=10000)
         assert calls.count('rebuildnext') == 4
         assert page.evaluate(saved_copy) is None
-        expect(page.locator('#enrich-progress-backup').locator('..')).to_be_hidden()
+        # Both destinations report on their own, in text as well as in the bars.
+        expect(page.locator('#enrich-progress-local-text')).to_have_text('5 de 5 verificadas · concluído')
+        expect(page.locator('#enrich-progress-backup-text')).to_have_text('5 de 5 verificadas · concluído')
+        expect(page.locator('#enrich-publish-status')).to_contain_text('Backup: 5 de 5 verificadas')
         state['extra_intake'] = True
         reach_enrichment(page, expected='Amber Archive')
         cards = page.locator('#enrich-letter-options li')
@@ -560,14 +572,70 @@ def scenario_destination_wait(playwright):
     page.locator('#enrich-check-destinations').click()
     expect(page.locator('#enrich-destination-status')).to_contain_text('reconstrução foram encontrados')
     expect(page.locator('#enrich-destinations')).to_contain_text('Tópico atual (origem)')
-    assert calls.count('forumtopics') == before, calls
+    # Only the backup group's topic list is read now; the titular pair still comes from the complete index.
+    assert calls.count('forumtopics') == before + 1, calls
+    expect(page.locator('#enrich-backup-status')).to_contain_text('Backup encontrado')
     assert not any(call.endswith(('preview', 'approve', 'next')) for call in calls), calls
+    state['replacement'] = False
+    browser.close()
+
+def scenario_backup(playwright):
+    calls.clear(); lookups.clear()
+    state.update({'local_closed': False, 'replacement': True, 'rebuild_blocked': False, 'rebuild_waits': [], 'extra_intake': False, 'backup': 'missing'})
+    browser = playwright.chromium.launch(executable_path=os.environ.get('RHEA_BROWSER_PATH'),
+                                          args=['--single-process'] if os.environ.get('RHEA_BROWSER_PATH') else [])
+    context = browser.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True, reduced_motion='reduce')
+    context.route('**/api/rhea/**', respond)
+    page = context.new_page()
+    reach_enrichment(page)
+    page.locator('#enrich-use-title').click()
+    page.locator('#enrich-check-destinations').click()
+    expect(page.locator('#enrich-backup')).to_be_visible()
+    # The backup was requested but its topic does not exist: say so and do not prepare any copy.
+    expect(page.locator('#enrich-backup-status')).to_contain_text('Não há tópico Letter T neste grupo')
+    expect(page.locator('#enrich-backup-retry')).to_be_visible()
+    page.get_by_role('button', name='Montar prévia da letra').click()
+    expect(page.locator('#enrich-rebuild-status')).to_contain_text('Backup: Não há tópico Letter T')
+    expect(page.locator('#enrich-publish')).to_be_hidden()
+    # A closed backup topic cannot receive posts either.
+    state['backup'] = 'closed'
+    page.locator('#enrich-backup-retry').click()
+    expect(page.locator('#enrich-backup-status')).to_contain_text('está fechado')
+    expect(page.locator('#enrich-publish')).to_be_hidden()
+    # Fixing the topic makes the plan include it; unchecking is an explicit, visible choice.
+    state['backup'] = 'ok'
+    page.locator('#enrich-backup-retry').click()
+    expect(page.locator('#enrich-backup-status')).to_contain_text('Backup encontrado: Letra "T"')
+    expect(page.locator('#enrich-publish')).to_be_visible()
+    page.locator('#enrich-backup-include').uncheck()
+    expect(page.locator('#enrich-backup-status')).to_contain_text('só o grupo titular será reconstruído')
+    page.locator('#enrich-publish-review').click()
+    expect(page.locator('#enrich-publish-targets')).not_to_contain_text('Fixture backup')
+    page.locator('#enrich-publish-dialog button', has_text='Cancelar').click() if page.locator('#enrich-publish-dialog button', has_text='Cancelar').count() else page.keyboard.press('Escape')
+    page.locator('#enrich-backup-include').check()
+    expect(page.locator('#enrich-publish-targets')).not_to_contain_text('Fixture backup')
+    page.locator('#enrich-publish-review').click()
+    expect(page.locator('#enrich-publish-targets')).to_contain_text('Fixture backup / Letter T')
+    expect(page.locator('#enrich-publish-targets')).to_contain_text('Fixture group / Letter T [NEW]')
+    page.keyboard.press('Escape')
+    # An unconfigured backup is its own state and states that only the titular group is affected.
+    state['backup'] = 'unconfigured'
+    reach_enrichment(page)
+    page.locator('#enrich-use-title').click()
+    page.locator('#enrich-check-destinations').click()
+    expect(page.locator('#enrich-backup-status')).to_contain_text('não está configurado no Railway')
+    expect(page.locator('#enrich-backup-include')).to_be_disabled()
+    no_overflow(page, 'backup')
+    snap(page, 'backup-unconfigured')
+    assert not any(call.endswith(('approve', 'next')) for call in calls), calls
+    state['backup'] = 'ok'
     state['replacement'] = False
     browser.close()
 
 with sync_playwright() as playwright:
     if not baseline:
         scenario_destination_wait(playwright)
+        scenario_backup(playwright)
     run(playwright, 'mobile-light', {'width': 390, 'height': 844}, 'light', True)
     run(playwright, 'mobile-dark', {'width': 390, 'height': 844}, 'dark', True)
     run(playwright, 'tablet-light', {'width': 820, 'height': 1180}, 'light', True)

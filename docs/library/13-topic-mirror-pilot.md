@@ -141,7 +141,8 @@ partial result. It does not use the one-source publication pilot or copy into th
 In an authorized disposable private forum, keep the current `Letter T`, place only the selected
 incoming work in Requests, and create a separate empty `Letter T [NEW]`. The reconstruction uses
 `RHEA_TELEGRAM_ORGANIZE_MODE=approved-pilot`, the same Access-protected session, and the main forum
-configuration. It needs no backup binding. The rollout must qualify publication with authorized
+configuration. A backup binding is optional: when the backup forum is configured, the reconstruction can
+also copy into the backup group's empty `Letter T` topic as a second destination. The rollout must qualify publication with authorized
 synthetic media before reading or writing real library content for this pilot.
 
 After **Montar prévia da letra**, choose the insertion point before a specific publication in
@@ -152,13 +153,29 @@ point. Identification warnings in the catalogue do not remove posts from this re
 An unsupported publication, broken reply dependency, split album, protected media or incomplete
 snapshot stops approval. Preview, approval and execution are separate actions.
 
-The reconstruction supports at most 240 combined publications and up to 60 selected incoming
-files from a Requests topic with up to 60 entries. The target must be empty at approval. The durable journal
+The reconstruction supports at most 480 combined publications (the current letter plus the selected
+files) in a single plan, up to 60 selected incoming files, and reads at most the newest 1,200 messages of
+Requests to reach the oldest selected file; Requests itself can be longer than 60 messages. These bounds
+come from `organization-contract.mjs` and the journal size limit is derived from them. A file deeper than
+the scan budget is refused with an explicit message instead of producing a partial plan. The measured
+synthetic case K (206 + 23 + 14 = 243 publications, two destinations) writes about 66 KB of journal and
+needs about 12,000 topic reads for the whole run because each step re-verifies source and destinations;
+plan for that cost and for Telegram waits.
+
+The titular `Letter T [NEW]` and, when included, the backup `Letter T` must be empty and open at preview
+and again at approval and before writing. Each destination is validated without sending anything, and
+progress and receipts are kept per destination: the titular copy runs first, then the backup. The
+plan completes only when both are verified. If the backup fails after the titular copy finished, the
+titular receipts stay in the journal and only the backup resumes. Without a backup in the request the
+reconstruction keeps the previous single-destination behaviour. A request that includes a backup while the
+backup forum is not configured is refused with its own message and never falls back silently.
+
+The target must be empty at approval. The durable journal
 verifies copies by Telegram message ID and media metadata. It retains the originals and creates
 new destination links, with the existing captions and filenames. Any uncertain receipt stops the
 run. Reopen the same work, target and insertion point to verify or resume known receipts. This pilot
 keeps one active reconstruction journal per deployment and archives verified runs before starting
-a new letter. It does not publish to a backup forum.
+a new letter. The copy still advances while a tab is open; there is no server-side runner yet.
 
 A protected **Configurar MyAnimeList** form can supply a registered Client ID for the current tab.
 The client retains it in memory, sends it only to the protected RHEA lookup, and clears it when

@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { FloodWaitError, SlowModeWaitError } from 'teleproto/errors';
 import { forumId } from '../src/rhea/library/forum-contract.mjs';
 import { mirrorLimit } from '../src/rhea/library/mirror-contract.mjs';
-import { rebuildLimit } from '../src/rhea/library/organization-contract.mjs';
+import { rebuildJournalLimit, rebuildLimit } from '../src/rhea/library/organization-contract.mjs';
 import { MirrorPreflightError, mirrorUnits } from './mirror-messages.mjs';
 
 const approvalTtl = 5 * 60_000;
@@ -105,7 +105,7 @@ export function mirrorControl(config, now = Date.now) {
     try {
       file = await open(path, 'r');
       const { size } = await file.stat();
-      if (size < 1 || size > (rebuild ? 262144 : 16384)) return false;
+      if (size < 1 || size > (rebuild ? rebuildJournalLimit : 16384)) return false;
       const contents = await file.readFile('utf8');
       if (!contents.endsWith('\n')) return false;
       const lines = contents.trimEnd().split('\n').map(line => JSON.parse(line));

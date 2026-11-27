@@ -1,4 +1,4 @@
-import { organizationInput, rebuildLimit } from './organization-contract.mjs';
+import { organizationInput, rebuildIntakeLimit, rebuildIntakeScan, rebuildLimit } from './organization-contract.mjs';
 
 export function organizationPublication(get, endpoint) {
   const container = get('publish');
@@ -130,12 +130,15 @@ export function organizationPublication(get, endpoint) {
     showCooldown(action);
   }
 
+  // A reconstruction may include the backup group's Letter topic as a second destination.
+  const hasBackup = () => !rebuild || selection?.backupTopicId !== undefined;
+
   function configure(value, rebuildIds) {
     clear();
     selection = value;
     rebuild = value.replacementTopicId !== undefined;
     reconstructionIds = rebuildIds;
-    rows.backup.bar.closest('li').hidden = rebuild;
+    rows.backup.bar.closest('li').hidden = rebuild && !hasBackup();
     rows.local.bar.closest('li').querySelector('span').textContent = rebuild ? 'Tópico [NEW]' : 'Mesmo grupo';
     get('publish-title').textContent = rebuild ? 'Aprovar reconstrução da letra' : 'Aprovar cópia para os dois tópicos';
     review.textContent = rebuild ? 'Revisar reconstrução' : 'Revisar publicação';
@@ -170,15 +173,15 @@ export function organizationPublication(get, endpoint) {
 
   function renderProgress(details, state) {
     progress.hidden = false;
-    const local = (rebuild ? details.copies : details.localCopies).length;
-    const backup = rebuild ? 0 : details.copies.length;
+    const local = (hasBackup() ? details.localCopies : details.copies).length;
+    const backup = hasBackup() ? details.copies.length : 0;
     showProgress(local, backup, details.total, state);
     return { local, backup };
   }
 
   function display(result) {
     const details = result.mirror;
-    const side = { local: 'No mesmo grupo', destination: rebuild ? 'No tópico [NEW]' : 'No backup',
+    const side = { local: rebuild ? 'No tópico [NEW]' : 'No mesmo grupo', destination: rebuild && !hasBackup() ? 'No tópico [NEW]' : 'No backup',
       source: 'Na origem', account: 'Na conexão Telegram' }[result.issue?.side];
     const postReason = {
       service_event: 'é um evento de serviço do Telegram.',
@@ -199,7 +202,10 @@ export function organizationPublication(get, endpoint) {
       destination_not_empty: 'o tópico precisa estar vazio para o piloto.',
       group_protected: 'o Telegram impede a cópia de conteúdo protegido.',
       group_not_owned: 'a conta conectada precisa ser proprietária do grupo.',
-      history_limit: rebuild ? 'a leitura ultrapassou o limite do piloto: até 60 publicações em Requests e 240 na cópia combinada.' :
+      backup_unconfigured: 'o grupo de backup não está configurado no Railway. Configure-o ou desmarque a cópia no backup.',
+      history_limit: rebuild ? (result.issue?.detail === 'scan_budget' ?
+        'um arquivo selecionado está além das últimas ' + rebuildIntakeScan + ' mensagens de Requests. Selecione arquivos mais recentes ou divida o lote.' :
+        'a letra combinada passa de ' + rebuildLimit + ' publicações (limite de um plano), ou o tópico atual é maior que isso. Selecione até ' + rebuildIntakeLimit + ' arquivos de Requests por plano.') :
         'o tópico de origem precisa ter até 60 publicações neste piloto.',
       selection_changed: 'um arquivo aprovado mudou ou saiu do tópico.',
       topic_name: 'o tópico deixou de corresponder à letra esperada.',
@@ -214,7 +220,7 @@ export function organizationPublication(get, endpoint) {
     }[result.issue?.code];
     run.hidden = result.state !== 'mirror_progress';
     if (result.state === 'mirror_progress' || result.state === 'mirror_done') {
-      if (!details?.copies || (!rebuild && !details.localCopies)) {
+      if (!details?.copies || (hasBackup() && !details.localCopies)) {
         run.hidden = true;
         status.textContent = 'Não foi possível validar as confirmações dos dois destinos.';
         return;
@@ -222,7 +228,7 @@ export function organizationPublication(get, endpoint) {
       lastProgress = details;
       const { local, backup } = renderProgress(details, result.state === 'mirror_done' ? 'done' : paused ? 'paused' : 'running');
       const counts = (rebuild ? 'Tópico [NEW]: ' : 'Mesmo grupo: ') + local + ' de ' + details.total +
-        ' verificadas.' + (rebuild ? '' : ' Backup: ' + backup + ' de ' + details.total + ' verificadas.');
+        ' verificadas.' + (hasBackup() ? ' Backup: ' + backup + ' de ' + details.total + ' verificadas.' : '');
       status.textContent = result.state === 'mirror_done' ? 'Cópia concluída. ' + counts : counts;
       return;
     }
@@ -238,7 +244,7 @@ export function organizationPublication(get, endpoint) {
       busy: 'Outra leitura do Telegram está em andamento. Aguarde alguns instantes e tente novamente.',
       rate_limited: 'O Telegram pediu uma pausa. Aguarde antes de retomar.',
     };
-    if (result.state === 'mirror_recovery' && details?.copies && (rebuild || details.localCopies)) {
+    if (result.state === 'mirror_recovery' && details?.copies && (!hasBackup() || details.localCopies)) {
       renderProgress(details, 'recovery');
     }
     status.textContent = reason && side ? side + ', ' + reason + (result.issue.postId ? ' Post #' + result.issue.postId + '.' : '') :
@@ -258,7 +264,7 @@ export function organizationPublication(get, endpoint) {
         pause.textContent = 'Pausar após este lote';
         paused = false;
         if (lastProgress) renderProgress(lastProgress, 'running');
-        let remaining = rebuild ? 2 * (reconstructionIds?.length ?? rebuildLimit) : 4 * selection.ids.length;
+        let remaining = rebuild ? (hasBackup() ? 4 : 2) * (reconstructionIds?.length ?? rebuildLimit) : 4 * selection.ids.length;
         let result;
         do {
           result = await request('next', signal);
@@ -278,13 +284,14 @@ export function organizationPublication(get, endpoint) {
           const preview = result.mirror;
           const ids = reconstructionIds ?? selection.ids;
           if (!preview?.destination || (rebuild ? !preview.source : !preview.localDestination) ||
+              (rebuild && hasBackup() && !preview.localDestination) ||
               preview.posts?.length !== ids.length ||
               preview.posts.some((post, index) => post.id !== ids[index])) {
             display({ state: 'mirror_changed' });
             return;
           }
           approval = preview.approval;
-          get('publish-targets').textContent = rebuild ? preview.source + ' → ' + preview.destination :
+          get('publish-targets').textContent = rebuild ? preview.source + ' → ' + (hasBackup() ? preview.localDestination + ' · ' + preview.destination : preview.destination) :
             preview.localDestination + ' · ' + preview.destination;
           get('publish-files').replaceChildren(...preview.posts.map(post =>
             Object.assign(document.createElement('li'), { textContent: '#' + post.id + ' · ' + post.label })));
