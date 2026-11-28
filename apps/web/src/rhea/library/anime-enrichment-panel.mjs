@@ -167,6 +167,7 @@ let rebuildSelection;
 let rebuildPosts;
 let rebuildInventory;
 let rebuildLookup;
+let rebuildLookupTimer;
 const letterMetadata = new Map();
 let cooldown;
 const retryAt = new Map();
@@ -504,7 +505,8 @@ function clearPosition() {
 
 function clearRebuild() {
   rebuildRead?.abort();
-  rebuildLookup?.abort();
+  rebuildLookup?.controller.abort();
+  clearTimeout(rebuildLookupTimer);
   requestsRead?.abort();
   backupRead?.abort();
   rebuildLookup = requestsRead = undefined;
@@ -604,6 +606,7 @@ get('rebuild-anchor').addEventListener('change', event => {
   const [work] = selectedWorks();
   if (!work) return;
   const ids = sortAnimeEpisodes(work.posts).map(post => post.id);
+  rebuildSelection.manualPosition = { beforeId, ids: ids.join(',') };
   const slot = { beforeId, works: [work.title], ids, previousTitle: undefined, nextTitle: undefined };
   showPosition([slot], 'manual');
   prepareReconstruction([{ beforeId, ids }]);
@@ -797,7 +800,6 @@ async function loadBackup(context) {
 function backupBlocker(context) {
   if (!context.includeBackup) return '';
   const state = context.backup?.state;
-  if (state === 'unconfigured') return '';
   if (!state || state === 'checking') return 'Conferindo o tópico Letter ' + context.letter + ' no grupo de backup…';
   if (state === 'rate_limited' && pause.waiting('backup')) return 'A conferência do backup continua ao fim da pausa do Telegram.';
   return state === 'found' ? '' : 'Backup: ' + destinationMessage(state, context.letter) + ' Ou desmarque a cópia no backup.';
@@ -809,25 +811,25 @@ function showBackup(context, keepStatus = false) {
   const input = get('backup-include');
   const status = get('backup-status');
   box.hidden = false;
-  input.disabled = state === 'unconfigured';
-  if (state === 'unconfigured') input.checked = context.includeBackup = false;
+  input.checked = context.includeBackup;
   if (!keepStatus) {
-    status.textContent = state === 'unconfigured' ? 'O grupo de backup não está configurado no Railway. Esta reconstrução afetará só o grupo titular.' :
-      !context.includeBackup ? 'A cópia no backup foi desmarcada: só o grupo titular será reconstruído.' :
+    status.textContent = !context.includeBackup ? 'A cópia no backup foi desmarcada. O plano inclui apenas o grupo titular.' :
       !state || state === 'checking' ? 'Conferindo o tópico Letter ' + context.letter + ' no grupo de backup…' :
       state === 'found' ? 'Backup encontrado: ' + context.backup.topic.title + '. Ele será validado de novo, sem escrever, na revisão e antes de cada cópia.' :
       state === 'rate_limited' && pause.waiting('backup') ? 'A conferência do backup está em pausa.' :
       destinationMessage(state, context.letter);
   }
   get('backup-retry').hidden = !(context.includeBackup && !pause.waiting('backup') &&
-    !['found', 'checking', 'unconfigured'].includes(state ?? 'checking'));
+    !['found', 'checking'].includes(state ?? 'checking'));
 }
 
 get('backup-include').addEventListener('change', event => {
   if (!rebuildSelection) return;
-  rebuildSelection.includeBackup = event.target.checked;
-  showBackup(rebuildSelection);
-  publication.clear();
+  const context = rebuildSelection;
+  context.includeBackup = event.target.checked;
+  if (!context.includeBackup) clearRebuildWait('backup');
+  else if (context.backup?.state === 'rate_limited') void loadBackup(context);
+  showBackup(context);
   if (rebuildInventory) renderRebuildPlan(rebuildInventory);
 });
 get('backup-retry').addEventListener('click', () => {
@@ -848,23 +850,29 @@ function rebuildChoices(letter, confirmed) {
   return choices;
 }
 
-// Checkboxes keep the current rule: every series starts selected; a series unchecked by the operator stays
-// unchecked when more Requests pages arrive. Metadata controls sit beside the label, never inside it.
-function renderRebuildOptions(context, unchecked) {
-  const focused = rebuildOptions.contains(document.activeElement) ? document.activeElement.closest('[data-series]')?.dataset.series : undefined;
-  rebuildOptions.replaceChildren(...[...context.choices].map(([id, works]) => {
+// Keep the existing controls in place when a Requests page adds files to a series.
+function renderRebuildOptions(context) {
+  for (const row of [...rebuildOptions.children]) {
+    if (!context.choices.has(row.dataset.series)) row.remove();
+  }
+  for (const [id, works] of context.choices) {
     const files = works.reduce((total, work) => total + work.posts.length, 0);
+    const labelText = works[0].title + ' · ' + files + (files === 1 ? ' arquivo' : ' arquivos');
+    const existing = rebuildOptions.querySelector('[data-series="' + CSS.escape(id) + '"]');
+    if (existing) {
+      const label = existing.querySelector('label span');
+      if (label.textContent !== labelText) label.textContent = labelText;
+      continue;
+    }
     const row = Object.assign(document.createElement('div'), { className: 'library-series' });
     row.dataset.series = id;
     const label = node('label');
-    label.append(Object.assign(node('input'), { type: 'checkbox', value: id, checked: !unchecked.has(id) }),
-      node('span', works[0].title + ' · ' + files + (files === 1 ? ' arquivo' : ' arquivos')));
+    label.append(Object.assign(node('input'), { type: 'checkbox', value: id, checked: true }), node('span', labelText));
     const meta = Object.assign(document.createElement('div'), { className: 'library-series-meta' });
     row.append(label, meta);
-    return row;
-  }));
-  for (const id of context.choices.keys()) renderSeriesMeta(id);
-  if (focused) rebuildOptions.querySelector('[data-series="' + CSS.escape(focused) + '"] input')?.focus();
+    rebuildOptions.append(row);
+    renderSeriesMeta(id);
+  }
 }
 
 function startRebuild(local, letter, confirmed) {
@@ -878,7 +886,7 @@ function startRebuild(local, letter, confirmed) {
   get('rebuild-targets').textContent = [current?.title, source.title].filter(Boolean).join(' + ') + ' → ' +
     (target?.title ?? 'Letter ' + letter + ' [NEW]');
   get('rebuild-legend').textContent = 'Séries da letra ' + letter + ' em ' + source.title;
-  renderRebuildOptions(rebuildSelection, new Set());
+  renderRebuildOptions(rebuildSelection);
   get('rebuild').hidden = false;
   updateRebuildCount();
   // Read-only probes start by themselves, one at a time: the letter, the rest of Requests, then the backup.
@@ -892,11 +900,10 @@ function startRebuild(local, letter, confirmed) {
 // and the confirmed metadata, and only add what is new.
 function refreshRebuildSource(snapshot, result) {
   const context = rebuildSelection;
-  const unchecked = new Set([...rebuildOptions.querySelectorAll('input[type="checkbox"]:not(:checked)')].map(input => input.value));
   source = snapshot;
   groups = result.groups;
   context.choices = rebuildChoices(context.letter, context.confirmed);
-  renderRebuildOptions(context, unchecked);
+  renderRebuildOptions(context);
   updateRebuildCount();
   if (rebuildInventory) renderRebuildPlan(rebuildInventory);
   void lookupSelectedSeries();
@@ -1000,6 +1007,8 @@ function renderSeriesMeta(id) {
       'Sem ficha encontrada no ' + animeProviders[entry.provider] + '.'));
   } else if (entry.state === 'error') {
     meta.append(node('small', 'Ficha pendente: a consulta ao ' + animeProviders[entry.provider] + ' não respondeu.'));
+  } else if (entry.state === 'waiting') {
+    meta.append(node('small', 'Ficha em pausa por limite de consultas do ' + animeProviders[entry.provider] + '.'));
   } else if (entry.state === 'skipped') {
     meta.append(node('small', 'O título não serve para a busca automática.'));
   }
@@ -1017,7 +1026,9 @@ function showLookupHelp(state, provider) {
   if (provider === 'anilist' && providerFallback.has(state)) button('Usar MyAnimeList', () => saveAnimeProvider('mal'));
   if (state === 'provider_unconfigured') button('Configurar MyAnimeList', openMalSettings);
   if (provider === 'mal' && providerFallback.has(state)) button('Voltar ao AniList', () => saveAnimeProvider('anilist'));
-  if (retryableLookup.has(state) && state !== 'rate_limited') button('Consultar de novo', () => void lookupSelectedSeries(true));
+  if (retryableLookup.has(state) && (state !== 'rate_limited' || (retryAt.get(provider) ?? 0) <= Date.now())) {
+    button('Consultar de novo', () => void lookupSelectedSeries(true));
+  }
   actions.replaceChildren(...buttons);
 }
 
@@ -1030,63 +1041,87 @@ function openMalSettings() {
 }
 
 async function lookupSelectedSeries(retry = false) {
-  rebuildLookup?.abort();
-  rebuildLookup = undefined;
   const context = rebuildSelection;
-  if (!context) return;
-  for (const id of context.choices.keys()) renderSeriesMeta(id);
-  if (!context.automaticLookup) return;
-  const request = new AbortController();
+  if (!context?.automaticLookup) return;
+  const provider = currentProvider();
+  // Requests pages and checkbox changes may add work while a query is in flight. Keep that query.
+  if (rebuildLookup?.provider === provider && !retry) return;
+  rebuildLookup?.controller.abort();
+  clearTimeout(rebuildLookupTimer);
+  const controller = new AbortController();
+  const request = { controller, provider };
+  const { signal } = controller;
   rebuildLookup = request;
   const feedback = get('rebuild-lookup');
-  const provider = currentProvider();
   feedback.textContent = '';
   get('rebuild-lookup-actions').replaceChildren();
+  const schedule = () => {
+    const delay = (retryAt.get(provider) ?? 0) - Date.now();
+    if (delay <= 0) return false;
+    rebuildLookupTimer = setTimeout(() => void lookupSelectedSeries(), delay);
+    feedback.textContent = 'O ' + animeProviders[provider] +
+      ' pediu uma pausa. A consulta das fichas será retomada automaticamente.';
+    showLookupHelp('rate_limited', provider);
+    return true;
+  };
+  const attempted = new Set();
   let changed = false;
-  for (const input of [...rebuildOptions.querySelectorAll('input[type="checkbox"]:checked')]) {
-    const id = input.value;
+  while (!signal.aborted) {
+    const id = [...rebuildOptions.querySelectorAll('input[type="checkbox"]:checked')].find(({ value }) => {
+      const entry = seriesMetadata.get(value);
+      return !attempted.has(value) && !settled(entry) &&
+        (entry?.provider !== provider || ['checking', 'waiting', 'error'].includes(entry.state) ||
+          (retry && entry.state === 'none'));
+    })?.value;
+    if (!id) break;
+    attempted.add(id);
     const entry = seriesMetadata.get(id);
-    if (settled(entry) || (entry?.provider === provider && entry.state !== 'error' && !(retry && entry.state === 'none'))) continue;
-    const works = context.choices.get(id);
-    const title = works[0].title;
+    const title = context.choices.get(id)[0].title;
     if (title.length < 2 || title.length > 120 || /https?:\/\/|[\r\n]|\.(?:mkv|mp4|zip)$/iu.test(title)) {
       seriesMetadata.set(id, { state: 'skipped', provider });
       renderSeriesMeta(id);
       continue;
     }
-    const wait = Math.ceil(((retryAt.get(provider) ?? 0) - Date.now()) / 1000);
-    if (wait > 0) {
-      feedback.textContent = lookupMessage({ state: 'rate_limited', retryAfter: wait }, provider);
-      showLookupHelp('rate_limited', provider);
+    if (schedule()) break;
+    if (!retry && entry?.provider === provider && entry.state === 'error') {
+      feedback.textContent = lookupMessage(entry.result, provider);
+      showLookupHelp(entry.result.state, provider);
       break;
     }
     const key = JSON.stringify([provider, titleKey(title)]);
-    let result = letterMetadata.get(key);
+    let result = retry && entry?.state === 'none' ? undefined : letterMetadata.get(key);
     if (!result) {
-      seriesMetadata.set(id, { state: 'checking', provider });
+      const pending = { state: 'checking', provider };
+      seriesMetadata.set(id, pending);
       renderSeriesMeta(id);
-      try { result = await lookupAnime(root.dataset.animeMetadataEndpoint, title, request.signal, provider); }
-      catch { if (request.signal.aborted) return; result = { state: 'network' }; }
-      if (request.signal.aborted || rebuildSelection !== context) return;
+      try { result = await lookupAnime(root.dataset.animeMetadataEndpoint, title, signal, provider); }
+      catch { result = { state: 'network' }; }
+      if (signal.aborted || rebuildSelection !== context) return;
       if (result.state === 'candidates') letterMetadata.set(key, result);
+      if (seriesMetadata.get(id) !== pending || !context.choices.has(id)) continue;
     }
     if (result.state !== 'candidates') {
       // A provider failure stops the batch: the confirmed fichas and the rest of the selection stay as they are.
-      seriesMetadata.set(id, { state: 'error', provider, error: result.state });
+      const waiting = Boolean(result.retryAfter);
+      seriesMetadata.set(id, { state: waiting ? 'waiting' : 'error', provider, result });
       renderSeriesMeta(id);
-      if (result.retryAfter) retryAt.set(provider, Date.now() + result.retryAfter * 1000);
-      feedback.textContent = lookupMessage(result, provider) ?? 'Não foi possível consultar os metadados.';
-      showLookupHelp(result.state, provider);
+      if (waiting) {
+        retryAt.set(provider, Math.max(retryAt.get(provider) ?? 0, Date.now() + result.retryAfter * 1000));
+        schedule();
+      } else {
+        feedback.textContent = lookupMessage(result, provider) ?? 'Não foi possível consultar os metadados.';
+        showLookupHelp(result.state, provider);
+      }
       break;
     }
     const matches = result.candidates.filter(candidate =>
       candidate.titles?.some(value => titleKey(value) === titleKey(title)));
-    const seasonal = works.some(work => work.season > 1);
+    const seasonal = context.choices.get(id).some(work => work.season > 1);
     seriesMetadata.set(id, matches.length === 1 && !seasonal ?
       { state: 'applied', provider, candidate: matches[0], candidates: result.candidates, by: 'auto' } :
       result.candidates.length ? { state: 'choose', provider, candidates: result.candidates } : { state: 'none', provider });
-    changed = true;
     renderSeriesMeta(id);
+    changed = true;
   }
   if (rebuildLookup === request) rebuildLookup = undefined;
   if (changed && rebuildInventory) renderRebuildPlan(rebuildInventory);
@@ -1115,7 +1150,6 @@ function fichaMismatch(work) {
 }
 
 function renderRebuildPlan({ posts, complete }) {
-  publication.clear();
   clearPosition();
   const selection = rebuildSelection;
   const intakeWorks = selectedWorks();
@@ -1181,7 +1215,10 @@ function renderRebuildPlan({ posts, complete }) {
     return row;
   }));
   rebuildPosts = [...posts].sort((a, b) => a.id - b.id);
-  if (blocker && !insertion.reasons?.includes('same_title')) return;
+  if (blocker && !insertion.reasons?.includes('same_title')) {
+    publication.clear();
+    return;
+  }
   if (intakeWorks.length === 1) {
     const choices = letterInsertionOptions(rebuildPosts, plan.groups);
     const byWork = document.createElement('optgroup');
@@ -1195,11 +1232,21 @@ function renderRebuildPlan({ posts, complete }) {
       new Option('No fim do tópico', 'end'), ...[byWork, byPost].filter(option => option.children.length));
   }
   if (insertion.state === 'review') {
+    publication.clear();
     showPosition(undefined, 'review', insertion.reasons, 0, insertion.duplicates);
     return;
   }
   if (intakeWorks.length === 1) {
     const [slot] = insertion.slots;
+    const manual = selection.manualPosition;
+    if (manual?.ids === slot.ids.join(',') &&
+        (manual.beforeId === null || [...get('rebuild-anchor').options].some(option => option.value === String(manual.beforeId)))) {
+      get('rebuild-anchor').value = manual.beforeId === null ? 'end' : String(manual.beforeId);
+      const chosen = { beforeId: manual.beforeId, works: slot.works, ids: slot.ids };
+      showPosition([chosen], 'manual');
+      prepareReconstruction([chosen]);
+      return;
+    }
     get('rebuild-anchor').value = slot.beforeId === null ? 'end' : String(slot.beforeId);
   }
   showPosition(insertion.slots, insertion.state, insertion.reasons, insertion.uncovered);
@@ -1213,17 +1260,25 @@ get('rebuild-adjust').addEventListener('click', () => {
 });
 
 function refreshRebuildPicks() {
+  rebuildSelection.manualPosition = undefined;
   updateRebuildCount();
   if (rebuildInventory) renderRebuildPlan(rebuildInventory);
   void lookupSelectedSeries();
 }
 
 rebuildOptions.addEventListener('change', event => {
-  if (event.target.type === 'checkbox') refreshRebuildPicks();
+  if (event.target.type === 'checkbox') {
+    renderSeriesMeta(event.target.value);
+    refreshRebuildPicks();
+  }
 });
 for (const [button, checked] of [['rebuild-select-all', true], ['rebuild-select-none', false]]) {
   get(button).addEventListener('click', () => {
-    for (const input of rebuildOptions.querySelectorAll('input[type="checkbox"]')) input.checked = checked;
+    for (const input of rebuildOptions.querySelectorAll('input[type="checkbox"]')) {
+      if (input.checked === checked) continue;
+      input.checked = checked;
+      renderSeriesMeta(input.value);
+    }
     refreshRebuildPicks();
   });
 }
