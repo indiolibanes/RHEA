@@ -27,6 +27,10 @@ export function intakeLetterBatches(groups) {
     .map(({ letter, series, files }) => ({ letter, series: series.size, files }));
 }
 
+const season = group => group.season ?? 1;
+// Alphabetical by title, then by season: a later season of a work already in the letter goes right after it.
+const compareWork = (a, b) => collator.compare(a.title, b.title) || season(a) - season(b);
+
 export function planLetterRebuild({ letter, currentPosts, intakeGroup, intakeTitle, intakeWorks, reference, complete }) {
   const existing = groupTopicDocuments(currentPosts, reference);
   const current = existing.groups.map(group => ({ ...group, origin: 'current' }));
@@ -42,14 +46,15 @@ export function planLetterRebuild({ letter, currentPosts, intakeGroup, intakeTit
   const incoming = (intakeWorks ?? [{ ...intakeGroup, title: intakeTitle, detectedTitle: intakeGroup.title }])
     .filter(group => letterFor(group.title) === letter)
     .map(group => ({ ...group, origin: 'intake', posts: sortAnimeEpisodes(group.posts) }));
-  const titles = new Set(incoming.flatMap(group => [key(group.title), key(group.detectedTitle ?? group.title)]));
-  const titleMatches = current.some(group => titles.has(key(group.title)));
+  // Only the same work and the same season is a duplicate; another season of a known title is ordered after it.
+  const duplicates = incoming.filter(work => current.some(group => season(group) === season(work) &&
+    [key(work.title), key(work.detectedTitle ?? work.title)].includes(key(group.title)))).map(work => work.title);
   const groups = [...current.map(group => ({ ...group, posts: sortAnimeEpisodes(group.posts) })), ...incoming]
-    .sort((a, b) => collator.compare(a.title, b.title) || (a.season ?? Infinity) - (b.season ?? Infinity) ||
-      startId(a) - startId(b));
+    .sort((a, b) => compareWork(a, b) || startId(a) - startId(b));
   const checks = {
     incomplete: !complete,
-    sameTitle: titleMatches,
+    sameTitle: duplicates.length > 0,
+    duplicates,
     outOfLetter: groups.some(group => letterFor(group.title) !== letter),
     ambiguousGroups: groups.filter(group => group.duplicate || group.missingEpisode || group.albumReview).length,
     protectedGroups: groups.filter(group => group.posts.some(post => post.protected)).length,
@@ -67,7 +72,7 @@ function bestIndex(anchors, work) {
   for (let index = 0; index <= anchors.length; index++) {
     let cost = 0;
     for (let j = 0; j < anchors.length; j++) {
-      const order = collator.compare(anchors[j].title, work.title);
+      const order = compareWork(anchors[j], work);
       if ((j < index && order > 0) || (j >= index && order < 0)) cost++;
     }
     if (cost < best.cost) best = { index, cost };
@@ -75,42 +80,43 @@ function bestIndex(anchors, work) {
   return best;
 }
 
-// States: "ready" (safe to prepare), "suggest" (a position exists but the operator must confirm it, with the
-// reasons), "review" (no position can be proposed). The reasons are fixed codes the interface explains.
+// The position always follows the alphabetical order, for one work or for many, without asking. States:
+// "ready" (positions computed; "reasons" are notes the interface explains, never a confirmation step) and
+// "review" (no safe position: nothing selected, a partial read, or a work that is already in the letter).
 function automaticInsertions(posts, current, incoming, checks) {
   const old = [...posts].sort((a, b) => a.id - b.id);
+  const indexOf = new Map(old.map((post, index) => [post.id, index]));
   const anchors = [...current].sort((a, b) => startId(a) - startId(b));
   if (!incoming.length) return { state: 'review', reasons: ['no_selection'] };
   if (checks.incomplete) return { state: 'review', reasons: ['incomplete'] };
-  if (checks.sameTitle) return { state: 'review', reasons: ['same_title'] };
-  if (checks.outOfLetter) return { state: 'review', reasons: ['out_of_letter'] };
+  if (checks.sameTitle) return { state: 'review', reasons: ['same_title'], duplicates: checks.duplicates };
   const reasons = new Set();
+  if (checks.outOfLetter) reasons.add('out_of_letter');
   let last = 0;
-  let disorder = 0;
   for (let index = 0; index < anchors.length; index++) {
     const group = anchors[index];
-    if (index && collator.compare(anchors[index - 1].title, group.title) > 0) disorder++;
+    if (index && compareWork(anchors[index - 1], group) > 0) reasons.add('disorder');
     if (index && last >= startId(group)) reasons.add('overlap');
     last = Math.max(last, endId(group));
   }
-  if (disorder) reasons.add('disorder');
   const covered = new Set(current.flatMap(group => [...group.posts.map(post => post.id),
     ...(group.header?.trusted ? [group.header.id] : [])]));
   const slots = new Map();
   let uncovered = 0;
-  for (const work of [...incoming].sort((a, b) => collator.compare(a.title, b.title) ||
-    (a.season ?? Infinity) - (b.season ?? Infinity) || a.posts[0].id - b.posts[0].id)) {
+  for (const work of [...incoming].sort((a, b) => compareWork(a, b) || a.posts[0].id - b.posts[0].id)) {
     const { index: following, cost } = bestIndex(anchors, work);
     if (cost) reasons.add('disorder');
     const previous = anchors[following - 1];
     const next = anchors[following];
-    const beforeId = next ? startId(next) : null;
+    let beforeId = next ? startId(next) : null;
     const previousEnd = previous ? endId(previous) : 0;
-    const nextPosition = next ? old.findIndex(post => post.id === beforeId) : old.length;
-    const anchor = old[nextPosition];
-    if (previous && collator.compare(previous.title, work.title) === 0) return { state: 'review', reasons: ['same_title'] };
-    if (anchor?.albumId != null && old[nextPosition - 1]?.albumId === anchor.albumId) {
-      return { state: 'review', reasons: ['album'] };
+    let nextPosition = beforeId === null ? old.length : indexOf.get(beforeId);
+    // Never split an album: the work goes right before the album that holds the next block.
+    const album = old[nextPosition]?.albumId;
+    if (album != null && old[nextPosition - 1]?.albumId === album) {
+      while (old[nextPosition - 1]?.albumId === album) nextPosition--;
+      beforeId = old[nextPosition].id;
+      reasons.add('album');
     }
     if (next && next.header && !next.header.trusted) reasons.add('untrusted_header');
     if (previousEnd >= (beforeId ?? Infinity)) reasons.add('overlap');
@@ -127,7 +133,8 @@ function automaticInsertions(posts, current, incoming, checks) {
     slot.works.push(work.title);
     slot.ids.push(...work.posts.map(post => post.id));
   }
-  return { state: reasons.size ? 'suggest' : 'ready', reasons: [...reasons], uncovered, slots: [...slots.values()] };
+  const at = slot => slot.beforeId === null ? old.length : indexOf.get(slot.beforeId);
+  return { state: 'ready', reasons: [...reasons], uncovered, slots: [...slots.values()].sort((a, b) => at(a) - at(b)) };
 }
 
 export function letterInsertionOptions(posts, groups) {

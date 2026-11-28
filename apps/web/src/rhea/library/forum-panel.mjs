@@ -1,5 +1,6 @@
 import { filenameReference, forumDocumentTotals } from './forum-names.mjs';
 import { formatSize } from './sizes.mjs';
+import { formatWait, sharedTelegramPause } from './telegram-wait.mjs';
 
 const root = document.querySelector('[data-rhea-telegram-library]');
 const get = id => root.querySelector('#forum-' + id);
@@ -30,6 +31,7 @@ const privateLink = (channel, topic, message) => 'https://t.me/c/' + channel + '
   (topic === 1 ? '' : topic + '/') + message;
 
 let active;
+let lastFailure;
 let cursor = null;
 let reference;
 let channelId;
@@ -64,6 +66,13 @@ function refreshButtons() {
 
 async function read(operation, input) {
   if (active) return null;
+  lastFailure = undefined;
+  // The Telegram pause is shared with the letter review: no read is sent before the deadline.
+  if (sharedTelegramPause.remaining()) {
+    lastFailure = { state: 'rate_limited', retryAfter: sharedTelegramPause.remaining() };
+    status.textContent = 'O Telegram pediu uma pausa. Aguarde ' + formatWait(sharedTelegramPause.remaining()) + '.';
+    return null;
+  }
   const request = new AbortController();
   active = request;
   refreshButtons();
@@ -75,11 +84,16 @@ async function read(operation, input) {
     const result = await response.json();
     if (request.signal.aborted) return null;
     if (!response.ok) {
-      status.textContent = errors[result.state] ?? 'Não foi possível ler o inventário.';
+      lastFailure = { state: result.state ?? 'unavailable' };
+      if (result.state === 'rate_limited') lastFailure = sharedTelegramPause.record(result);
+      status.textContent = result.state === 'rate_limited' && lastFailure.retryAfter ?
+        'O Telegram pediu uma pausa. Aguarde ' + formatWait(lastFailure.retryAfter) + '.' :
+        errors[result.state] ?? 'Não foi possível ler o inventário.';
       return null;
     }
     return result.forum;
   } catch {
+    lastFailure = { state: 'unavailable' };
     if (!request.signal.aborted) status.textContent = 'Não foi possível ler o inventário.';
     return null;
   } finally {
@@ -121,14 +135,15 @@ async function readTopics(next) {
 
 async function readPosts() {
   const topicId = Number(topicSelect.value);
-  if (!topics.has(topicId)) return;
+  if (!topics.has(topicId)) return false;
   const selected = current() ?? { next: null, posts: new Map() };
   const data = await read('forumpage', { topicId, cursor: selected.next });
-  if (!data) return;
+  if (!data) return false;
   if (data.channelId !== channelId || data.topicId !== topicId) {
     reset();
     status.textContent = 'O supergrupo mudou. Carregue os tópicos novamente.';
-    return;
+    lastFailure = { state: 'changed' };
+    return false;
   }
   for (const post of data.posts) selected.posts.set(post.id, post);
   selected.next = data.next;
@@ -137,6 +152,16 @@ async function readPosts() {
   describeTopic(selected);
   refreshButtons();
   render();
+  return true;
+}
+
+// Reads the next earlier page of the topic open in the inventory, for the letter review. The result names the
+// state so the caller can wait for the Telegram deadline and continue from the same cursor.
+export async function readSourcePage(topicId, channel) {
+  if (Number(topicSelect.value) !== topicId || channel !== channelId) return { state: 'changed' };
+  if (current()?.next === null) return { state: 'ok' };
+  if (active) return { state: 'busy' };
+  return await readPosts() ? { state: 'ok' } : lastFailure ?? { state: 'unavailable' };
 }
 
 function describeTopic(selected) {
@@ -242,7 +267,7 @@ function reset() {
 
 get('load').addEventListener('click', () => readTopics(null));
 get('more-topics').addEventListener('click', () => readTopics(cursor));
-get('more-posts').addEventListener('click', readPosts);
+get('more-posts').addEventListener('click', () => void readPosts());
 get('more-results').addEventListener('click', () => { visible += 80; render(); });
 topicSelect.addEventListener('change', () => {
   notifyInventoryChanged();
