@@ -50,6 +50,47 @@ test('uses an exact Markdown name or explicit block header without inventing epi
   assert.equal(groups[1].posts[0].episode, undefined);
 });
 
+test('reads bare reference filenames, repairs known fansub prefixes and preserves separate K-On editions', () => {
+  const reference = filenameReference(`# Animes
+## K-On
+### 2nd Season
+#### Fixture release
+[EA-Seitokai]K-On!!_-_27_Final_[1920x1080][BDRIP][h264][B4A48572]
+### Movie
+[Levantine Fansub] K-ON! Movie [BD] [AB2F6387]
+## Kuzu no Honkai
+[Infinite Fansub] Kuzu no Honkai - 01 [BD] [2C231160]
+[See reference](https://example.com/files.mkv)
+`);
+  const kuzu = 'Infinite Fansub Kuzu no Honkai - 01 [BD] [2C231160].mkv';
+  const { groups, unassigned } = groupTopicDocuments([
+    document(1, 'Infinite Fansub Koi wa Ameagari no You ni - 01 [BD].mkv'),
+    document(2, kuzu),
+    document(3, '[EA-Seitokai]K-On!!_-_27_Final_[1920x1080][BDRIP][h264][B4A48572].mkv'),
+    document(4, '[Levantine Fansub] K-ON! Movie [BD] [AB2F6387].mkv'),
+    document(5, '[Other] K-ON! - 02 [BD].mkv'),
+    document(6, '[Fixture] Kono Show - 01.mkv'),
+  ], reference);
+  assert.equal(reference.count, 3);
+  assert.equal(unassigned, 0);
+  assert.deepEqual(groups.map(group => [group.title, group.season, group.posts[0].episode]), [
+    ['Koi wa Ameagari no You ni', undefined, 1], ['K-ON!', undefined, 2], ['K-On!!', 2, 27],
+    ['K-ON! Movie', undefined, undefined], ['Kono Show', undefined, 1], ['Kuzu no Honkai', undefined, 1],
+  ]);
+  assert.equal(groups.at(-1).posts[0].filename, kuzu);
+  assert.equal(groups.at(-1).posts[0].referenceName, '[Infinite Fansub] Kuzu no Honkai - 01 [BD] [2C231160].mkv');
+  assert.equal(reference.match(kuzu.replace('Infinite Fansub', 'Infinite_Fansub')).reason, 'exact');
+  assert.equal(reference.match('Different title [2C231160].mkv').reason, 'tag');
+});
+
+test('recognizes a known prefix with no Markdown and a declared prefix only when loaded', () => {
+  const other = document(2, 'Another Team Kono Show - 01 [BD].mkv');
+  const reference = filenameReference('## Kono Show\n[Another Team] Kono Show - 01 [BD]');
+  assert.equal(groupTopicDocuments([other]).groups[0].title, 'Another Team Kono Show');
+  assert.equal(groupTopicDocuments([other], reference).groups[0].title, 'Kono Show');
+  assert.equal(groupTopicDocuments([document(3, 'Infinite Fansub Koi Title - 12.mkv')]).groups[0].title, 'Koi Title');
+});
+
 test('excludes the fansub prefix and accepts Portuguese season markers without changing filenames', () => {
   const portuguese = '[Zeta Sub][WEB] nome_anime t04e03 [767AB765C].mkv';
   const { groups, unassigned } = groupTopicDocuments([

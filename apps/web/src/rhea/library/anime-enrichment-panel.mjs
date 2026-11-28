@@ -175,7 +175,11 @@ const currentProvider = () => animeProviderPreference();
 const searchLabel = () => 'Buscar no ' + animeProviders[currentProvider()];
 
 const node = (tag, text) => Object.assign(document.createElement(tag), { textContent: text });
-const list = posts => posts.map(p => node('li', episodeLabel(p) + ' · ' + (p.filename || '#' + p.id)));
+const list = (posts, showReference = false) => posts.map(p => {
+  const row = node('li', episodeLabel(p) + ' · ' + (p.filename || '#' + p.id));
+  if (showReference && p.referenceName) row.append(' ', node('small', 'Nome no Markdown · ' + p.referenceName));
+  return row;
+});
 const group = () => groups.find(item => item.key === select.value);
 const rebuildOptions = get('rebuild-options');
 
@@ -340,7 +344,7 @@ function show(candidate, manual = false) {
   get('review').textContent = warnings.join(' ');
   const caption = plan.caption.find(x => x.value)?.value;
   get('caption').textContent = caption || 'Confirme a edição e a numeração para montar a legenda.';
-  get('sorted').replaceChildren(...list(plan.sorted));
+  get('sorted').replaceChildren(...list(plan.sorted, true));
   const links = [];
   if (candidate.url) links.push(providerLink(candidate.provider === 'mal' ? 'Ver no MyAnimeList' : 'Ver no AniList', candidate.url));
   if (candidate.cover) links.push(providerLink('Abrir capa sugerida', candidate.cover));
@@ -1200,7 +1204,7 @@ function renderRebuildPlan({ posts, complete }) {
     const row = document.createElement('li');
     const details = document.createElement('details');
     const episodes = document.createElement('ol');
-    episodes.append(...list(item.posts));
+    episodes.append(...list(item.posts, true));
     const entry = item.origin === 'intake' ? seriesMetadata.get(seriesId(item)) : undefined;
     details.append(node('summary', [
       item.title, item.season === undefined ? '' : 'Temporada ' + item.season,
@@ -1516,8 +1520,6 @@ get('fetch-link').addEventListener('click', () => {
     get('manual-status').textContent = 'Aguarde o limite temporário do AniList. O preenchimento manual já está disponível.';
     return;
   }
-  // An AniList link is an explicit choice of AniList: the single preference follows it.
-  saveAnimeProvider('anilist');
   get('manual-status').textContent = '';
   void runLookup('anilist', 'https://anilist.co/anime/' + id);
 });

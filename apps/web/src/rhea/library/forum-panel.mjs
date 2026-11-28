@@ -281,22 +281,27 @@ topicSelect.addEventListener('change', () => {
 get('query').addEventListener('input', () => { visible = 80; render(); });
 get('reference').addEventListener('change', async event => {
   const file = event.target.files[0];
-  reference = undefined;
-  notifyInventoryChanged();
-  if (!file) { get('reference-status').textContent = ''; render(); return; }
+  if (!file) return;
+  const notice = message => get('reference-status').textContent = message +
+    (reference ? ' A referência anterior continua em uso.' : '');
   if (file.size > 2 * 1024 * 1024) {
-    get('reference-status').textContent = 'O Markdown pode ter até 2 MiB.';
-    render();
+    notice('O Markdown pode ter até 2 MiB.');
     return;
   }
   try {
     const text = await file.text();
     if (event.target.files[0] !== file) return;
-    reference = filenameReference(text);
+    const next = filenameReference(text);
+    if (!next.count) {
+      notice('Nenhum nome de arquivo foi reconhecido no Markdown.');
+      return;
+    }
+    reference = next;
     notifyInventoryChanged();
-    get('reference-status').textContent = reference.count + ' nomes de referência carregados neste navegador.';
+    get('reference-status').textContent = reference.count +
+      (reference.count === 1 ? ' nome de referência carregado' : ' nomes de referência carregados') + ' neste navegador.';
   } catch {
-    get('reference-status').textContent = 'Não foi possível ler o Markdown.';
+    if (event.target.files[0] === file) notice('Não foi possível ler o Markdown.');
   }
   render();
 });

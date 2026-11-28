@@ -30,11 +30,11 @@ test('groups a film named with its year and no episode number', () => {
 
 function letterK(extra = []) {
   return [
-    doc(100, '[Fixture] K-ON!! - 01 [BD].mkv'), doc(101, '[Fixture] K-ON!! - 02 [BD].mkv'),
     doc(110, '#AnimeNSK_Kanata_no_Astra_11_BD_1920x1080_HEVC_10Bit_AAAAAAAA.mkv'),
     doc(111, '#AnimeNSK_Kanata_no_Astra_12_Final_BD_1920x1080_HEVC_10Bit_6C697CD8.mkv'),
     ...extra,
     note(120, 'Kaze no Tani no Nausicaä'), doc(121, 'Kaze no Tani no Nausicaä (1984) [1080p].mkv'),
+    doc(125, '[Fixture] K-ON!! - 01 [BD].mkv'), doc(126, '[Fixture] K-ON!! - 02 [BD].mkv'),
   ];
 }
 
@@ -48,11 +48,11 @@ test('places a work between its alphabetical neighbours without asking', () => {
 });
 
 test('puts a work at the end or at the start of the letter', () => {
-  const end = planLetterRebuild({ letter: 'K', currentPosts: letterK(), complete: true, intakeWorks: intake('Kimi no Na wa', [301]) });
+  const end = planLetterRebuild({ letter: 'K', currentPosts: letterK(), complete: true, intakeWorks: intake('Kuzu no Honkai', [301]) });
   assert.equal(end.insertion.state, 'ready');
   assert.equal(end.insertion.slots[0].beforeId, null);
   const start = planLetterRebuild({ letter: 'K', currentPosts: letterK(), complete: true, intakeWorks: intake('K-1 Grand Prix', [301]) });
-  assert.equal(start.insertion.slots[0].beforeId, 100);
+  assert.equal(start.insertion.slots[0].beforeId, 110);
 });
 
 test('places the work automatically and explains unidentified files between the neighbours', () => {
@@ -111,5 +111,5 @@ test('orders several works from Requests into their own slots', () => {
   const plan = planLetterRebuild({ letter: 'K', currentPosts: letterK(), complete: true, intakeWorks: works });
   assert.equal(plan.insertion.state, 'ready');
   assert.deepEqual(plan.insertion.slots.map(slot => [slot.beforeId, slot.works]),
-    [[120, ['Kaze ga Tsuyoku Fuiteiru']], [null, ['Kimi no Na wa']]]);
+    [[120, ['Kaze ga Tsuyoku Fuiteiru']], [125, ['Kimi no Na wa']]]);
 });

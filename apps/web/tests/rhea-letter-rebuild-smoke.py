@@ -245,6 +245,8 @@ def scenario_letter_k(playwright, viewport, mobile, label):
     })
     browser, page, errors = launch(playwright, viewport, mobile)
     start = open_requests(page)
+    expect(page.locator('#enrich-rebuild-provider')).to_have_value('mal')
+    page.locator('#enrich-provider').select_option('anilist')
     page.get_by_role('button', name='Revisar letra K').click()
     expect(page.locator('#enrich-rebuild')).to_be_visible()
     expect(page.locator('#enrich-current-inventory')).to_have_text('A leitura de Letter K está em pausa.')
@@ -429,23 +431,29 @@ def scenario_backup_closed(playwright):
 
 
 def scenario_metadata_queue(playwright):
-    kanade = ('anilist', 'Kanade Sky')
-    kotone = ('anilist', 'Kotone Field')
-    fresh_state(lookup_hold={kanade}, lookup_waits={kotone: 7})
+    kanade = ('mal', 'Kanade Sky')
+    kotone = ('mal', 'Kotone Field')
+    fresh_state(lookup_hold={kanade}, lookup_waits={kotone: 7}, mal_binding=True)
     browser, page, errors = launch(playwright)
     open_requests(page)
+    upload = page.locator('#forum-reference')
+    reference = requests[0]['filename'].removesuffix('.mkv')
+    upload.set_input_files({'name': 'corrections.md', 'mimeType': 'text/markdown',
+                            'buffer': ('## Kanade Sky\n' + reference).encode()})
+    expect(page.locator('#forum-reference-status')).to_contain_text('1 nome de referência carregado')
+    upload.set_input_files({'name': 'invalid.md', 'mimeType': 'text/markdown', 'buffer': b'# Empty'})
+    expect(page.locator('#forum-reference-status')).to_contain_text('A referência anterior continua em uso.')
     page.get_by_role('button', name='Revisar letra K').click()
     expect(page.locator('#enrich-rebuild-requests')).to_contain_text('Requests lido por completo')
     expect(page.locator('#enrich-backup-status')).to_contain_text('Backup encontrado')
-    expect(page.locator('#enrich-rebuild-options')).to_contain_text('Consultando AniList')
+    expect(page.locator('#enrich-rebuild-options')).to_contain_text('Consultando MyAnimeList')
     page.locator('#enrich-publish-review').click()
     dialog = page.locator('#enrich-publish-dialog')
     expect(dialog).to_be_visible()
     route, key = held.pop()
     assert key == kanade
-    candidate = {**mal_kanade, 'provider': 'anilist', 'url': 'https://anilist.co/anime/501'}
-    route.fulfill(json={'state': 'candidates', 'candidates': [candidate]})
-    expect(page.locator('#enrich-rebuild-options')).to_contain_text('Ficha do AniList')
+    route.fulfill(json={'state': 'candidates', 'candidates': [mal_kanade]})
+    expect(page.locator('#enrich-rebuild-options')).to_contain_text('Ficha do MyAnimeList')
     expect(page.locator('#enrich-rebuild-lookup')).to_contain_text('retomada automaticamente')
     assert [item['title'] for item in lookups] == ['Kanade Sky', 'Kotone Field'], lookups
     rpc_count = len(calls)

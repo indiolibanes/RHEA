@@ -1,7 +1,6 @@
 import { alphabeticDestination, groupTopicDocuments, sortAnimeEpisodes } from './anime-enrichment.mjs';
-import { letterFor, titleKey } from './catalog.mjs';
+import { compareTitleOrder, letterFor, titleKey } from './catalog.mjs';
 
-const collator = new Intl.Collator('pt-BR', { numeric: true, sensitivity: 'base' });
 const key = title => titleKey(title, { foldDiacritics: false });
 const startId = group => group.header?.id ?? Math.min(...group.posts.map(post => post.id));
 const endId = group => Math.max(startId(group), ...group.posts.map(post => post.id));
@@ -29,7 +28,7 @@ export function intakeLetterBatches(groups) {
 
 const season = group => group.season ?? 1;
 // Alphabetical by title, then by season: a later season of a work already in the letter goes right after it.
-const compareWork = (a, b) => collator.compare(a.title, b.title) || season(a) - season(b);
+const compareWork = (a, b) => compareTitleOrder(a.title, b.title) || season(a) - season(b);
 
 export function planLetterRebuild({ letter, currentPosts, intakeGroup, intakeTitle, intakeWorks, reference, complete }) {
   const existing = groupTopicDocuments(currentPosts, reference);
