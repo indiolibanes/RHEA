@@ -116,11 +116,18 @@ header. An upstream refusal remains visible and the confirmed-title workflow sta
 
 ## Alternate metadata and read-only letter reconstruction
 
-Use **Fonte da consulta → MyAnimeList** to select the official MAL catalog. Set the
+MyAnimeList is the default metadata provider. Explicit choices on the device still apply.
+An AniList link can look up one entry while keeping the preferred provider. Set the
 `RHEA_MAL_CLIENT_ID` runtime binding in the protected Cloudflare Pages environment. The route
 sends the registered application's Client ID only to the official MAL API and requests a bounded
 set of public metadata. The Telegram adapter and Railway environment need no MAL settings.
 See [MyAnimeList application settings](https://myanimelist.net/apiconfig).
+
+In **Arquivos por tópico → Lista de nomes no Markdown**, open the latest correction file.
+The reader accepts work headings and bare release filenames as well as the older Markdown
+list format. The forum inventory and letter preview use the same reference. Exact matches can
+supply a work name or season. A match by CRC alone remains a suggestion for review.
+The Markdown stays in the browser and an unsuccessful import keeps the previous reference.
 
 When the providers are unavailable, open the public AniList entry and choose **Preencher metadados**
 in RHEA. The operator can enter the year, format, episode count, minutes per episode, studio, and

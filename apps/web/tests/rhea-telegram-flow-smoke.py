@@ -245,6 +245,8 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
     expect(steps.locator('[aria-current="step"]')).to_contain_text('Consultar metadados')
 
     # Timeout: clear message, retry label, manual continuation stays available, selection survives.
+    expect(page.locator('#enrich-provider')).to_have_value('mal')
+    page.locator('#enrich-provider').select_option('anilist')
     state['lookup'] = [(504, {'state': 'provider_timeout'}), (200, {'state': 'candidates', 'candidates': [candidate]})]
     page.locator('#enrich-search').click()
     expect(page.locator('#enrich-status')).to_contain_text('demorou demais')
@@ -334,6 +336,7 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         expect(page.locator('#enrich-status')).to_contain_text('O AniList recusou')
         expect(page.locator('#enrich-provider-search')).to_have_attribute('href', 'https://anilist.co/anime/98202')
         assert lookups[-1] == {'aniListId': 98202}
+        expect(page.locator('#enrich-provider')).to_have_value('mal')
         state['lookup'] = [(200, {'state': 'candidates', 'candidates': [candidate]})]
         page.get_by_role('button', name='Buscar pelo link').click()
         expect(page.locator('#enrich-candidates button')).to_be_visible()
@@ -471,7 +474,7 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         expect(page.locator('#enrich-publish-files > li')).to_have_count(7)
         expect(page.locator('#enrich-publish-files')).not_to_contain_text('#42')
         assert calls.count('forumpage') == reads
-        assert lookups[previous_count:] == [{'title': 'Tada-kun'}, {'title': 'Tsuki ga Kirei'}]
+        assert lookups[previous_count:] == [{'title': 'Tada-kun', 'provider': 'mal'}, {'title': 'Tsuki ga Kirei', 'provider': 'mal'}]
         page.get_by_role('dialog').get_by_role('button', name='Voltar').click()
         state['extra_intake'] = False
         state['replacement'] = False
@@ -489,7 +492,7 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         expect(page.locator('#enrich-rebuild-items')).to_contain_text('Kumo Station')
         expect(page.locator('#enrich-rebuild-items summary').first).to_contain_text('Kestrel Circuit')
         expect(page.locator('#enrich-rebuild-items summary').last).to_contain_text('Kumo Station')
-        expect(page.locator('#enrich-rebuild-lookup')).to_contain_text('O AniList recusou')
+        expect(page.locator('#enrich-rebuild-lookup')).to_contain_text('O MyAnimeList recusou')
         expect(page.locator('#enrich-rebuild-status')).to_contain_text('crie um tópico [NEW]')
         expect(page.locator('#enrich-publish')).to_be_hidden()
         state['k_round'] = False

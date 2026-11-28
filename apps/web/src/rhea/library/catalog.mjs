@@ -18,8 +18,16 @@ export function titleKey(title, { foldCase = true, foldDiacritics = true, ignore
 }
 
 export function letterFor(title) {
-  const letter = titleKey(title).charAt(0).toUpperCase();
+  const letter = titleSortKey(title).charAt(0).toUpperCase();
   return /^[A-Z]$/.test(letter) ? letter : '#';
+}
+
+export function titleSortKey(title, options) {
+  return titleKey(title, options).replace(/[\p{P}\p{S}]/gu, '').trim().replace(/\s+/gu, ' ');
+}
+
+export function compareTitleOrder(a, b) {
+  return compareText(titleSortKey(a), titleSortKey(b));
 }
 
 export function parseEpisodeLabel(label) {
@@ -129,7 +137,8 @@ export function buildCatalog({ series, messages, overrides = {}, options = {} })
   }
   const entries = series.filter(item => grouped.get(item.id).length).map(item => ({
     ...item, key: titleKey(item.sortTitle || item.title, options), units: grouped.get(item.id).sort((a, b) => byEpisode(a.sortRecord, b.sortRecord)),
-  })).sort((a, b) => compareText(a.key, b.key) || compareText(a.id, b.id));
+  })).sort((a, b) => compareText(titleSortKey(a.sortTitle || a.title, options), titleSortKey(b.sortTitle || b.title, options)) ||
+    compareText(a.id, b.id));
   for (const entry of entries) {
     const rows = entry.units.flatMap(unit => unit.items);
     if (rows.some((row, index) => index > 0 && compareEpisodeSlot(rows[index - 1], row) > 0)) {

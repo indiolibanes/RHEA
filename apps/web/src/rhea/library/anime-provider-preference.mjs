@@ -16,15 +16,16 @@ function stored() {
 }
 
 export function animeProviderPreference() {
-  current ??= stored() ?? 'anilist';
+  current ??= stored() ?? 'mal';
   return current;
 }
 
 export function saveAnimeProvider(value) {
-  if (!Object.hasOwn(animeProviders, value) || value === animeProviderPreference()) return;
+  if (!Object.hasOwn(animeProviders, value)) return;
+  const changed = value !== animeProviderPreference();
   current = value;
   try { globalThis.localStorage?.setItem(key, value); } catch { /* Private browsing: keep it for this page. */ }
-  for (const listener of listeners) listener(value);
+  if (changed) for (const listener of listeners) listener(value);
 }
 
 export function onAnimeProviderChange(listener) {
