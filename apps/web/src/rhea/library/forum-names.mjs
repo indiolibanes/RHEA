@@ -5,6 +5,7 @@ const bracketedPrefix = /^\[([^\[\]]+)\][ ._-]*/u;
 const knownFansub = /^(Infinite[ ._]+Fansub)[ ._-]+(?=\S)/iu;
 const fileLine = /^(?:\[[^\[\]]+\]|#[^_\s]+_).*\[[^\[\]]+\]$/u;
 const prefixKey = value => value.toLowerCase().replace(/[ ._]+/gu, ' ');
+const seasonHeading = /^(?:(\d{1,3})(?:st|nd|rd|th|[ªº])?\s+(?:Season|Temporada)|(?:Season|Temporada)\s+(\d{1,3}))\b/iu;
 
 // Only prefixes present in the reference or known release names are stripped from unbracketed text.
 export function stripFansubPrefix(filename, reference) {
@@ -27,17 +28,18 @@ export function filenameReference(markdown) {
     if (heading) {
       const [, marks, title] = heading;
       if (marks.length === 1) parent = series = section = '';
-      if (marks.length === 2) {
+      const ordinal = seasonHeading.exec(title);
+      const seasonSection = marks.length === 2 && parent && ordinal;
+      if (marks.length === 2 && !seasonSection) {
         parent = /^[a-z]$|^(?:Letter|Letra)\s+[a-z]$/iu.test(title) ? '' : title;
         series = parent;
         section = '';
       }
       if (marks.length <= 3) season = edition = undefined;
-      if (marks.length === 3) {
+      if (marks.length === 3 || seasonSection) {
         series = parent || title;
         section = parent ? title : '';
-        const ordinal = /^(?:(\d{1,3})(?:st|nd|rd|th|[ªº])?\s+(?:Season|Temporada)|(?:Season|Temporada)\s+(\d{1,3}))\b/iu.exec(section);
-        if (ordinal) season = Number(ordinal[1] ?? ordinal[2]);
+        if (section && ordinal) season = Number(ordinal[1] ?? ordinal[2]);
         if (/\b(?:movies?|films?|filmes?|oas|ovas?|onas?|specials?|especiais?|extras?)\b/iu.test(section)) edition = section;
       }
       if (marks.length >= 4) section = title;

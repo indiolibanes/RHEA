@@ -91,6 +91,13 @@ test('recognizes a known prefix with no Markdown and a declared prefix only when
   assert.equal(groupTopicDocuments([document(3, 'Infinite Fansub Koi Title - 12.mkv')]).groups[0].title, 'Koi Title');
 });
 
+test('keeps a season heading at the same level under the last work in the reference', () => {
+  const filename = '[Fixture] Fruits Basket 2nd Season - 01 [BD].mkv';
+  const reference = filenameReference('## Fruits Basket\n### 1st Season\n## 2nd Season\n' + filename);
+  const [group] = groupTopicDocuments([document(1, filename)], reference).groups;
+  assert.deepEqual([group.title, group.season, group.posts[0].episode], ['Fruits Basket', 2, 1]);
+});
+
 test('excludes the fansub prefix and accepts Portuguese season markers without changing filenames', () => {
   const portuguese = '[Zeta Sub][WEB] nome_anime t04e03 [767AB765C].mkv';
   const { groups, unassigned } = groupTopicDocuments([
