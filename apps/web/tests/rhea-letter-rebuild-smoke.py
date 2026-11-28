@@ -93,7 +93,8 @@ state = {}
 
 def fresh_state(**changes):
     state.clear()
-    state.update({'waits': {}, 'fail': {}, 'hold': set(), 'backup_closed': False, 'lookup': {}})
+    state.update({'waits': {}, 'fail': {}, 'hold': set(), 'backup_closed': False, 'lookup': {},
+                  'lookup_waits': {}, 'lookup_hold': set()})
     state.update(changes)
     calls.clear(); lookups.clear(); held.clear()
 
@@ -117,7 +118,16 @@ def respond(route):
         if provider == 'mal' and not data.get('malClientId') and not state.get('mal_binding'):
             route.fulfill(status=503, json={'state': 'provider_unconfigured'})
             return
-        answer = state['lookup'].get((provider, data.get('title'))) or state['lookup'].get(provider)
+        key = (provider, data.get('title'))
+        if key in state['lookup_hold']:
+            state['lookup_hold'].discard(key)
+            held.append((route, key))
+            return
+        wait = state['lookup_waits'].pop(key, None)
+        if wait is not None:
+            route.fulfill(status=429, json={'state': 'rate_limited', **({'retryAfter': wait} if wait else {})})
+            return
+        answer = state['lookup'].get(key) or state['lookup'].get(provider)
         status, payload = answer if answer else (200, {'state': 'candidates', 'candidates': []})
         route.fulfill(status=status, json=payload)
         return
@@ -149,6 +159,15 @@ def respond(route):
                 {'id': 9, 'title': 'Letter T'}, {'id': 41, 'title': 'Letter T [NEW]'}]}})
     elif operation == 'forumpage':
         route.fulfill(json=page_of(data['topicId'], data.get('cursor')))
+    elif operation == 'rebuildpreview':
+        assert data['backupTopicId'] == 80, data
+        order = [post['id'] for post in letter_k]
+        for insertion in reversed(data['insertions']):
+            at = order.index(insertion['beforeId'])
+            order[at:at] = insertion['ids']
+        route.fulfill(json={'state': 'mirror_preview', 'mirror': {
+            'approval': 'fixture', 'source': 'Letter K', 'localDestination': 'Letter K [NEW]',
+            'destination': 'Letra "K"', 'posts': [{'id': id, 'label': 'Publicação'} for id in order]}})
     else:
         route.fulfill(status=404, json={'state': 'unexpected'})
 
@@ -304,6 +323,12 @@ def scenario_letter_k(playwright, viewport, mobile, label):
     expect(box).to_be_focused()
     expect(box).not_to_be_checked()
     expect(page.locator('#enrich-limit-total')).to_contain_text('229 de 480')
+    page.locator('#enrich-rebuild-adjust').click()
+    page.locator('#enrich-rebuild-anchor').select_option('end')
+    page.evaluate("() => document.querySelector('[data-rhea-telegram-library]').dispatchEvent(new Event('rhea:forum-inventory-change'))")
+    expect(page.locator('#enrich-position-badge')).to_have_text('Posição escolhida por você')
+    expect(page.locator('#enrich-rebuild-anchor')).to_have_value('end')
+    box.focus()
     page.keyboard.press('Space')
     expect(page.locator('#enrich-limit-total')).to_contain_text('243 de 480')
     expect(page.locator('#enrich-rebuild-options')).to_contain_text('confirmada por você')
@@ -403,6 +428,58 @@ def scenario_backup_closed(playwright):
     browser.close()
 
 
+def scenario_metadata_queue(playwright):
+    kanade = ('anilist', 'Kanade Sky')
+    kotone = ('anilist', 'Kotone Field')
+    fresh_state(lookup_hold={kanade}, lookup_waits={kotone: 7})
+    browser, page, errors = launch(playwright)
+    open_requests(page)
+    page.get_by_role('button', name='Revisar letra K').click()
+    expect(page.locator('#enrich-rebuild-requests')).to_contain_text('Requests lido por completo')
+    expect(page.locator('#enrich-backup-status')).to_contain_text('Backup encontrado')
+    expect(page.locator('#enrich-rebuild-options')).to_contain_text('Consultando AniList')
+    page.locator('#enrich-publish-review').click()
+    dialog = page.locator('#enrich-publish-dialog')
+    expect(dialog).to_be_visible()
+    route, key = held.pop()
+    assert key == kanade
+    candidate = {**mal_kanade, 'provider': 'anilist', 'url': 'https://anilist.co/anime/501'}
+    route.fulfill(json={'state': 'candidates', 'candidates': [candidate]})
+    expect(page.locator('#enrich-rebuild-options')).to_contain_text('Ficha do AniList')
+    expect(page.locator('#enrich-rebuild-lookup')).to_contain_text('retomada automaticamente')
+    assert [item['title'] for item in lookups] == ['Kanade Sky', 'Kotone Field'], lookups
+    rpc_count = len(calls)
+    page.clock.run_for(6_000)
+    assert len(lookups) == 2 and len(calls) == rpc_count
+    page.clock.run_for(1_000)
+    expect(page.locator('#enrich-rebuild-options')).to_contain_text('Sem ficha encontrada')
+    assert [item['title'] for item in lookups] == ['Kanade Sky', 'Kotone Field', 'Kotone Field'], lookups
+    expect(dialog).to_be_visible()
+    assert len(calls) == rpc_count
+    assert not errors, errors
+    browser.close()
+
+
+def scenario_backup_unconfigured(playwright):
+    fresh_state(fail={('forumtopics', 'backup', None): (503, 'forum_disabled')})
+    browser, page, errors = launch(playwright)
+    open_requests(page)
+    page.get_by_role('button', name='Revisar letra K').click()
+    expect(page.locator('#enrich-backup-status')).to_contain_text('precisa ser autorizado')
+    expect(page.locator('#enrich-backup-include')).to_be_checked()
+    expect(page.locator('#enrich-publish')).to_be_hidden()
+    page.locator('#enrich-backup-include').uncheck()
+    expect(page.locator('#enrich-publish-review')).to_be_visible()
+    page.locator('#enrich-backup-include').check()
+    expect(page.locator('#enrich-publish')).to_be_hidden()
+    page.locator('#enrich-backup-retry').click()
+    expect(page.locator('#enrich-backup-status')).to_contain_text('Backup encontrado')
+    expect(page.locator('#enrich-publish-review')).to_be_visible()
+    assert copies() == [], calls
+    assert not errors, errors
+    browser.close()
+
+
 def scenario_baseline(playwright):
     # The old interface: the letter notice keeps the first number until the operator taps the preview button.
     fresh_state(waits={('forumpage', 30, None): 12})
@@ -429,5 +506,7 @@ with sync_playwright() as playwright:
         scenario_letter_k(playwright, {'width': 1280, 'height': 900}, False, 'desktop')
         scenario_context(playwright)
         scenario_backup_closed(playwright)
+        scenario_metadata_queue(playwright)
+        scenario_backup_unconfigured(playwright)
 print(json.dumps(report))
 print('Letter rebuild smoke test passed.' if not baseline else 'Baseline captured.')

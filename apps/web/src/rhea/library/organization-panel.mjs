@@ -146,6 +146,9 @@ export function organizationPublication(get, endpoint) {
   }
 
   function prepare(value, rebuildIds) {
+    // A read-only refresh can render the same plan while its review or copy is in progress.
+    if (JSON.stringify(value) === JSON.stringify(selection) &&
+        JSON.stringify(rebuildIds) === JSON.stringify(reconstructionIds)) return;
     configure(value, rebuildIds);
     if (retryUntil > Date.now()) showCooldown('preview');
   }
