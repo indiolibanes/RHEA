@@ -102,13 +102,13 @@ test('uses cover titles and safe numbered formats in the same catalog and plans 
   assert.equal(planLetterRebuild({ letter: 'L', currentPosts: [], intakeWorks: incoming, complete: true }).insertion.state, 'review');
 });
 
-test('includes a cover-only work and asks for confirmation if a title at the insertion boundary is weak', () => {
+test('includes a cover-only work and explains, without asking, a weak title at the insertion boundary', () => {
   const plan = planLetterRebuild({ letter: 'T', complete: true,
     currentPosts: [{ id: 32, kind: 'cover', caption: 'Towa no Yuugure' }], intakeWorks: [
       { title: 'Tada-kun', posts: [{ id: 29, episode: 1 }] },
     ] });
   assert.deepEqual(plan.groups.map(item => item.title), ['Tada-kun', 'Towa no Yuugure']);
-  assert.equal(plan.insertion.state, 'suggest');
+  assert.equal(plan.insertion.state, 'ready');
   assert.deepEqual(plan.insertion.reasons, ['untrusted_header']);
 });
 

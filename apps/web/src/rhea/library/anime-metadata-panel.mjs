@@ -1,5 +1,6 @@
 import { animeFormats as formats, animeProviders, lookupAnime, lookupMessage,
   setSessionMalClientId, validMalClientId } from './anime-lookup.mjs';
+import { animeProviderPreference, onAnimeProviderChange, saveAnimeProvider } from './anime-provider-preference.mjs';
 
 const root = document.querySelector('[data-rhea-telegram-library]');
 const form = root.querySelector('#anime-lookup-form');
@@ -34,7 +35,10 @@ credentialForm.addEventListener('submit', event => {
   setSessionMalClientId(value);
   credentialForm.reset();
   clearCredential.hidden = false;
-  credentialStatus.textContent = 'Client ID pronto para usar enquanto a aba Telegram estiver aberta.';
+  credentialStatus.textContent = 'Client ID pronto para usar enquanto a aba Telegram estiver aberta. O MyAnimeList passou a ser a fonte dos metadados.';
+  // Choosing to configure MyAnimeList is choosing it as the source; pending lookups continue with it.
+  saveAnimeProvider('mal');
+  root.dispatchEvent(new Event('rhea:mal-client-ready'));
 });
 clearCredential.addEventListener('click', clearMalCredential);
 root.addEventListener('rhea:telegram-hide', clearMalCredential);
@@ -63,24 +67,33 @@ function show(candidate) {
   return card;
 }
 
+function useProvider(value) {
+  providerChoice.value = value;
+  submit.textContent = 'Buscar no ' + animeProviders[value];
+}
+
 function reset() {
   active?.abort();
   active = undefined;
   submit.disabled = false;
   form.reset();
-  submit.textContent = 'Buscar no AniList';
+  useProvider(animeProviderPreference());
   status.textContent = '';
   results.replaceChildren();
 }
 
-providerChoice.addEventListener('change', () => {
+function changeProvider(value) {
   active?.abort();
   active = undefined;
   submit.disabled = false;
-  submit.textContent = 'Buscar no ' + animeProviders[providerChoice.value];
+  useProvider(value);
   status.textContent = '';
   results.replaceChildren();
-});
+}
+
+providerChoice.addEventListener('change', () => saveAnimeProvider(providerChoice.value));
+onAnimeProviderChange(changeProvider);
+useProvider(animeProviderPreference());
 
 form.addEventListener('submit', async event => {
   event.preventDefault();

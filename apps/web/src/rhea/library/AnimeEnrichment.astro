@@ -1,8 +1,12 @@
 <details class="library-section" id="anime-enrichment">
   <summary><strong>Organizar com metadados</strong></summary>
   <p id="enrich-source" tabindex="-1" role="status"></p>
+  <div class="library-actions">
+    <button class="editorial-action" id="enrich-load-more" type="button" hidden>Ler páginas anteriores do tópico</button>
+  </div>
   <section id="enrich-letter-plans" hidden aria-labelledby="enrich-letter-title">
     <h3 id="enrich-letter-title" tabindex="-1">Planos por letra</h3>
+    <p class="library-note">Para letras que já têm conteúdo, revise a letra inteira aqui: a RHEA monta o tópico [NEW] com o que já existe mais as séries de Requests. A busca por obra, abaixo, serve para conferir uma série de cada vez.</p>
     <p id="enrich-letter-status" role="status"></p>
     <ul id="enrich-letter-options" class="library-letter-plans"></ul>
     <div class="library-actions">
@@ -21,6 +25,9 @@
     <label>Fonte da consulta <select id="enrich-provider"><option value="anilist">AniList</option><option value="mal">MyAnimeList</option></select></label>
     <div class="library-actions">
       <button type="submit" class="editorial-action rhea-primary" id="enrich-search">Buscar no AniList</button>
+    </div>
+    <div class="library-actions library-alternatives" role="group" aria-label="Alternativas sem busca automática">
+      <span>Sem busca automática:</span>
       <button type="button" class="editorial-action" id="enrich-manual-open" aria-expanded="false" aria-controls="enrich-manual">Usar link ou preencher metadados</button>
       <button type="button" class="editorial-action" id="enrich-use-title">Usar título sem metadados</button>
     </div>
@@ -71,7 +78,7 @@
       <div><dt>Destinos</dt><dd id="enrich-sum-destinations">Ainda não conferidos</dd></div>
     </dl>
     <p id="enrich-destination-status" role="status"></p>
-    <p class="library-note" id="enrich-pilot-note" hidden>Tópico encontrado não significa pronto: o piloto só copia para tópicos vazios nos dois grupos. Se um deles já tiver conteúdo, a cópia não começa.</p>
+    <p class="library-note" id="enrich-pilot-note" hidden>Cópia direta: só funciona quando o tópico da letra está vazio nos dois grupos. Para uma letra que já tem conteúdo, use o tópico [NEW] da reconstrução.</p>
     <ul id="enrich-destinations" hidden></ul>
     <div id="enrich-order" class="library-orders">
       <details><summary>Ordem na origem</summary><ol id="enrich-original" class="library-order"></ol></details>
@@ -81,7 +88,12 @@
   <section id="enrich-rebuild" hidden>
     <h3 id="enrich-rebuild-title" tabindex="-1">Reconstruir a letra em outro tópico</h3>
     <p id="enrich-rebuild-targets"></p>
+    <div id="enrich-rebuild-wait" class="library-wait-box" hidden>
+      <p id="enrich-rebuild-wait-status" role="status"></p>
+      <p id="enrich-rebuild-wait-timer" class="library-wait" role="timer"></p>
+    </div>
     <p id="enrich-current-inventory" role="status"></p>
+    <p id="enrich-rebuild-requests" role="status"></p>
     <fieldset id="enrich-rebuild-picks">
       <legend id="enrich-rebuild-legend">Séries para incluir</legend>
       <div class="library-actions">
@@ -91,15 +103,19 @@
       <div id="enrich-rebuild-options"></div>
     </fieldset>
     <p id="enrich-rebuild-count" role="status"></p>
+    <div class="library-form library-provider">
+      <label>Fonte dos metadados <select id="enrich-rebuild-provider"><option value="anilist">AniList</option><option value="mal">MyAnimeList</option></select></label>
+      <p id="enrich-rebuild-lookup" role="status"></p>
+      <div class="library-actions" id="enrich-rebuild-lookup-actions"></div>
+    </div>
     <fieldset id="enrich-backup" class="library-backup" hidden>
       <legend>Cópia no backup</legend>
       <label><input type="checkbox" id="enrich-backup-include" checked> <span>Copiar a letra reconstruída também para o backup</span></label>
       <p id="enrich-backup-status" role="status"></p>
       <div class="library-actions"><button id="enrich-backup-retry" class="editorial-action" type="button" hidden>Conferir o backup novamente</button></div>
     </fieldset>
-    <p id="enrich-rebuild-lookup" role="status"></p>
-    <div class="library-actions"><button id="enrich-rebuild-review" class="editorial-action rhea-primary" type="button">Montar prévia da letra</button></div>
     <p id="enrich-rebuild-status" role="status"></p>
+    <div class="library-actions"><button id="enrich-rebuild-review" class="editorial-action" type="button" hidden>Tentar leitura novamente</button></div>
     <ul class="library-chips" id="enrich-rebuild-summary" aria-label="Resumo da letra" hidden></ul>
     <dl class="library-limits" id="enrich-rebuild-limits" aria-label="Limites do piloto" hidden>
       <div><dt>Requests nesta reconstrução</dt><dd id="enrich-limit-intake"></dd></div>
@@ -107,11 +123,10 @@
     </dl>
     <section id="enrich-position" class="library-position" aria-labelledby="enrich-position-title" hidden>
       <h4 id="enrich-position-title" tabindex="-1">Posição na letra</h4>
-      <p id="enrich-position-badge" class="library-badge" role="status"></p>
+      <p id="enrich-position-badge" class="library-badge"></p>
       <ol id="enrich-rebuild-neighbors" class="library-position-map" aria-label="Ordem no ponto de inserção"></ol>
       <p id="enrich-position-reasons"></p>
       <div class="library-actions">
-        <button id="enrich-position-confirm" class="editorial-action rhea-primary" type="button" hidden>Usar esta posição</button>
         <button id="enrich-rebuild-adjust" class="editorial-action" type="button" aria-expanded="false" aria-controls="enrich-rebuild-insert" hidden>Mudar posição</button>
       </div>
       <div id="enrich-rebuild-insert" class="library-form" hidden>
@@ -121,7 +136,10 @@
         <p>Escolha a obra ou a publicação que fica logo depois da nova obra.</p>
       </div>
     </section>
-    <ol class="library-order" id="enrich-rebuild-items"></ol>
+    <details class="library-rebuild-order">
+      <summary>Ordem completa da nova letra</summary>
+      <ol class="library-order" id="enrich-rebuild-items"></ol>
+    </details>
   </section>
   <div id="enrich-publish" hidden>
     <div class="library-actions">

@@ -36,7 +36,8 @@ function candidate(entry) {
 function malCandidate(entry) {
   const node = entry?.node;
   const id = number(node?.id);
-  const titles = [node?.title, node?.alternative_titles?.en, node?.alternative_titles?.ja].map(text).filter(Boolean);
+  const synonyms = Array.isArray(node?.alternative_titles?.synonyms) ? node.alternative_titles.synonyms.slice(0, 4) : [];
+  const titles = [node?.title, node?.alternative_titles?.en, node?.alternative_titles?.ja, ...synonyms].map(text).filter(Boolean);
   if (!id || !titles.length) return null;
   const cover = node.main_picture?.large ?? node.main_picture?.medium;
   return { id, titles: [...new Set(titles)], url: 'https://myanimelist.net/anime/' + id, provider: 'mal',

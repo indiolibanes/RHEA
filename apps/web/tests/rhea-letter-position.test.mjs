@@ -55,10 +55,10 @@ test('puts a work at the end or at the start of the letter', () => {
   assert.equal(start.insertion.slots[0].beforeId, 100);
 });
 
-test('suggests, and explains, a position when unidentified files sit between the neighbours', () => {
+test('places the work automatically and explains unidentified files between the neighbours', () => {
   const plan = planLetterRebuild({ letter: 'K', currentPosts: letterK([doc(115, 'extras.zip')]), complete: true,
     intakeWorks: intake('Kaze ga Tsuyoku Fuiteiru', [301]) });
-  assert.equal(plan.insertion.state, 'suggest');
+  assert.equal(plan.insertion.state, 'ready');
   assert.deepEqual(plan.insertion.reasons, ['uncovered']);
   assert.equal(plan.insertion.uncovered, 1);
   assert.equal(plan.insertion.slots[0].beforeId, 120);
@@ -68,19 +68,42 @@ test('still proposes the least disordered position when the current letter is no
   const posts = [note(50, 'Kaze no Tani no Nausicaä'), doc(51, 'Kaze no Tani no Nausicaä (1984).mkv'),
     doc(60, '#AnimeNSK_Kanata_no_Astra_12_Final_BD_1920x1080_HEVC_10Bit_6C697CD8.mkv')];
   const plan = planLetterRebuild({ letter: 'K', currentPosts: posts, complete: true, intakeWorks: intake('Kaze ga Tsuyoku Fuiteiru', [301]) });
-  assert.equal(plan.insertion.state, 'suggest');
+  assert.equal(plan.insertion.state, 'ready');
   assert.ok(plan.insertion.reasons.includes('disorder'));
   assert.equal(plan.insertion.slots[0].beforeId, 50);
 });
 
-test('refuses to propose a position when the work already exists, the read is partial or an album would be split', () => {
+test('refuses a position only when the same season already exists or the read is partial', () => {
   const same = planLetterRebuild({ letter: 'K', currentPosts: letterK(), complete: true, intakeWorks: intake('Kanata no Astra', [301]) });
   assert.deepEqual([same.insertion.state, same.insertion.reasons], ['review', ['same_title']]);
   const partial = planLetterRebuild({ letter: 'K', currentPosts: letterK(), complete: false, intakeWorks: intake('Kimi', [301]) });
   assert.deepEqual([partial.insertion.state, partial.insertion.reasons], ['review', ['incomplete']]);
+  assert.deepEqual(same.insertion.duplicates, ['Kanata no Astra']);
+});
+
+test('moves the work before an album instead of splitting it', () => {
   const album = letterK().map(post => post.id === 111 || post.id === 120 ? { ...post, albumId: 'A1' } : post);
   const split = planLetterRebuild({ letter: 'K', currentPosts: album, complete: true, intakeWorks: intake('Kaze ga Tsuyoku Fuiteiru', [301]) });
-  assert.deepEqual([split.insertion.state, split.insertion.reasons], ['review', ['album']]);
+  assert.equal(split.insertion.state, 'ready');
+  assert.ok(split.insertion.reasons.includes('album'));
+  assert.equal(split.insertion.slots[0].beforeId, 111);
+});
+
+test('a new season of a work already in the letter goes right after it, without asking', () => {
+  const works = [{ title: 'Kanata no Astra', season: 2, posts: [{ id: 301, episode: 1 }, { id: 302, episode: 2 }] }];
+  const plan = planLetterRebuild({ letter: 'K', currentPosts: letterK(), complete: true, intakeWorks: works });
+  assert.equal(plan.insertion.state, 'ready');
+  assert.deepEqual(plan.insertion.slots.map(slot => [slot.beforeId, slot.previousTitle]), [[120, 'Kanata no Astra']]);
+});
+
+test('several works are all placed automatically, even in a letter that is not strictly alphabetical', () => {
+  const posts = [...letterK(), doc(130, '[Fixture] Kakegurui - 01.mkv')];
+  const works = [...intake('Kimi no Na wa', [301]), ...intake('Kaze ga Tsuyoku Fuiteiru', [302]), ...intake('K-1 Grand Prix', [303])];
+  const plan = planLetterRebuild({ letter: 'K', currentPosts: posts, complete: true, intakeWorks: works });
+  assert.equal(plan.insertion.state, 'ready');
+  assert.ok(plan.insertion.reasons.includes('disorder'));
+  const order = plan.insertion.slots.map(slot => slot.works).flat();
+  assert.deepEqual(order, ['K-1 Grand Prix', 'Kaze ga Tsuyoku Fuiteiru', 'Kimi no Na wa']);
 });
 
 test('orders several works from Requests into their own slots', () => {

@@ -146,9 +146,10 @@ def respond(route):
         if state['extra_intake']:
             assert operation == 'rebuildpreview'
             assert data == {'sourceTopicId': 1, 'currentTopicId': 9, 'replacementTopicId': 81, 'backupTopicId': 8, 'beforeId': None,
-                            'letter': 'T', 'ids': [39, 41, 37, 30],
-                            'insertions': [{'beforeId': 15, 'ids': [39]}, {'beforeId': 19, 'ids': [41, 37, 30]}]}
-            order = [39, 15, 16, 41, 37, 30, 19]
+                            # Files without a season marker count as the first season, so S02 follows them.
+                            'letter': 'T', 'ids': [39, 37, 30, 41],
+                            'insertions': [{'beforeId': 15, 'ids': [39]}, {'beforeId': 19, 'ids': [37, 30, 41]}]}
+            order = [39, 15, 16, 37, 30, 41, 19]
             route.fulfill(json={'state': 'mirror_preview', 'mirror': {'total': len(order), 'approval': 'a' * 43,
                 **names, 'posts': [{'id': id, 'label': 'Fixture'} for id in order]}})
             return
@@ -373,12 +374,13 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         organization_calls = sum(call.startswith('organize') for call in calls)
         page.locator('#enrich-check-destinations').click()
         expect(page.locator('#enrich-rebuild-targets')).to_contain_text('Letter T + Requests → Letter T [NEW]')
-        page.locator('#enrich-rebuild-review').click()
+        # The preview builds itself: there is no "build preview" button in the normal path.
+        expect(page.locator('#enrich-rebuild-review')).to_be_hidden()
         expect(page.locator('#enrich-rebuild-items > li')).to_have_count(3)
         expect(page.locator('#enrich-rebuild-items summary').nth(0)).to_contain_text('Tapestry')
         expect(page.locator('#enrich-rebuild-items summary').nth(1)).to_contain_text('Tsuki ga Kirei')
         expect(page.locator('#enrich-rebuild-items summary').nth(2)).to_contain_text('Tundra')
-        expect(page.locator('#enrich-rebuild-status')).to_contain_text('calculou a posição')
+        expect(page.locator('#enrich-rebuild-status')).to_contain_text('Prévia completa')
         expect(page.locator('#enrich-publish')).to_be_visible()
         assert sum(call.startswith('organize') for call in calls) == organization_calls
         expect(page.locator('#enrich-rebuild-anchor')).to_be_hidden()
@@ -454,7 +456,7 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         expect(picks.get_by_role('checkbox', name='Amber Archive', exact=False)).to_have_count(0)
         expect(page.locator('#enrich-rebuild-count')).to_have_text('2 séries · 4 arquivos')
         expect(page.locator('#enrich-rebuild-options small').first).to_contain_text('12 episódios')
-        expect(page.locator('#enrich-rebuild-options small').last).to_contain_text('Confira a edição')
+        expect(page.locator('#enrich-rebuild-options small').last).to_contain_text('escolha a edição')
         expect(page.locator('#enrich-rebuild-neighbors li').first).to_contain_text('Tada-kun → no início, antes de Tapestry')
         expect(page.locator('#enrich-rebuild-neighbors li').last).to_contain_text('Tsuki ga Kirei → depois de Tapestry, antes de Tundra')
         expect(page.locator('#enrich-publish-review')).to_be_visible()
@@ -462,7 +464,7 @@ def run(playwright, name, viewport, scheme, mobile, reduced='reduce'):
         picks.get_by_role('checkbox', name='Tada-kun', exact=False).uncheck()
         expect(page.locator('#enrich-rebuild-neighbors li')).to_have_count(3)
         page.get_by_role('button', name='Limpar seleção').click()
-        expect(page.locator('#enrich-rebuild-review')).to_be_disabled()
+        expect(page.locator('#enrich-rebuild-count')).to_have_text('Marque ao menos uma série para ver a prévia.')
         expect(page.locator('#enrich-publish')).to_be_hidden()
         page.get_by_role('button', name='Marcar todas').click()
         page.locator('#enrich-publish-review').click()
@@ -573,8 +575,9 @@ def scenario_destination_wait(playwright):
     expect(page.locator('#enrich-destination-status')).to_contain_text('reconstrução foram encontrados')
     expect(page.locator('#enrich-destinations')).to_contain_text('Tópico atual (origem)')
     # Only the backup group's topic list is read now; the titular pair still comes from the complete index.
-    assert calls.count('forumtopics') == before + 1, calls
+    # The letter reads run one at a time, so wait for the backup answer before counting.
     expect(page.locator('#enrich-backup-status')).to_contain_text('Backup encontrado')
+    assert calls.count('forumtopics') == before + 1, calls
     assert not any(call.endswith(('preview', 'approve', 'next')) for call in calls), calls
     state['replacement'] = False
     browser.close()
@@ -594,7 +597,6 @@ def scenario_backup(playwright):
     # The backup was requested but its topic does not exist: say so and do not prepare any copy.
     expect(page.locator('#enrich-backup-status')).to_contain_text('Não há tópico Letter T neste grupo')
     expect(page.locator('#enrich-backup-retry')).to_be_visible()
-    page.get_by_role('button', name='Montar prévia da letra').click()
     expect(page.locator('#enrich-rebuild-status')).to_contain_text('Backup: Não há tópico Letter T')
     expect(page.locator('#enrich-publish')).to_be_hidden()
     # A closed backup topic cannot receive posts either.
@@ -610,6 +612,7 @@ def scenario_backup(playwright):
     page.locator('#enrich-backup-include').uncheck()
     expect(page.locator('#enrich-backup-status')).to_contain_text('só o grupo titular será reconstruído')
     page.locator('#enrich-publish-review').click()
+    expect(page.locator('#enrich-publish-dialog')).to_be_visible()
     expect(page.locator('#enrich-publish-targets')).not_to_contain_text('Fixture backup')
     page.locator('#enrich-publish-dialog button', has_text='Cancelar').click() if page.locator('#enrich-publish-dialog button', has_text='Cancelar').count() else page.keyboard.press('Escape')
     page.locator('#enrich-backup-include').check()

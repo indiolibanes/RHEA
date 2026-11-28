@@ -1,11 +1,13 @@
 import { alphabeticDestination, episodeLabel, groupTopicDocuments, proposeAnimePreview, sortAnimeEpisodes } from './anime-enrichment.mjs';
 import { aniListIdFromLink, animeFormats, animeProviders, lookupAnime, lookupMessage, providerFallback, retryableLookup } from './anime-lookup.mjs';
+import { animeProviderPreference, onAnimeProviderChange, saveAnimeProvider } from './anime-provider-preference.mjs';
+import { formatWait, sharedTelegramPause as pause } from './telegram-wait.mjs';
 import { manualAnimeMetadata } from './manual-anime-metadata.mjs';
 import { intakeLetterBatches, letterInsertionOptions, letterRebuildTopics, planLetterRebuild } from './letter-rebuild.mjs';
 import { letterFor, titleKey } from './catalog.mjs';
 import { rebuildIntakeLimit, rebuildLimit } from './organization-contract.mjs';
-import { discoveredRebuildPair, telegramReadCooldown } from './destination-check.mjs';
-import { forumEnrichmentSnapshot } from './forum-panel.mjs';
+import { discoveredRebuildPair } from './destination-check.mjs';
+import { forumEnrichmentSnapshot, readSourcePage } from './forum-panel.mjs';
 import { organizationPublication } from './organization-panel.mjs';
 import { mirrorLimit } from './mirror-contract.mjs';
 import { formatSize } from './sizes.mjs';
@@ -23,53 +25,152 @@ let destinationRead;
 let letterDiscovery;
 let discoveredIndex;
 let discoveryRead;
-const telegramCooldown = telegramReadCooldown();
-let destinationWaitTimer;
 
 function telegramWait() {
-  return telegramCooldown.remaining();
+  return pause.remaining();
 }
 
+// The per-work destination check stays a manual action; its button only shows the shared Telegram deadline.
 function updateDestinationButton() {
-  const wasWaiting = destinationWaitTimer !== undefined;
-  clearTimeout(destinationWaitTimer);
-  destinationWaitTimer = undefined;
   const left = telegramWait();
   const button = get('check-destinations');
   button.disabled = Boolean(destinationRead) || left > 0;
-  button.textContent = left ? 'Conferir destinos em ' + left + ' s' : 'Conferir destinos';
-  if (left) destinationWaitTimer = setTimeout(updateDestinationButton, 1000);
-  else if (wasWaiting) {
-    for (const id of ['destination-status', 'current-inventory', 'letter-status']) {
-      const message = get(id);
+  button.textContent = left ? 'Conferir destinos em ' + formatWait(left) : 'Conferir destinos';
+  if (left && !pause.waiting('destination-button')) {
+    pause.wait('destination-button', { render: updateDestinationButton, resume() {
+      const message = get('destination-status');
       if (message.textContent.startsWith('O Telegram pediu uma pausa.')) {
-        message.textContent = 'Pausa encerrada. Confira novamente quando estiver pronto.';
+        message.textContent = 'Pausa encerrada. Confira os destinos quando estiver pronto.';
       }
-    }
+    } });
   }
 }
 
 function recordTelegramWait(data) {
-  const result = telegramCooldown.record(data);
+  const result = pause.record(data);
   updateDestinationButton();
   return result;
 }
 
 function telegramWaitMessage() {
   return 'O Telegram pediu uma pausa. ' + (telegramWait() ?
-    'Aguarde ' + telegramWait() + ' s antes de conferir novamente.' : 'Confira novamente mais tarde.');
+    'Aguarde ' + formatWait(telegramWait()) + ' antes de conferir novamente.' : 'O prazo não foi informado; confira novamente mais tarde.');
 }
+
+// A paused read shows a live countdown next to its own status, outside the live region: the pause and the
+// resumption are announced once, the seconds are not. When the wait ends the read resumes once, by itself.
+function waitTimer(status) {
+  const next = status.nextElementSibling;
+  if (next?.dataset.telegramWait !== undefined) return next;
+  const timer = Object.assign(document.createElement('p'), { className: 'library-wait', hidden: true });
+  timer.dataset.telegramWait = '';
+  timer.setAttribute('role', 'timer');
+  status.after(timer);
+  return timer;
+}
+
+function clearWait(statusId, key) {
+  pause.cancel(key);
+  const timer = get(statusId).nextElementSibling;
+  if (timer?.dataset.telegramWait !== undefined) {
+    timer.hidden = true;
+    timer.textContent = '';
+  }
+}
+
+const sentence = text => text[0].toUpperCase() + text.slice(1);
+// Live regions are only rewritten when the message changes, so a refreshed preview is not announced again.
+const say = (id, text) => { if (get(id).textContent !== text) get(id).textContent = text; };
+
+// Returns false when the Telegram gave no deadline: the caller then offers its own retry action.
+function waitAndResume(statusId, key, what, resume) {
+  const status = get(statusId);
+  const timer = waitTimer(status);
+  const scheduled = pause.wait(key, {
+    render(left) {
+      if (!left) return;
+      timer.hidden = false;
+      timer.textContent = sentence(what) + ' continua em ' + formatWait(left);
+    },
+    resume() {
+      timer.hidden = true;
+      timer.textContent = '';
+      status.textContent = 'Pausa encerrada. Retomando ' + what + '…';
+      resume();
+    },
+  });
+  status.textContent = scheduled ? 'O Telegram pediu uma pausa. ' + sentence(what) + ' continua sozinha ao fim da espera.' :
+    'O Telegram pediu uma pausa sem informar o prazo. Tente de novo em alguns minutos.';
+  return scheduled;
+}
+
+// The reads of an open letter share one Telegram deadline, so they share one countdown: a single line names
+// what is paused, and each task's own status only says that it is waiting.
+const rebuildPaused = new Map();
+const joinNames = names => names.length < 2 ? names.join('') : names.slice(0, -1).join(', ') + ' e ' + names.at(-1);
+
+function renderRebuildWait(left = pause.remaining()) {
+  const box = get('rebuild-wait');
+  if (!rebuildPaused.size || !left) {
+    box.hidden = true;
+    get('rebuild-wait-timer').textContent = '';
+    return;
+  }
+  box.hidden = false;
+  say('rebuild-wait-status', 'O Telegram pediu uma pausa. A RHEA retoma sozinha ao fim da espera: ' +
+    joinNames([...rebuildPaused.values()]) + '.');
+  get('rebuild-wait-timer').textContent = 'Retomada automática em ' + formatWait(left);
+}
+
+function pauseRebuildTask(statusId, key, name, what, resume) {
+  const status = get(statusId);
+  rebuildPaused.set(key, name);
+  const scheduled = pause.wait(key, {
+    render: renderRebuildWait,
+    resume() {
+      rebuildPaused.delete(key);
+      renderRebuildWait();
+      status.textContent = 'Retomando ' + what + '…';
+      resume();
+    },
+  });
+  if (!scheduled) {
+    rebuildPaused.delete(key);
+    status.textContent = 'O Telegram pediu uma pausa sem informar o prazo. Tente de novo em alguns minutos.';
+  } else {
+    status.textContent = sentence(what) + ' está em pausa.';
+  }
+  renderRebuildWait();
+  return scheduled;
+}
+
+function clearRebuildWait(key) {
+  pause.cancel(key);
+  rebuildPaused.delete(key);
+  renderRebuildWait();
+}
+
+// Telegram reads of the letter flow run one at a time: the same RPC is never in flight twice.
+let telegramLane = Promise.resolve();
+function inLane(task) {
+  const run = telegramLane.then(task, task);
+  telegramLane = run.catch(() => undefined);
+  return run;
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') pause.refresh();
+});
 let preview;
 let rebuildRead;
 let rebuildSelection;
 let rebuildPosts;
 let rebuildInventory;
 let rebuildLookup;
-let pendingSlots;
 const letterMetadata = new Map();
 let cooldown;
 const retryAt = new Map();
-const currentProvider = () => get('provider').value;
+const currentProvider = () => animeProviderPreference();
 const searchLabel = () => 'Buscar no ' + animeProviders[currentProvider()];
 
 const node = (tag, text) => Object.assign(document.createElement(tag), { textContent: text });
@@ -169,9 +270,10 @@ function selectGroup() {
   if (item) status.textContent = 'Confira o título da obra. A busca envia apenas esse campo à fonte que você escolher.';
 }
 
-function load(input) {
+function load(input, reuseIndex) {
   letterDiscovery?.abort();
   letterDiscovery = undefined;
+  clearWait('letter-status', 'letters');
   discoveryRead = discoveredIndex = undefined;
   source = input;
   const result = input ? groupTopicDocuments(input.posts, input.reference) : { groups: [], unassigned: 0 };
@@ -181,6 +283,13 @@ function load(input) {
   select.replaceChildren(...groups.map(item => Object.assign(node('option', item.title +
     (item.season !== undefined ? ' · Temporada ' + item.season : ' · Temporada a conferir')), { value: item.key })));
   get('form').hidden = !groups.length;
+  get('load-more').hidden = !input || input.complete;
+  describeSource(input, result);
+  selectGroup();
+  if (input) void discoverLetters(false, reuseIndex);
+}
+
+function describeSource(input, result) {
   get('source').textContent = input ? [
     input.title,
     groups.length ? groups.length + (groups.length === 1 ? ' obra ou temporada detectada' : ' obras ou temporadas detectadas')
@@ -188,8 +297,6 @@ function load(input) {
     result.unassigned ? result.unassigned + (result.unassigned === 1 ? ' arquivo sem obra' : ' arquivos sem obra') : '',
     input.complete ? '' : 'Inventário parcial',
   ].filter(Boolean).join(' · ') : 'Escolha um tópico em Arquivos por tópico e toque em Organizar arquivos deste tópico.';
-  selectGroup();
-  if (input) void discoverLetters();
 }
 
 function providerLink(text, url) {
@@ -304,7 +411,7 @@ async function checkForum(letter, scope, signal) {
   return { channelId: index.channelId, ...current, replacement };
 }
 
-async function discoverLetters(refresh = false) {
+async function discoverLetters(refresh = false, reuseIndex) {
   const intake = source;
   const batches = intakeLetterBatches(groups);
   const section = get('letter-plans');
@@ -314,21 +421,29 @@ async function discoverLetters(refresh = false) {
   section.hidden = !batches.length;
   if (!intake || !batches.length) return;
   letterDiscovery?.abort();
+  clearWait('letter-status', 'letters');
   discoveredIndex = undefined;
   const request = new AbortController();
   letterDiscovery = request;
-  options.replaceChildren();
+  const keep = reuseIndex?.topics && reuseIndex.channelId === intake.channelId;
+  if (!keep) options.replaceChildren();
   retry.disabled = true;
-  status.textContent = 'Identificando os tópicos das letras encontradas em ' + intake.title + '…';
+  if (!keep) status.textContent = 'Identificando os tópicos das letras encontradas em ' + intake.title + '…';
   try {
-    const pending = readForumTopics(undefined, request.signal, refresh ? undefined : intake);
+    // A complete index read for the same forum is reused when only the Requests pages changed.
+    const pending = keep ? Promise.resolve(reuseIndex) :
+      inLane(() => request.signal.aborted ? { state: 'unavailable' } :
+        readForumTopics(undefined, request.signal, refresh ? undefined : intake));
     discoveryRead = pending;
     const index = await pending;
     if (request.signal.aborted) return;
     if (index.topics) discoveredIndex = index;
     if (!index.topics) {
-      status.textContent = index.state === 'rate_limited' ?
-        telegramWaitMessage() : 'Não foi possível conferir os tópicos. Tente atualizar.';
+      if (index.state === 'rate_limited') {
+        waitAndResume('letter-status', 'letters', 'a leitura dos tópicos das letras', () => {
+          if (source === intake) void discoverLetters(refresh);
+        });
+      } else status.textContent = 'Não foi possível conferir os tópicos. Tente atualizar.';
       return;
     }
     const cards = batches.map(({ letter, series, files }) => {
@@ -349,6 +464,7 @@ async function discoverLetters(refresh = false) {
         startRebuild({ channelId: index.channelId, ...current, replacement }, letter);
         get('rebuild-title').focus();
       });
+      if (rebuildSelection?.letter === letter) button.setAttribute('aria-current', 'true');
       row.append(node('strong', 'Letra ' + letter + ' · ' + series + (series === 1 ? ' série' : ' séries')),
         node('span', files + (files === 1 ? ' arquivo em ' : ' arquivos em ') + intake.title),
         node('span', currentLabel), node('span', targetLabel), button);
@@ -356,7 +472,7 @@ async function discoverLetters(refresh = false) {
     });
     options.replaceChildren(...cards);
     status.textContent = (batches.length === 1 ? '1 letra detectada.' : batches.length + ' letras detectadas.') +
-      (intake.complete ? '' : ' A lista cobre as páginas lidas. Carregue o restante do tópico antes de publicar.');
+      (intake.complete ? '' : ' A lista cobre as páginas lidas de ' + intake.title + '; ao revisar uma letra, a RHEA lê o restante.');
   } catch {
     if (!request.signal.aborted) status.textContent = 'Não foi possível conferir os tópicos. Tente atualizar.';
   } finally {
@@ -380,7 +496,6 @@ function clearPosition() {
   get('rebuild-insert').hidden = true;
   get('rebuild-adjust').hidden = true;
   get('rebuild-adjust').setAttribute('aria-expanded', 'false');
-  get('position-confirm').hidden = true;
   get('position-badge').textContent = get('position-reasons').textContent = '';
   get('rebuild-neighbors').replaceChildren();
   get('rebuild-summary').hidden = get('rebuild-limits').hidden = true;
@@ -390,16 +505,18 @@ function clearPosition() {
 function clearRebuild() {
   rebuildRead?.abort();
   rebuildLookup?.abort();
-  rebuildLookup = undefined;
+  requestsRead?.abort();
+  backupRead?.abort();
+  rebuildLookup = requestsRead = undefined;
+  for (const key of ['letter-read', 'backup', 'requests']) clearRebuildWait(key);
   rebuildRead = rebuildSelection = rebuildPosts = rebuildInventory = undefined;
   get('rebuild').hidden = true;
   get('backup').hidden = true;
-  backupRead?.abort();
   clearPosition();
   rebuildOptions.replaceChildren();
-  get('current-inventory').textContent = get('rebuild-lookup').textContent = '';
-  get('rebuild-review').disabled = false;
-  get('rebuild-status').textContent = '';
+  for (const id of ['current-inventory', 'rebuild-lookup', 'rebuild-requests', 'rebuild-status']) get(id).textContent = '';
+  get('rebuild-lookup-actions').replaceChildren();
+  get('rebuild-review').hidden = true;
   get('rebuild-items').replaceChildren();
 }
 
@@ -423,13 +540,13 @@ function prepareReconstruction(slots) {
   setStep('review');
 }
 
+// Notes that explain an automatic position. None of them asks for a confirmation.
 const positionReasons = {
   no_selection: 'Marque as séries de Requests que deseja acrescentar.',
-  incomplete: 'A leitura de um dos tópicos está parcial. Leia o restante antes de posicionar.',
-  same_title: 'A obra já aparece na letra atual. Confira a edição e possíveis duplicatas.',
-  out_of_letter: 'Há títulos fora da letra escolhida.',
-  album: 'A posição calculada cairia no meio de um álbum. Escolha outra posição.',
-  disorder: 'A ordem atual da letra não está toda alfabética; a RHEA escolheu a posição de menor desvio.',
+  incomplete: 'A posição aparece quando a leitura dos dois tópicos terminar.',
+  out_of_letter: 'Há títulos de outra letra no tópico atual; eles ficam onde estão.',
+  album: 'A posição foi ajustada para não dividir um álbum.',
+  disorder: 'A ordem atual da letra não está toda alfabética; a RHEA usou a posição de menor desvio.',
   untrusted_header: 'A obra seguinte foi identificada por uma capa sem confirmação ("Series: …").',
   overlap: 'Dois blocos vizinhos se sobrepõem no histórico.',
 };
@@ -456,23 +573,26 @@ function positionRows(slots) {
     (slot.nextTitle ? ', antes de ' + slot.nextTitle : ', no fim do tópico')));
 }
 
-function showPosition(slots, mode, reasons = [], uncovered = 0) {
+function showPosition(slots, mode, reasons = [], uncovered = 0, duplicates = []) {
   get('position').hidden = false;
+  const many = (slots?.length ?? 0) > 1 || selectedWorks().length > 1;
   get('position-badge').textContent = {
-    ready: 'Posição automática · calculada pela ordem alfabética',
-    suggest: 'Posição sugerida · confirme antes de continuar',
+    ready: (many ? 'Posições automáticas' : 'Posição automática') + ' · ordem alfabética',
     manual: 'Posição escolhida por você',
-    review: 'Posição a escolher',
+    review: 'Posição a definir',
   }[mode];
   get('position-badge').dataset.mode = mode;
   get('rebuild-neighbors').replaceChildren(...(slots?.length ? positionRows(slots) : []));
+  get('rebuild-neighbors').toggleAttribute('data-many', (slots?.length ?? 0) > 1);
   const notes = reasons.map(code => code === 'uncovered' ? uncovered + (uncovered === 1 ? ' arquivo entre as obras vizinhas' :
-    ' arquivos entre as obras vizinhas') + ' não foi associado a nenhuma obra e fica antes da nova obra.' : positionReasons[code]).filter(Boolean);
+    ' arquivos entre as obras vizinhas') + ' não foi associado a nenhuma obra e fica antes da nova obra.' :
+    code === 'same_title' ? duplicates.join(', ') + (duplicates.length === 1 ? ' já está' : ' já estão') +
+      ' na letra atual, na mesma temporada. Desmarque a série ou confira a edição.' : positionReasons[code]).filter(Boolean);
   get('position-reasons').textContent = notes.join(' ');
-  get('position-confirm').hidden = mode !== 'suggest';
   const single = selectedWorks().length === 1;
+  const placeable = !reasons.some(code => ['incomplete', 'no_selection', 'same_title'].includes(code));
   get('rebuild-adjust').hidden = !single || mode === 'review';
-  get('rebuild-insert').hidden = !(single && mode === 'review');
+  get('rebuild-insert').hidden = !(single && mode === 'review' && placeable);
 }
 
 get('rebuild-anchor').addEventListener('change', event => {
@@ -489,89 +609,165 @@ get('rebuild-anchor').addEventListener('change', event => {
   prepareReconstruction([{ beforeId, ids }]);
 });
 
-get('position-confirm').addEventListener('click', () => {
-  const slots = pendingSlots;
-  if (!slots?.length || !rebuildSelection) return;
-  get('position-badge').textContent = 'Posição confirmada por você';
-  get('position-badge').dataset.mode = 'manual';
-  get('position-confirm').hidden = true;
-  prepareReconstruction(slots.map(({ beforeId, ids }) => ({ beforeId, ids })));
-});
-
-async function readCurrentLetter({ channelId, current }, signal) {
-  if (telegramWait()) throw Object.assign(new Error('Telegram requested a wait.'), { retryAfter: telegramWait() });
-  const posts = new Map();
-  let cursor = null;
-  for (let page = 0; page < 20; page++) {
+// Reads the current letter page by page. The verified pages and the cursor stay in the selection, so a read
+// paused by the Telegram continues from the last valid point instead of starting over.
+async function readCurrentLetter(selection, signal, onPage) {
+  const { channelId, current } = selection;
+  const read = selection.letterRead ??= { posts: new Map(), cursor: null, pages: 0, complete: false };
+  if (telegramWait()) return { state: 'rate_limited', retryAfter: telegramWait() };
+  while (read.pages < 20) {
     const response = await fetch(root.dataset.telegramEndpoint + '?op=forumpage', {
       method: 'POST', credentials: 'same-origin', redirect: 'manual', cache: 'no-store', signal,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topicId: current.id, cursor }),
+      body: JSON.stringify({ topicId: current.id, cursor: read.cursor }),
     });
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
+    if (data.state === 'rate_limited') return recordTelegramWait(data);
+    if (['busy', 'disconnected', 'access_required', 'not_allowed'].includes(data.state)) return { state: data.state };
     const forum = data.forum;
-    if (data.state === 'rate_limited') {
-      throw Object.assign(new Error('Telegram requested a wait.'), recordTelegramWait(data));
-    }
     if (!response.ok || data.state !== 'forum_page' || forum?.channelId !== channelId || forum.topicId !== current.id ||
-        !Array.isArray(forum.posts) || forum.posts.some(post => posts.has(post.id)) ||
-        (forum.next !== null && (!forum.next || forum.next === cursor))) throw new Error('Letter page could not be verified.');
-    for (const post of forum.posts) posts.set(post.id, post);
-    if (forum.next === null) return { posts: [...posts.values()], complete: true };
-    cursor = forum.next;
+        !Array.isArray(forum.posts) || forum.posts.some(post => read.posts.has(post.id)) ||
+        (forum.next !== null && (!forum.next || forum.next === read.cursor))) {
+      return { state: read.cursor !== null ? 'stale' : 'unverified' };
+    }
+    for (const post of forum.posts) read.posts.set(post.id, post);
+    read.pages++;
+    if (forum.next === null) {
+      read.complete = true;
+      read.cursor = null;
+      return { posts: [...read.posts.values()], complete: true };
+    }
+    read.cursor = forum.next;
+    onPage?.({ posts: [...read.posts.values()], complete: false });
   }
-  return { posts: [...posts.values()], complete: false };
+  return { posts: [...read.posts.values()], complete: false };
 }
 
-async function loadCurrentLetter() {
-  if (!rebuildSelection || rebuildRead) return;
-  const request = new AbortController();
+const letterReadErrors = {
+  busy: 'O leitor do Telegram está ocupado com outra leitura.',
+  disconnected: 'Conecte o Telegram na seção acima.',
+  access_required: 'Sua sessão expirou. Entre no Private novamente.',
+  not_allowed: 'O Private não autorizou a leitura. Confira a conta conectada.',
+};
+
+async function loadCurrentLetter({ restarted = false } = {}) {
   const selection = rebuildSelection;
-  rebuildRead = request;
-  rebuildInventory = undefined;
-  rebuildPosts = undefined;
-  publication.clear();
-  clearPosition();
-  get('rebuild-review').disabled = true;
-  get('rebuild-items').replaceChildren();
-  get('current-inventory').textContent = selection.current ? 'Lendo ' + selection.current.title + '…' :
-    'Esta letra ainda não tem tópico atual. A prévia mostra apenas a seleção de Requests.';
-  try {
-    const inventory = selection.current ? await readCurrentLetter(selection, request.signal) : { posts: [], complete: true };
-    if (request.signal.aborted) return;
-    rebuildInventory = inventory;
-    if (selection.current) get('current-inventory').textContent = selection.current.title + ' · ' + inventory.posts.length +
-      ' publicações lidas' + (inventory.complete ? '.' : ' · leitura parcial.');
-    renderRebuildPlan(inventory);
-  } catch (error) {
-    if (!request.signal.aborted) get('current-inventory').textContent = (error.retryAfter || error.state === 'rate_limited') ?
-      telegramWaitMessage() :
-      'A leitura do tópico atual falhou. Confira o acesso e tente novamente.';
-  } finally {
-    if (rebuildRead === request) {
-      rebuildRead = undefined;
-      updateRebuildCount();
-    }
+  if (!selection || rebuildRead) return;
+  clearRebuildWait('letter-read');
+  get('rebuild-review').hidden = true;
+  const feedback = get('current-inventory');
+  if (!selection.current) {
+    feedback.textContent = 'Esta letra ainda não tem tópico atual. A prévia mostra apenas a seleção de Requests.';
+    rebuildInventory = { posts: [], complete: true };
+    renderRebuildPlan(rebuildInventory);
+    return;
   }
+  const label = selection.current.title;
+  const request = new AbortController();
+  rebuildRead = request;
+  const read = selection.letterRead?.posts.size ?? 0;
+  feedback.textContent = read ? 'Continuando a leitura de ' + label + ' · ' + read + ' publicações lidas…' : 'Lendo ' + label + '…';
+  let result;
+  try {
+    result = await inLane(() => request.signal.aborted ? { state: 'aborted' } :
+      readCurrentLetter(selection, request.signal, partial => {
+        if (request.signal.aborted || rebuildSelection !== selection) return;
+        feedback.textContent = label + ' · ' + partial.posts.length + ' publicações lidas · leitura em andamento.';
+        rebuildInventory = partial;
+        renderRebuildPlan(partial);
+      }));
+  } catch {
+    result = { state: 'network' };
+  } finally {
+    if (rebuildRead === request) rebuildRead = undefined;
+  }
+  if (request.signal.aborted || rebuildSelection !== selection) return;
+  if (result.posts) {
+    rebuildInventory = { posts: result.posts, complete: result.complete };
+    feedback.textContent = label + ' · ' + result.posts.length + ' publicações lidas' + (result.complete ? '.' :
+      ' · leitura parcial: o tópico passa do limite de páginas desta revisão.');
+    renderRebuildPlan(rebuildInventory);
+    return;
+  }
+  if (result.state === 'rate_limited') {
+    if (!pauseRebuildTask('current-inventory', 'letter-read', label, 'a leitura de ' + label, () => {
+      if (rebuildSelection === selection) void loadCurrentLetter();
+    })) get('rebuild-review').hidden = false;
+    return;
+  }
+  if (result.state === 'stale' && !restarted) {
+    // The adapter no longer accepts the saved cursor: read again from the start, once.
+    selection.letterRead = undefined;
+    feedback.textContent = 'O ponto de leitura de ' + label + ' deixou de valer. Relendo o tópico desde o início…';
+    void loadCurrentLetter({ restarted: true });
+    return;
+  }
+  feedback.textContent = (letterReadErrors[result.state] ?? 'A leitura de ' + label + ' falhou.') +
+    ' Toque em Tentar leitura novamente.';
+  get('rebuild-review').hidden = false;
 }
 
 get('rebuild-review').addEventListener('click', () => {
-  if (rebuildInventory) renderRebuildPlan(rebuildInventory);
-  else void loadCurrentLetter();
+  if (rebuildSelection && !telegramWait()) void loadCurrentLetter();
 });
 
+// Requests is read to the end while a letter is under review, so the preview can become complete by itself.
+let requestsRead;
+const requestsPageLimit = 60;
+async function continueRequests() {
+  const context = rebuildSelection;
+  const status = get('rebuild-requests');
+  if (!context || !source || requestsRead || pause.waiting('requests')) return;
+  if (source.complete) {
+    status.textContent = context.requestsPages ? source.title + ' lido por completo · ' + source.posts.length + ' publicações.' : '';
+    return;
+  }
+  if (context.requestsPages >= requestsPageLimit) {
+    status.textContent = 'A RHEA leu ' + requestsPageLimit + ' páginas de ' + source.title +
+      ' nesta revisão. Use Ler páginas anteriores do tópico para continuar.';
+    get('load-more').hidden = false;
+    return;
+  }
+  const request = new AbortController();
+  requestsRead = request;
+  status.textContent = 'Lendo páginas anteriores de ' + source.title + ' · ' + source.posts.length + ' publicações lidas…';
+  let result;
+  try {
+    result = await inLane(() => request.signal.aborted ? { state: 'aborted' } : readSourcePage(source.topicId, source.channelId));
+  } catch {
+    result = { state: 'unavailable' };
+  } finally {
+    if (requestsRead === request) requestsRead = undefined;
+  }
+  if (request.signal.aborted || rebuildSelection !== context) return;
+  if (result.state === 'ok') {
+    context.requestsPages++;
+    void continueRequests();
+    return;
+  }
+  if (result.state === 'rate_limited') {
+    pause.record(result);
+    if (pauseRebuildTask('rebuild-requests', 'requests', source.title, 'a leitura de ' + source.title, () => {
+      if (rebuildSelection === context) void continueRequests();
+    })) return;
+  } else {
+    status.textContent = 'Não foi possível ler as páginas anteriores de ' + source.title + '.';
+  }
+  status.textContent += ' Use Ler páginas anteriores do tópico para tentar de novo.';
+  get('load-more').hidden = false;
+}
+
 function selectedWorks() {
-  return [...rebuildOptions.querySelectorAll('input:checked')]
+  return [...rebuildOptions.querySelectorAll('input[type="checkbox"]:checked')]
     .flatMap(input => rebuildSelection.choices.get(input.value));
 }
 
 function updateRebuildCount() {
   const works = selectedWorks();
-  const count = rebuildOptions.querySelectorAll('input:checked').length;
+  const count = rebuildOptions.querySelectorAll('input[type="checkbox"]:checked').length;
   const files = works.reduce((total, work) => total + work.posts.length, 0);
   get('rebuild-count').textContent = count ? count + (count === 1 ? ' série' : ' séries') + ' · ' +
-    files + (files === 1 ? ' arquivo' : ' arquivos') : 'Marque ao menos uma série para montar a prévia.';
-  get('rebuild-review').disabled = !count || Boolean(rebuildRead);
+    files + (files === 1 ? ' arquivo' : ' arquivos') : 'Marque ao menos uma série para ver a prévia.';
   return works;
 }
 
@@ -581,12 +777,20 @@ async function loadBackup(context) {
   backupRead?.abort();
   const request = new AbortController();
   backupRead = request;
+  clearRebuildWait('backup');
   context.backup = { state: 'checking' };
   showBackup(context);
-  const result = await checkForum(context.letter, 'backup', request.signal).catch(() => ({ state: 'unavailable' }));
+  const result = await inLane(() => request.signal.aborted ? { state: 'unavailable' } :
+    checkForum(context.letter, 'backup', request.signal)).catch(() => ({ state: 'unavailable' }));
   if (request.signal.aborted || rebuildSelection !== context) return;
   context.backup = result;
   showBackup(context);
+  if (result.state === 'rate_limited' && context.includeBackup) {
+    pauseRebuildTask('backup-status', 'backup', 'backup', 'a conferência do backup', () => {
+      if (rebuildSelection === context) void loadBackup(context);
+    });
+    showBackup(context, true);
+  }
   if (rebuildInventory) renderRebuildPlan(rebuildInventory);
 }
 
@@ -595,10 +799,11 @@ function backupBlocker(context) {
   const state = context.backup?.state;
   if (state === 'unconfigured') return '';
   if (!state || state === 'checking') return 'Conferindo o tópico Letter ' + context.letter + ' no grupo de backup…';
+  if (state === 'rate_limited' && pause.waiting('backup')) return 'A conferência do backup continua ao fim da pausa do Telegram.';
   return state === 'found' ? '' : 'Backup: ' + destinationMessage(state, context.letter) + ' Ou desmarque a cópia no backup.';
 }
 
-function showBackup(context) {
+function showBackup(context, keepStatus = false) {
   const state = context.backup?.state;
   const box = get('backup');
   const input = get('backup-include');
@@ -606,12 +811,16 @@ function showBackup(context) {
   box.hidden = false;
   input.disabled = state === 'unconfigured';
   if (state === 'unconfigured') input.checked = context.includeBackup = false;
-  status.textContent = state === 'unconfigured' ? 'O grupo de backup não está configurado no Railway. Esta reconstrução afetará só o grupo titular.' :
-    !context.includeBackup ? 'A cópia no backup foi desmarcada: só o grupo titular será reconstruído.' :
-    !state || state === 'checking' ? 'Conferindo o tópico Letter ' + context.letter + ' no grupo de backup…' :
-    state === 'found' ? 'Backup encontrado: ' + context.backup.topic.title + '. Ele será validado de novo, sem escrever, na revisão e antes de cada cópia.' :
-    destinationMessage(state, context.letter);
-  get('backup-retry').hidden = !(context.includeBackup && !['found', 'checking', 'unconfigured'].includes(state ?? 'checking'));
+  if (!keepStatus) {
+    status.textContent = state === 'unconfigured' ? 'O grupo de backup não está configurado no Railway. Esta reconstrução afetará só o grupo titular.' :
+      !context.includeBackup ? 'A cópia no backup foi desmarcada: só o grupo titular será reconstruído.' :
+      !state || state === 'checking' ? 'Conferindo o tópico Letter ' + context.letter + ' no grupo de backup…' :
+      state === 'found' ? 'Backup encontrado: ' + context.backup.topic.title + '. Ele será validado de novo, sem escrever, na revisão e antes de cada cópia.' :
+      state === 'rate_limited' && pause.waiting('backup') ? 'A conferência do backup está em pausa.' :
+      destinationMessage(state, context.letter);
+  }
+  get('backup-retry').hidden = !(context.includeBackup && !pause.waiting('backup') &&
+    !['found', 'checking', 'unconfigured'].includes(state ?? 'checking'));
 }
 
 get('backup-include').addEventListener('change', event => {
@@ -625,7 +834,7 @@ get('backup-retry').addEventListener('click', () => {
   if (rebuildSelection && !telegramWait()) void loadBackup(rebuildSelection);
 });
 
-function startRebuild(local, letter, confirmed) {
+function rebuildChoices(letter, confirmed) {
   const choices = new Map();
   for (const group of groups) {
     const item = group.key === confirmed?.group.key ?
@@ -636,81 +845,278 @@ function startRebuild(local, letter, confirmed) {
     if (!choices.has(id)) choices.set(id, []);
     choices.get(id).push(item);
   }
+  return choices;
+}
+
+// Checkboxes keep the current rule: every series starts selected; a series unchecked by the operator stays
+// unchecked when more Requests pages arrive. Metadata controls sit beside the label, never inside it.
+function renderRebuildOptions(context, unchecked) {
+  const focused = rebuildOptions.contains(document.activeElement) ? document.activeElement.closest('[data-series]')?.dataset.series : undefined;
+  rebuildOptions.replaceChildren(...[...context.choices].map(([id, works]) => {
+    const files = works.reduce((total, work) => total + work.posts.length, 0);
+    const row = Object.assign(document.createElement('div'), { className: 'library-series' });
+    row.dataset.series = id;
+    const label = node('label');
+    label.append(Object.assign(node('input'), { type: 'checkbox', value: id, checked: !unchecked.has(id) }),
+      node('span', works[0].title + ' · ' + files + (files === 1 ? ' arquivo' : ' arquivos')));
+    const meta = Object.assign(document.createElement('div'), { className: 'library-series-meta' });
+    row.append(label, meta);
+    return row;
+  }));
+  for (const id of context.choices.keys()) renderSeriesMeta(id);
+  if (focused) rebuildOptions.querySelector('[data-series="' + CSS.escape(focused) + '"] input')?.focus();
+}
+
+function startRebuild(local, letter, confirmed) {
+  seriesMetadata.clear();
+  const choices = rebuildChoices(letter, confirmed);
   const current = local.topic;
   const target = local.replacement.state === 'found' ? local.replacement.topic : undefined;
-  rebuildSelection = { channelId: local.channelId, current, target, letter, choices, automaticLookup: !confirmed, includeBackup: true };
+  rebuildSelection = { local, confirmed, channelId: local.channelId, current, target, letter, choices,
+    automaticLookup: !confirmed, includeBackup: true, requestsPages: 0 };
   get('backup-include').checked = true;
-  void loadBackup(rebuildSelection);
   get('rebuild-targets').textContent = [current?.title, source.title].filter(Boolean).join(' + ') + ' → ' +
     (target?.title ?? 'Letter ' + letter + ' [NEW]');
   get('rebuild-legend').textContent = 'Séries da letra ' + letter + ' em ' + source.title;
-  rebuildOptions.replaceChildren(...[...choices].map(([id, works]) => {
-    const files = works.reduce((total, work) => total + work.posts.length, 0);
-    const label = node('label');
-    label.append(Object.assign(node('input'), { type: 'checkbox', value: id, checked: true }),
-      node('span', works[0].title + ' · ' + files + (files === 1 ? ' arquivo' : ' arquivos')), node('small'));
-    return label;
-  }));
+  renderRebuildOptions(rebuildSelection, new Set());
   get('rebuild').hidden = false;
   updateRebuildCount();
+  // Read-only probes start by themselves, one at a time: the letter, the rest of Requests, then the backup.
   void loadCurrentLetter();
+  void continueRequests();
+  void loadBackup(rebuildSelection);
   void lookupSelectedSeries();
 }
 
-async function lookupSelectedSeries() {
-  rebuildLookup?.abort();
+// New Requests pages arrived while a letter is open: keep the letter read, the backup result, the choices
+// and the confirmed metadata, and only add what is new.
+function refreshRebuildSource(snapshot, result) {
   const context = rebuildSelection;
-  if (!context?.automaticLookup) return;
+  const unchecked = new Set([...rebuildOptions.querySelectorAll('input[type="checkbox"]:not(:checked)')].map(input => input.value));
+  source = snapshot;
+  groups = result.groups;
+  context.choices = rebuildChoices(context.letter, context.confirmed);
+  renderRebuildOptions(context, unchecked);
+  updateRebuildCount();
+  if (rebuildInventory) renderRebuildPlan(rebuildInventory);
+  void lookupSelectedSeries();
+}
+
+// Metadata per series. A ficha confirmed by the operator, filled by hand or identified safely is kept with its
+// source when the provider changes; pending series are looked up again with the chosen provider.
+const seriesMetadata = new Map();
+const settled = entry => entry && (entry.state === 'applied' || entry.by === 'user');
+
+function fichaText(candidate) {
+  return [candidate.titles?.[0], animeFormats[candidate.format], candidate.year,
+    candidate.episodes && candidate.episodes + ' episódios', candidate.studios?.[0]].filter(Boolean).join(' · ');
+}
+
+function provenance(entry) {
+  const name = entry.candidate.provider === 'manual' ? 'Preenchida à mão' : 'Ficha do ' + animeProviders[entry.provider];
+  return name + (entry.by === 'user' ? ' · confirmada por você' : entry.by === 'auto' ? ' · identificada pelo título' : '');
+}
+
+function manualSeriesForm(id, title) {
+  const details = Object.assign(document.createElement('details'), { className: 'library-series-manual' });
+  details.append(node('summary', 'Preencher à mão'));
+  const fields = document.createElement('div');
+  fields.className = 'library-form';
+  const format = Object.assign(document.createElement('select'), { name: 'format' });
+  format.append(new Option('Formato a conferir', ''), ...Object.entries(animeFormats).filter(([key]) => key !== 'MUSIC')
+    .map(([value, text]) => new Option(text, value)));
+  const field = (text, control) => { const label = node('label', text + ' '); label.append(control); return label; };
+  const year = Object.assign(document.createElement('input'), { name: 'year', type: 'number', min: 1900, max: 2200, inputMode: 'numeric' });
+  const episodes = Object.assign(document.createElement('input'), { name: 'episodes', type: 'number', min: 1, max: 9999, inputMode: 'numeric' });
+  const use = Object.assign(node('button', 'Usar na prévia'), { type: 'button', className: 'editorial-action' });
+  const note = node('p');
+  note.setAttribute('role', 'status');
+  use.addEventListener('click', () => {
+    const candidate = manualAnimeMetadata({ title, format: format.value, year: year.value, episodes: episodes.value });
+    if (!candidate) { note.textContent = 'Confira o ano e o número de episódios.'; return; }
+    seriesMetadata.set(id, { state: 'applied', provider: 'manual', candidate, by: 'manual' });
+    renderSeriesMeta(id);
+    if (rebuildInventory) renderRebuildPlan(rebuildInventory);
+    rebuildOptions.querySelector('[data-series="' + CSS.escape(id) + '"] input')?.focus();
+  });
+  fields.append(field('Formato', format), field('Ano', year), field('Episódios', episodes), use, note);
+  details.append(fields);
+  return details;
+}
+
+function renderSeriesMeta(id) {
+  const row = rebuildOptions.querySelector('[data-series="' + CSS.escape(id) + '"]');
+  const context = rebuildSelection;
+  if (!row || !context) return;
+  const meta = row.querySelector('.library-series-meta');
+  const entry = seriesMetadata.get(id);
+  const title = context.choices.get(id)?.[0].title ?? '';
+  const checked = row.querySelector('input[type="checkbox"]').checked;
+  meta.replaceChildren();
+  if (!checked && !settled(entry)) return;
+  if (!entry) {
+    if (!context.automaticLookup) meta.append(manualSeriesForm(id, title));
+    return;
+  }
+  if (entry.state === 'checking') {
+    meta.append(node('small', 'Consultando ' + animeProviders[entry.provider] + '…'));
+    return;
+  }
+  if (entry.state === 'applied') {
+    const line = node('small', fichaText(entry.candidate) + ' · ' + provenance(entry));
+    if (entry.candidate.url) line.append(' ', providerLink('Ver ficha', entry.candidate.url));
+    meta.append(line);
+    if (entry.candidates?.length > 1) {
+      const change = Object.assign(node('button', 'Trocar edição'), { type: 'button', className: 'editorial-action' });
+      change.addEventListener('click', () => {
+        seriesMetadata.set(id, { ...entry, state: 'choose', candidate: undefined, by: undefined });
+        renderSeriesMeta(id);
+        if (rebuildInventory) renderRebuildPlan(rebuildInventory);
+        row.querySelector('select')?.focus();
+      });
+      meta.append(change);
+    }
+    return;
+  }
+  if (entry.state === 'choose') {
+    const label = node('label', 'Edição no ' + animeProviders[entry.provider] + ' ');
+    const choice = document.createElement('select');
+    choice.append(new Option('Escolha a edição dos arquivos…', ''),
+      ...entry.candidates.map((candidate, index) => new Option(fichaText(candidate), String(index))),
+      new Option('Nenhuma destas', 'none'));
+    choice.addEventListener('change', () => {
+      if (!choice.value) return;
+      if (choice.value === 'none') seriesMetadata.set(id, { ...entry, state: 'none', by: 'user' });
+      else seriesMetadata.set(id, { ...entry, state: 'applied', candidate: entry.candidates[Number(choice.value)], by: 'user' });
+      renderSeriesMeta(id);
+      if (rebuildInventory) renderRebuildPlan(rebuildInventory);
+      row.querySelector('input[type="checkbox"]').focus();
+    });
+    label.append(choice);
+    meta.append(node('small', context.choices.get(id).some(work => work.season > 1) ?
+      'Temporada a confirmar: escolha a edição que corresponde aos arquivos.' : 'Há mais de uma ficha possível.'), label);
+  } else if (entry.state === 'none') {
+    meta.append(node('small', entry.by === 'user' ? 'Sem ficha: você indicou que nenhuma corresponde.' :
+      'Sem ficha encontrada no ' + animeProviders[entry.provider] + '.'));
+  } else if (entry.state === 'error') {
+    meta.append(node('small', 'Ficha pendente: a consulta ao ' + animeProviders[entry.provider] + ' não respondeu.'));
+  } else if (entry.state === 'skipped') {
+    meta.append(node('small', 'O título não serve para a busca automática.'));
+  }
+  meta.append(manualSeriesForm(id, title));
+}
+
+function showLookupHelp(state, provider) {
+  const actions = get('rebuild-lookup-actions');
+  const buttons = [];
+  const button = (text, action) => {
+    const item = Object.assign(node('button', text), { type: 'button', className: 'editorial-action' });
+    item.addEventListener('click', action);
+    buttons.push(item);
+  };
+  if (provider === 'anilist' && providerFallback.has(state)) button('Usar MyAnimeList', () => saveAnimeProvider('mal'));
+  if (state === 'provider_unconfigured') button('Configurar MyAnimeList', openMalSettings);
+  if (provider === 'mal' && providerFallback.has(state)) button('Voltar ao AniList', () => saveAnimeProvider('anilist'));
+  if (retryableLookup.has(state) && state !== 'rate_limited') button('Consultar de novo', () => void lookupSelectedSeries(true));
+  actions.replaceChildren(...buttons);
+}
+
+function openMalSettings() {
+  const settings = root.querySelector('#mal-settings');
+  if (!settings) return;
+  settings.open = true;
+  settings.scrollIntoView({ block: 'center' });
+  root.querySelector('#mal-client-id')?.focus();
+}
+
+async function lookupSelectedSeries(retry = false) {
+  rebuildLookup?.abort();
+  rebuildLookup = undefined;
+  const context = rebuildSelection;
+  if (!context) return;
+  for (const id of context.choices.keys()) renderSeriesMeta(id);
+  if (!context.automaticLookup) return;
   const request = new AbortController();
   rebuildLookup = request;
   const feedback = get('rebuild-lookup');
   const provider = currentProvider();
-  const inputs = [...rebuildOptions.querySelectorAll('input:checked')];
   feedback.textContent = '';
-  for (const input of rebuildOptions.querySelectorAll('input:not(:checked)')) input.parentElement.querySelector('small').replaceChildren();
-  for (const input of inputs) {
-    const title = context.choices.get(input.value)[0].title;
-    const tag = input.parentElement.querySelector('small');
-    if (title.length < 2 || title.length > 120 || /https?:\/\/|[\r\n]|\.(?:mkv|mp4|zip)$/iu.test(title)) continue;
+  get('rebuild-lookup-actions').replaceChildren();
+  let changed = false;
+  for (const input of [...rebuildOptions.querySelectorAll('input[type="checkbox"]:checked')]) {
+    const id = input.value;
+    const entry = seriesMetadata.get(id);
+    if (settled(entry) || (entry?.provider === provider && entry.state !== 'error' && !(retry && entry.state === 'none'))) continue;
+    const works = context.choices.get(id);
+    const title = works[0].title;
+    if (title.length < 2 || title.length > 120 || /https?:\/\/|[\r\n]|\.(?:mkv|mp4|zip)$/iu.test(title)) {
+      seriesMetadata.set(id, { state: 'skipped', provider });
+      renderSeriesMeta(id);
+      continue;
+    }
     const wait = Math.ceil(((retryAt.get(provider) ?? 0) - Date.now()) / 1000);
     if (wait > 0) {
       feedback.textContent = lookupMessage({ state: 'rate_limited', retryAfter: wait }, provider);
+      showLookupHelp('rate_limited', provider);
       break;
     }
     const key = JSON.stringify([provider, titleKey(title)]);
     let result = letterMetadata.get(key);
     if (!result) {
-      tag.textContent = 'Consultando ' + animeProviders[provider] + '…';
+      seriesMetadata.set(id, { state: 'checking', provider });
+      renderSeriesMeta(id);
       try { result = await lookupAnime(root.dataset.animeMetadataEndpoint, title, request.signal, provider); }
       catch { if (request.signal.aborted) return; result = { state: 'network' }; }
-      if (request.signal.aborted) return;
+      if (request.signal.aborted || rebuildSelection !== context) return;
       if (result.state === 'candidates') letterMetadata.set(key, result);
     }
     if (result.state !== 'candidates') {
-      tag.replaceChildren();
+      // A provider failure stops the batch: the confirmed fichas and the rest of the selection stay as they are.
+      seriesMetadata.set(id, { state: 'error', provider, error: result.state });
+      renderSeriesMeta(id);
       if (result.retryAfter) retryAt.set(provider, Date.now() + result.retryAfter * 1000);
       feedback.textContent = lookupMessage(result, provider) ?? 'Não foi possível consultar os metadados.';
+      showLookupHelp(result.state, provider);
       break;
     }
     const matches = result.candidates.filter(candidate =>
       candidate.titles?.some(value => titleKey(value) === titleKey(title)));
-    tag.replaceChildren();
-    if (matches.length === 1 && !context.choices.get(input.value).some(work => work.season > 1)) {
-      const match = matches[0];
-      tag.textContent = [animeFormats[match.format], match.year, match.episodes && match.episodes + ' episódios',
-        match.studios?.[0], match.genres?.slice(0, 2).join(', ')].filter(Boolean).join(' · ');
-      if (match.url) tag.append(' ', providerLink(animeProviders[provider], match.url));
-    } else {
-      tag.textContent = result.candidates.length ? 'Confira a edição na busca por obra.' : 'Sem ficha encontrada.';
-    }
+    const seasonal = works.some(work => work.season > 1);
+    seriesMetadata.set(id, matches.length === 1 && !seasonal ?
+      { state: 'applied', provider, candidate: matches[0], candidates: result.candidates, by: 'auto' } :
+      result.candidates.length ? { state: 'choose', provider, candidates: result.candidates } : { state: 'none', provider });
+    changed = true;
+    renderSeriesMeta(id);
   }
   if (rebuildLookup === request) rebuildLookup = undefined;
+  if (changed && rebuildInventory) renderRebuildPlan(rebuildInventory);
+}
+
+onAnimeProviderChange(value => {
+  for (const id of ['provider', 'rebuild-provider']) get(id).value = value;
+  updateSearchButton();
+  if (rebuildSelection) void lookupSelectedSeries();
+});
+get('rebuild-provider').addEventListener('change', event => saveAnimeProvider(event.target.value));
+root.addEventListener('rhea:mal-client-ready', () => {
+  if (rebuildSelection && currentProvider() === 'mal') void lookupSelectedSeries(true);
+});
+
+function seriesId(item) {
+  return titleKey(item.title, { foldDiacritics: false });
+}
+
+// A ficha with fewer episodes than the files' numbering points to another edition or season.
+function fichaMismatch(work) {
+  const entry = seriesMetadata.get(seriesId(work));
+  const episodes = entry?.state === 'applied' ? entry.candidate.episodes : undefined;
+  if (!episodes || rebuildSelection.choices.get(seriesId(work))?.length !== 1) return false;
+  return Math.max(0, ...work.posts.map(post => post.episode ?? 0)) > episodes;
 }
 
 function renderRebuildPlan({ posts, complete }) {
   publication.clear();
   clearPosition();
-  pendingSlots = undefined;
   const selection = rebuildSelection;
   const intakeWorks = selectedWorks();
   const count = intakeWorks.reduce((total, item) => total + item.posts.length, 0);
@@ -718,27 +1124,34 @@ function renderRebuildPlan({ posts, complete }) {
     reference: source.reference, complete: complete && source.complete });
   const { checks, insertion } = plan;
   const backupIssue = backupBlocker(selection);
+  const mismatch = intakeWorks.filter(fichaMismatch).map(work => work.title);
+  const partial = !complete ? 'Prévia parcial: a leitura de ' + (selection.current?.title ?? 'a letra atual') + ' ainda não terminou.' :
+    !source.complete ? 'Prévia parcial: ainda há páginas de ' + source.title + ' para ler.' : '';
   const blocker = !intakeWorks.length ? 'Marque as séries de Requests que deseja acrescentar.' :
     !selection.current || !selection.target ? 'Para copiar, confira o tópico atual e crie um tópico [NEW] vazio para esta letra.' :
+    partial ? partial + ' A publicação fica disponível quando a leitura terminar.' :
     backupIssue ? backupIssue :
-    checks.incomplete ? 'Termine a leitura dos dois tópicos antes de publicar.' :
     posts.length + count > rebuildLimit ? 'A letra combinada passa de ' + rebuildLimit + ' publicações, o limite do piloto. Veja os limites abaixo.' :
       count > rebuildIntakeLimit ? 'Selecione até ' + rebuildIntakeLimit + ' arquivos de Requests nesta reconstrução.' :
     checks.protectedGroups || posts.some(post => post.protected) ? 'Há publicações protegidas pelo Telegram.' :
+    mismatch.length ? 'Confira a edição de ' + mismatch.join(', ') + ': a ficha tem menos episódios que a numeração dos arquivos.' :
     intakeWorks.some(item => item.duplicate || item.missingEpisode || item.albumReview || item.countMismatch || item.editionReview) ?
       'Confira a numeração, a edição e os álbuns das obras de Requests.' : '';
-  get('rebuild-status').textContent = blocker || ({
-    ready: 'Pronto para revisar: a RHEA calculou a posição pela ordem alfabética.',
-    suggest: 'A RHEA sugeriu uma posição. Confira o card abaixo e confirme.',
-    review: intakeWorks.length > 1 ? 'Não foi possível calcular as posições. Revise uma obra por vez.' :
-      'Não foi possível calcular a posição. Escolha onde a obra entra.',
-  })[insertion.state];
+  const placed = insertion.slots?.reduce((total, slot) => total + slot.works.length, 0) ?? 0;
+  say('rebuild-status', blocker || (insertion.state === 'ready' ?
+    'Prévia completa: a RHEA posicionou ' + (placed === 1 ? 'a série' : 'as ' + placed + ' séries') +
+      ' pela ordem alfabética. Revise a publicação abaixo.' :
+    insertion.reasons.includes('same_title') ? 'Uma série marcada já está na letra atual. Veja a posição abaixo.' :
+      'Não foi possível calcular a posição. Escolha onde a obra entra.'));
+  const pending = intakeWorks.filter(work => !settled(seriesMetadata.get(seriesId(work)))).length;
   const chips = [
+    partial && 'Prévia parcial',
     plan.groups.length + (plan.groups.length === 1 ? ' bloco de obra' : ' blocos de obras'),
     checks.ambiguousGroups > 0 && checks.ambiguousGroups + ' a conferir',
     checks.otherPosts > 0 && checks.otherPosts + ' capas e notas mantidas na ordem atual',
     checks.unassigned > 0 && checks.unassigned + ' arquivos sem obra mantidos na ordem atual',
     checks.protectedGroups > 0 && checks.protectedGroups + ' com conteúdo protegido',
+    pending > 0 && pending + (pending === 1 ? ' ficha pendente' : ' fichas pendentes'),
   ].filter(Boolean).map(text => node('li', text));
   get('rebuild-summary').replaceChildren(...chips);
   get('rebuild-summary').hidden = false;
@@ -754,16 +1167,21 @@ function renderRebuildPlan({ posts, complete }) {
     const details = document.createElement('details');
     const episodes = document.createElement('ol');
     episodes.append(...list(item.posts));
+    const entry = item.origin === 'intake' ? seriesMetadata.get(seriesId(item)) : undefined;
     details.append(node('summary', [
       item.title, item.season === undefined ? '' : 'Temporada ' + item.season,
       item.posts.length ? item.posts.length + (item.posts.length === 1 ? ' arquivo' : ' arquivos') : 'Título da capa',
       item.origin === 'current' ? selection.current.title : source.title,
     ].filter(Boolean).join(' · ')), episodes);
     row.append(details);
+    if (item.origin === 'intake') {
+      row.append(node('small', entry?.state === 'applied' ? fichaText(entry.candidate) + ' · ' + provenance(entry) :
+        entry?.state === 'choose' ? 'Ficha pendente: escolha a edição na lista de séries.' : 'Sem ficha aplicada.'));
+    }
     return row;
   }));
   rebuildPosts = [...posts].sort((a, b) => a.id - b.id);
-  if (blocker) return;
+  if (blocker && !insertion.reasons?.includes('same_title')) return;
   if (intakeWorks.length === 1) {
     const choices = letterInsertionOptions(rebuildPosts, plan.groups);
     const byWork = document.createElement('optgroup');
@@ -777,16 +1195,15 @@ function renderRebuildPlan({ posts, complete }) {
       new Option('No fim do tópico', 'end'), ...[byWork, byPost].filter(option => option.children.length));
   }
   if (insertion.state === 'review') {
-    showPosition(undefined, 'review', insertion.reasons);
+    showPosition(undefined, 'review', insertion.reasons, 0, insertion.duplicates);
     return;
   }
-  pendingSlots = insertion.slots;
   if (intakeWorks.length === 1) {
     const [slot] = insertion.slots;
     get('rebuild-anchor').value = slot.beforeId === null ? 'end' : String(slot.beforeId);
   }
   showPosition(insertion.slots, insertion.state, insertion.reasons, insertion.uncovered);
-  if (insertion.state === 'ready') prepareReconstruction(insertion.slots);
+  if (!blocker) prepareReconstruction(insertion.slots);
 }
 
 get('rebuild-adjust').addEventListener('click', () => {
@@ -801,10 +1218,12 @@ function refreshRebuildPicks() {
   void lookupSelectedSeries();
 }
 
-rebuildOptions.addEventListener('change', refreshRebuildPicks);
+rebuildOptions.addEventListener('change', event => {
+  if (event.target.type === 'checkbox') refreshRebuildPicks();
+});
 for (const [button, checked] of [['rebuild-select-all', true], ['rebuild-select-none', false]]) {
   get(button).addEventListener('click', () => {
-    for (const input of rebuildOptions.querySelectorAll('input')) input.checked = checked;
+    for (const input of rebuildOptions.querySelectorAll('input[type="checkbox"]')) input.checked = checked;
     refreshRebuildPicks();
   });
 }
@@ -1042,7 +1461,8 @@ get('fetch-link').addEventListener('click', () => {
     get('manual-status').textContent = 'Aguarde o limite temporário do AniList. O preenchimento manual já está disponível.';
     return;
   }
-  get('provider').value = 'anilist';
+  // An AniList link is an explicit choice of AniList: the single preference follows it.
+  saveAnimeProvider('anilist');
   get('manual-status').textContent = '';
   void runLookup('anilist', 'https://anilist.co/anime/' + id);
 });
@@ -1065,7 +1485,12 @@ get('manual').addEventListener('submit', event => {
 });
 select.addEventListener('change', selectGroup);
 title.addEventListener('input', clearChoice);
-get('provider').addEventListener('change', clearChoice);
+get('provider').addEventListener('change', event => {
+  // A change of source keeps an open letter review; it only resets the lookup by work.
+  if (!rebuildSelection) clearChoice();
+  saveAnimeProvider(event.target.value);
+});
+for (const id of ['provider', 'rebuild-provider']) get(id).value = animeProviderPreference();
 get('manual').elements.link.addEventListener('input', clearChoice);
 
 get('form').addEventListener('submit', event => {
@@ -1121,9 +1546,47 @@ const reset = () => {
   load(undefined);
   stopCooldown();
 };
+
+// Reading earlier pages refreshes the inventory without discarding the chosen work or title. An open letter
+// review keeps its reads, choices and fichas; only the new Requests files are added.
+function refreshSource(snapshot) {
+  if (rebuildSelection) {
+    const result = groupTopicDocuments(snapshot.posts, snapshot.reference);
+    const key = select.value;
+    refreshRebuildSource(snapshot, result);
+    select.replaceChildren(...groups.map(item => Object.assign(node('option', item.title +
+      (item.season !== undefined ? ' · Temporada ' + item.season : ' · Temporada a conferir')), { value: item.key })));
+    if ([...select.options].some(option => option.value === key)) select.value = key;
+    get('load-more').hidden = snapshot.complete;
+    describeSource(snapshot, result);
+    // Refresh the letter cards from the index already read; never read the topic list again for this.
+    if (discoveredIndex) void discoverLetters(false, discoveredIndex);
+    return;
+  }
+  const keep = { key: select.value, title: title.value };
+  load(snapshot, discoveredIndex);
+  if ([...select.options].some(option => option.value === keep.key)) {
+    select.value = keep.key;
+    selectGroup();
+    title.value = keep.title;
+    status.textContent = 'Inventário atualizado com ' + snapshot.posts.length +
+      (snapshot.posts.length === 1 ? ' publicação lida' : ' publicações lidas') +
+      (snapshot.complete ? '. O tópico está completo.' : '. Ainda há páginas anteriores.') + ' Busque ou confirme a obra novamente.';
+  }
+}
+
+get('load-more').addEventListener('click', () => {
+  const more = root.querySelector('#forum-more-posts');
+  if (more && !more.disabled) more.click();
+});
 root.addEventListener('rhea:telegram-hide', reset);
 root.addEventListener('rhea:forum-clear', reset);
-root.addEventListener('rhea:forum-inventory-change', () => { if (source) reset(); });
+root.addEventListener('rhea:forum-inventory-change', () => {
+  if (!source) return;
+  const snapshot = forumEnrichmentSnapshot();
+  if (snapshot && snapshot.topicId === source.topicId && snapshot.channelId === source.channelId) refreshSource(snapshot);
+  else reset();
+});
 let shown = root.dataset.telegramAutoload === 'true';
 root.addEventListener('rhea:telegram-show', () => { shown = true; publication.restore(); });
 root.addEventListener('rhea:telegram-hide', () => { shown = false; });
@@ -1131,3 +1594,4 @@ window.addEventListener('pagehide', reset);
 window.addEventListener('pageshow', event => { if (event.persisted && shown) publication.restore(); });
 reset();
 if (shown) publication.restore();
+
